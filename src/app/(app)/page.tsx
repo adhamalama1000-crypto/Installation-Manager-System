@@ -132,7 +132,7 @@ export default async function DashboardPage() {
             <ul className="divide-y divide-line">
               {summary.attention.map((a) => (
                 <li key={a.id}>
-                  <Link href={`/appointments/${a.id}`} className="flex items-start gap-3 px-5 py-3 hover:bg-surface-muted">
+                  <Link href={`/appointments/${a.id}`} prefetch={false} className="flex items-start gap-3 px-5 py-3 hover:bg-surface-muted">
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warning" aria-hidden />
                     <div className="min-w-0">
                       <p className="truncate text-sm font-medium text-fg">

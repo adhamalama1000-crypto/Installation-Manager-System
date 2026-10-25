@@ -131,7 +131,7 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
                   {result.rows.map((a) => (
                     <tr key={a.id} className="group relative hover:bg-surface-muted/60">
                       <td className="whitespace-nowrap px-4 py-3">
-                        <Link href={`/appointments/${a.id}`} className="font-medium text-brand-text after:absolute after:inset-0 hover:underline">
+                        <Link href={`/appointments/${a.id}`} prefetch={false} className="font-medium text-brand-text after:absolute after:inset-0 hover:underline">
                           {a.code}
                         </Link>
                       </td>

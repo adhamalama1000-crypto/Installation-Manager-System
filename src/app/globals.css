@@ -134,6 +134,23 @@ dialog::backdrop {
   background: rgb(10 10 10 / 0.45);
 }
 
+/* Top progress bar while a page navigation is in flight (see NavigationProgress). */
+@keyframes nav-progress {
+  0% {
+    transform: scaleX(0);
+  }
+  20% {
+    transform: scaleX(0.4);
+  }
+  100% {
+    transform: scaleX(0.9);
+  }
+}
+.nav-progress {
+  transform-origin: left;
+  animation: nav-progress 8s cubic-bezier(0.1, 0.7, 0.3, 1) forwards;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

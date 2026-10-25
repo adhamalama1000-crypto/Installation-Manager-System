@@ -71,7 +71,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
                   </div>
                   <p className="mt-1.5 text-sm text-fg">
                     {e.appointmentId ? (
-                      <Link href={`/appointments/${e.appointmentId}`} className="hover:text-brand-text hover:underline">{e.summary}</Link>
+                      <Link href={`/appointments/${e.appointmentId}`} prefetch={false} className="hover:text-brand-text hover:underline">{e.summary}</Link>
                     ) : (
                       e.summary
                     )}

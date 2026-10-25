@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink, Loader2, MapPin, Plus, RefreshCw, Users, X } from "lucide-react";
-import { api, ApiError } from "@/lib/api-client";
+import { apiIfChanged, ApiError } from "@/lib/api-client";
 import { chipColors, colorOrFallback } from "@/lib/colors";
 import { productLine, timeRange } from "@/lib/format";
 import {
@@ -70,22 +70,43 @@ function daysBetween(from: string, to: string) {
   return out;
 }
 
-/** Events touching a given local day, with start/end minutes clipped to that day. */
-function eventsForDay(events: AppointmentListItem[], day: string, tz: string) {
-  return events
-    .filter((e) => dateKey(e.startsAt, tz) <= day && dateKey(new Date(new Date(e.endsAt).getTime() - 1), tz) >= day)
-    .map((e) => {
-      const startDay = dateKey(e.startsAt, tz);
-      const endDay = dateKey(new Date(new Date(e.endsAt).getTime() - 1), tz);
-      const start = startDay < day ? 0 : minutesOfDay(e.startsAt, tz);
-      const end = endDay > day ? 1440 : minutesOfDay(e.endsAt, tz) || 1440;
-      return { e, start, end: Math.max(end, start + 15) };
-    })
-    .sort((a, b) => a.start - b.start || b.end - a.end);
+/** An event with its local day keys, minutes and time label worked out once (not per render/day). */
+type CalEvent = { a: AppointmentListItem; startKey: string; endKey: string; startMin: number; endMin: number; time: string };
+/** An event on one local day, with start/end minutes clipped to that day. */
+type DayItem = { e: AppointmentListItem; time: string; start: number; end: number };
+
+function prepareEvents(events: AppointmentListItem[], tz: string): CalEvent[] {
+  return events.map((a) => ({
+    a,
+    startKey: dateKey(a.startsAt, tz),
+    endKey: dateKey(new Date(new Date(a.endsAt).getTime() - 1), tz),
+    startMin: minutesOfDay(a.startsAt, tz),
+    endMin: minutesOfDay(a.endsAt, tz),
+    time: timeRange(a.startsAt, a.endsAt, tz),
+  }));
+}
+
+/** Events touching each day of `days`, sorted by start (longer first on ties). */
+function eventsByDay(events: CalEvent[], days: string[]): Map<string, DayItem[]> {
+  const out = new Map<string, DayItem[]>(days.map((d) => [d, []]));
+  const first = days[0];
+  const last = days[days.length - 1];
+  if (!first || !last) return out;
+  for (const ev of events) {
+    if (ev.endKey < first || ev.startKey > last) continue;
+    const to = ev.endKey > last ? last : ev.endKey;
+    for (let d = ev.startKey < first ? first : ev.startKey; d <= to; d = addDaysToKey(d, 1)) {
+      const start = ev.startKey < d ? 0 : ev.startMin;
+      const end = ev.endKey > d ? 1440 : ev.endMin || 1440;
+      out.get(d)?.push({ e: ev.a, time: ev.time, start, end: Math.max(end, start + 15) });
+    }
+  }
+  for (const list of out.values()) list.sort((a, b) => a.start - b.start || b.end - a.end);
+  return out;
 }
 
 /** Side-by-side columns for overlapping events (classic calendar layout). */
-function layoutDay(items: ReturnType<typeof eventsForDay>) {
+function layoutDay(items: DayItem[]) {
   const out: { item: (typeof items)[number]; col: number; cols: number }[] = [];
   let cluster: { item: (typeof items)[number]; col: number }[] = [];
   let clusterEnd = -1;
@@ -138,6 +159,8 @@ export function CalendarView({
   const [filters, setFilters] = useState(initialFilters);
   const [events, setEvents] = useState<AppointmentListItem[]>([]);
   const [loading, setLoading] = useState(true);
+  // Redrawing a busy month or agenda is heavy; doing it in a transition keeps the page responsive.
+  const [rendering, startRender] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AppointmentListItem | null>(null);
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
@@ -158,14 +181,21 @@ export function CalendarView({
     window.history.replaceState(null, "", `?${p.toString()}`);
   }, [view, date, filters]);
 
+  // Version of the events on screen, so the 30-second poll only downloads and re-renders changes.
+  const loaded = useRef<{ url: string; etag: string | null }>({ url: "", etag: null });
+
   const load = useCallback(
     async (signal?: AbortSignal, quiet = false) => {
       if (!quiet) setLoading(true);
       try {
         const p = new URLSearchParams({ from: range.from, to: range.to });
         for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v);
-        const res = await api<{ events: AppointmentListItem[] }>(`/api/calendar?${p.toString()}`, { signal });
-        setEvents(res.events);
+        const url = `/api/calendar?${p.toString()}`;
+        const known = quiet && loaded.current.url === url ? loaded.current.etag : null;
+        const res = await apiIfChanged<{ events: AppointmentListItem[] }>(url, known, signal);
+        const fresh = res.data?.events;
+        if (fresh) startTransition(() => setEvents(fresh));
+        loaded.current = { url, etag: res.etag };
         setError(null);
         setLastUpdated(new Date());
       } catch (e) {
@@ -202,23 +232,31 @@ export function CalendarView({
   }, [load]);
 
   const today = todayKey(tz, now);
-  const days = daysBetween(range.from, range.to);
+  const days = useMemo(() => daysBetween(range.from, range.to), [range.from, range.to]);
+  const prepared = useMemo(() => prepareEvents(events, tz), [events, tz]);
+  const byDay = useMemo(() => eventsByDay(prepared, days), [prepared, days]);
 
   const visibleHours = useMemo(() => {
     let start = dayStartHour;
     let end = dayEndHour;
     if (view === "day" || view === "week") {
-      for (const d of days) {
-        for (const it of eventsForDay(events, d, tz)) {
+      for (const list of byDay.values()) {
+        for (const it of list) {
           start = Math.min(start, Math.floor(it.start / 60));
           end = Math.max(end, Math.ceil(it.end / 60));
         }
       }
     }
     return { start, end: Math.min(24, Math.max(end, start + 1)) };
-  }, [events, days, tz, view, dayStartHour, dayEndHour]);
+  }, [byDay, view, dayStartHour, dayEndHour]);
 
   const setFilter = (k: keyof typeof filters, v: string) => setFilters((f) => ({ ...f, [k]: v || undefined }));
+  const openDay = useCallback((d: string) => {
+    startTransition(() => {
+      setDate(d);
+      setView("day");
+    });
+  }, []);
 
   return (
     <div className="space-y-4">
@@ -226,20 +264,20 @@ export function CalendarView({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-line bg-surface shadow-card">
-            <button type="button" onClick={() => setDate(shift(view, date, -1))} className="rounded-l-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Previous">
+            <button type="button" onClick={() => startRender(() => setDate(shift(view, date, -1)))} className="rounded-l-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Previous">
               <ChevronLeft className="h-4 w-4" />
             </button>
-            <button type="button" onClick={() => setDate(today)} className="border-x border-line px-3 text-sm font-medium hover:bg-surface-muted">
+            <button type="button" onClick={() => startRender(() => setDate(today))} className="border-x border-line px-3 text-sm font-medium hover:bg-surface-muted">
               Today
             </button>
-            <button type="button" onClick={() => setDate(shift(view, date, 1))} className="rounded-r-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Next">
+            <button type="button" onClick={() => startRender(() => setDate(shift(view, date, 1)))} className="rounded-r-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Next">
               <ChevronRight className="h-4 w-4" />
             </button>
           </div>
           <h2 className="text-lg font-semibold text-fg" aria-live="polite">
             {titleFor(view, date, weekStartsOn)}
           </h2>
-          {loading && <Loader2 className="h-4 w-4 animate-spin text-fg-subtle" aria-label="Loading" />}
+          {(loading || rendering) && <Loader2 className="h-4 w-4 animate-spin text-fg-subtle" aria-label="Loading" />}
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <div className="inline-flex rounded-lg border border-line bg-surface-muted p-0.5" role="tablist" aria-label="Calendar view">
@@ -249,7 +287,7 @@ export function CalendarView({
                 type="button"
                 role="tab"
                 aria-selected={view === v.id}
-                onClick={() => setView(v.id)}
+                onClick={() => startRender(() => setView(v.id))}
                 className={cn(
                   "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
                   view === v.id ? "bg-surface text-brand-text shadow-card" : "text-fg-muted hover:text-fg",
@@ -336,12 +374,12 @@ export function CalendarView({
 
       <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
         {view === "month" && (
-          <MonthGrid days={days} month={date.slice(0, 7)} today={today} events={events} tz={tz} onSelect={setSelected} onDay={(d) => { setDate(d); setView("day"); }} canCreate={canCreate} />
+          <MonthGrid days={days} month={date.slice(0, 7)} today={today} byDay={byDay} onSelect={setSelected} onDay={openDay} canCreate={canCreate} />
         )}
         {(view === "week" || view === "day") && (
-          <TimeGrid days={days} today={today} events={events} tz={tz} hours={visibleHours} detailed={view === "day"} onSelect={setSelected} now={now} canCreate={canCreate} onDay={(d) => { setDate(d); setView("day"); }} />
+          <TimeGrid days={days} today={today} byDay={byDay} tz={tz} hours={visibleHours} detailed={view === "day"} onSelect={setSelected} now={now} canCreate={canCreate} onDay={openDay} />
         )}
-        {view === "agenda" && <Agenda days={days} today={today} events={events} tz={tz} onSelect={setSelected} />}
+        {view === "agenda" && <Agenda days={days} today={today} events={prepared} onSelect={setSelected} />}
       </div>
       <p className="text-right text-xs text-fg-subtle">
         Times shown in {tz}. {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}; refreshes automatically.` : ""}
@@ -352,7 +390,7 @@ export function CalendarView({
   );
 }
 
-function EventChip({ a, tz, onSelect, compact }: { a: AppointmentListItem; tz: string; onSelect: (a: AppointmentListItem) => void; compact?: boolean }) {
+function EventChip({ a, time, onSelect, compact }: { a: AppointmentListItem; time: string; onSelect: (a: AppointmentListItem) => void; compact?: boolean }) {
   const cancelled = a.status.kind === "CANCELLED";
   return (
     <button
@@ -360,20 +398,20 @@ function EventChip({ a, tz, onSelect, compact }: { a: AppointmentListItem; tz: s
       onClick={() => onSelect(a)}
       className={cn("block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium leading-4", cancelled && "line-through opacity-50")}
       style={chipColors(a.createdBy.color)}
-      title={`${timeRange(a.startsAt, a.endsAt, tz)} ${a.customerName} (${a.status.name})`}
+      title={`${time} ${a.customerName} (${a.status.name})`}
     >
-      {!compact && <span className="tabular-nums opacity-90">{timeRange(a.startsAt, a.endsAt, tz).split("–")[0]} </span>}
+      {!compact && <span className="tabular-nums opacity-90">{time.split("–")[0]} </span>}
       {a.customerName}
     </button>
   );
 }
 
-function MonthGrid({
+// Memoised: the grids only re-render when their own inputs change (not on every poll or click).
+const MonthGrid = memo(function MonthGrid({
   days,
   month,
   today,
-  events,
-  tz,
+  byDay,
   onSelect,
   onDay,
   canCreate,
@@ -381,17 +419,11 @@ function MonthGrid({
   days: string[];
   month: string;
   today: string;
-  events: AppointmentListItem[];
-  tz: string;
+  byDay: Map<string, DayItem[]>;
   onSelect: (a: AppointmentListItem) => void;
   onDay: (d: string) => void;
   canCreate: boolean;
 }) {
-  const byDay = useMemo(() => {
-    const m = new Map<string, AppointmentListItem[]>();
-    for (const d of days) m.set(d, eventsForDay(events, d, tz).map((x) => x.e));
-    return m;
-  }, [days, events, tz]);
   return (
     <div>
       <div className="grid grid-cols-7 border-b border-line bg-surface-muted/60">
@@ -422,7 +454,7 @@ function MonthGrid({
                   {Number(d.slice(8))}
                 </button>
                 {canCreate && (
-                  <Link href={`/appointments/new?date=${d}`} className="rounded p-0.5 text-fg-subtle opacity-0 hover:bg-surface-hover hover:text-fg group-hover:opacity-100 focus:opacity-100" aria-label={`New appointment on ${d}`}>
+                  <Link href={`/appointments/new?date=${d}`} prefetch={false} className="rounded p-0.5 text-fg-subtle opacity-0 hover:bg-surface-hover hover:text-fg group-hover:opacity-100 focus:opacity-100" aria-label={`New appointment on ${d}`}>
                     <Plus className="h-3.5 w-3.5" />
                   </Link>
                 )}
@@ -430,13 +462,13 @@ function MonthGrid({
               <div className="space-y-0.5">
                 {/* On phones show coloured dots instead of text chips. */}
                 <div className="flex flex-wrap gap-0.5 sm:hidden">
-                  {list.map((a) => (
-                    <button key={a.id} type="button" onClick={() => onSelect(a)} className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-label={`${a.customerName} ${timeRange(a.startsAt, a.endsAt, tz)}`} />
+                  {list.map(({ e: a, time }) => (
+                    <button key={a.id} type="button" onClick={() => onSelect(a)} className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-label={`${a.customerName} ${time}`} />
                   ))}
                 </div>
                 <div className="hidden space-y-0.5 sm:block">
-                  {list.slice(0, max).map((a) => (
-                    <EventChip key={a.id} a={a} tz={tz} onSelect={onSelect} />
+                  {list.slice(0, max).map(({ e: a, time }) => (
+                    <EventChip key={a.id} a={a} time={time} onSelect={onSelect} />
                   ))}
                   {list.length > max && (
                     <button type="button" onClick={() => onDay(d)} className="px-1.5 text-[11px] font-medium text-fg-muted hover:text-fg">
@@ -451,12 +483,12 @@ function MonthGrid({
       </div>
     </div>
   );
-}
+});
 
-function TimeGrid({
+const TimeGrid = memo(function TimeGrid({
   days,
   today,
-  events,
+  byDay,
   tz,
   hours,
   detailed,
@@ -467,7 +499,7 @@ function TimeGrid({
 }: {
   days: string[];
   today: string;
-  events: AppointmentListItem[];
+  byDay: Map<string, DayItem[]>;
   tz: string;
   hours: { start: number; end: number };
   detailed: boolean;
@@ -502,7 +534,7 @@ function TimeGrid({
             ))}
           </div>
           {days.map((d) => {
-            const items = layoutDay(eventsForDay(events, d, tz));
+            const items = layoutDay(byDay.get(d) ?? []);
             return (
               <div key={d} className={cn("relative border-l border-line", d === today && "bg-brand-soft/30")} style={{ height }}>
                 {hourList.map((h, i) => (
@@ -510,6 +542,7 @@ function TimeGrid({
                     {canCreate && (
                       <Link
                         href={`/appointments/new?date=${d}&time=${String(h).padStart(2, "0")}:00`}
+                        prefetch={false}
                         className="block opacity-0 hover:bg-surface-muted/60 hover:opacity-100 focus:opacity-100"
                         style={{ height: HOUR_PX }}
                         aria-label={`New appointment ${d} ${h}:00`}
@@ -520,6 +553,7 @@ function TimeGrid({
                 ))}
                 {items.map(({ item, col, cols }) => {
                   const a = item.e;
+                  const time = item.time;
                   const top = ((item.start - hours.start * 60) / 60) * HOUR_PX;
                   const h = Math.max(((item.end - item.start) / 60) * HOUR_PX - 2, 20);
                   const cancelled = a.status.kind === "CANCELLED";
@@ -539,10 +573,10 @@ function TimeGrid({
                         width: `calc(${100 / cols}% - 4px)`,
                         ...chipColors(a.createdBy.color),
                       }}
-                      title={`${timeRange(a.startsAt, a.endsAt, tz)} · ${a.customerName} · ${a.status.name}`}
+                      title={`${time} · ${a.customerName} · ${a.status.name}`}
                     >
                       <span className={cn("block font-semibold leading-tight", cancelled && "line-through")}>{a.customerName}</span>
-                      <span className="block tabular-nums leading-tight opacity-90">{timeRange(a.startsAt, a.endsAt, tz)}</span>
+                      <span className="block tabular-nums leading-tight opacity-90">{time}</span>
                       {h > 52 && <span className="block truncate leading-tight opacity-90">{productLine(a)}</span>}
                       {detailed && h > 70 && (
                         <span className="mt-0.5 block truncate leading-tight opacity-90">
@@ -567,38 +601,44 @@ function TimeGrid({
       </div>
     </div>
   );
-}
+});
 
-function Agenda({
+const Agenda = memo(function Agenda({
   days,
   today,
   events,
-  tz,
   onSelect,
 }: {
   days: string[];
   today: string;
-  events: AppointmentListItem[];
-  tz: string;
+  events: CalEvent[];
   onSelect: (a: AppointmentListItem) => void;
 }) {
-  const groups = days.map((d) => ({ d, list: events.filter((e) => dateKey(e.startsAt, tz) === d) })).filter((g) => g.list.length);
+  const groups = useMemo(() => {
+    const byStart = new Map<string, CalEvent[]>();
+    for (const ev of events) {
+      const list = byStart.get(ev.startKey);
+      if (list) list.push(ev);
+      else byStart.set(ev.startKey, [ev]);
+    }
+    return days.map((d) => ({ d, list: byStart.get(d) ?? [] })).filter((g) => g.list.length);
+  }, [days, events]);
   if (!groups.length) return <p className="px-6 py-14 text-center text-sm text-fg-muted">No appointments in this period.</p>;
   return (
     <div className="divide-y divide-line">
       {groups.map(({ d, list }) => (
-        <section key={d} className="px-4 py-3 sm:px-5">
+        <section key={d} className="px-4 py-3 [contain-intrinsic-size:auto_480px] [content-visibility:auto] sm:px-5">
           <h3 className={cn("mb-2 text-sm font-semibold", d === today ? "text-brand-text" : "text-fg")}>
             {formatKey(d, { weekday: "long", day: "numeric", month: "long" })}
             {d === today && " · Today"}
             <span className="ml-2 font-normal text-fg-subtle">{list.length}</span>
           </h3>
           <ul className="space-y-2">
-            {list.map((a) => (
+            {list.map(({ a, time }) => (
               <li key={a.id}>
                 <button type="button" onClick={() => onSelect(a)} className="flex w-full gap-3 rounded-lg border border-line p-3 text-left hover:bg-surface-muted">
                   <span className="w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-hidden />
-                  <span className="w-24 shrink-0 text-sm font-semibold tabular-nums">{timeRange(a.startsAt, a.endsAt, tz)}</span>
+                  <span className="w-24 shrink-0 text-sm font-semibold tabular-nums">{time}</span>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className={cn("font-medium", a.status.kind === "CANCELLED" && "line-through")}>{a.customerName}</span>
@@ -624,7 +664,7 @@ function Agenda({
       ))}
     </div>
   );
-}
+});
 
 function DetailsPanel({ a, tz, onClose }: { a: AppointmentListItem; tz: string; onClose: () => void }) {
   useEffect(() => {

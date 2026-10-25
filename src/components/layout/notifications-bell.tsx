@@ -98,7 +98,7 @@ export function NotificationsBell() {
               return (
                 <li key={n.id} className="border-b border-line last:border-0">
                   {n.appointmentId ? (
-                    <Link href={`/appointments/${n.appointmentId}`} className="block hover:bg-surface-muted" onClick={() => setOpen(false)}>
+                    <Link href={`/appointments/${n.appointmentId}`} prefetch={false} className="block hover:bg-surface-muted" onClick={() => setOpen(false)}>
                       {body}
                     </Link>
                   ) : (

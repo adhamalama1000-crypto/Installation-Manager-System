@@ -12,6 +12,7 @@ export function AgendaItem({ a, tz, showDate, className }: { a: AppointmentListI
   return (
     <Link
       href={`/appointments/${a.id}`}
+      prefetch={false}
       className={cn("group flex gap-3 rounded-lg border border-line bg-surface p-3 transition-colors hover:border-line-strong hover:bg-surface-muted", className)}
     >
       <span className="w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} title={`Sales: ${a.createdBy.name}`} aria-hidden />
