@@ -15,6 +15,7 @@ import {
   timeKey,
   zonedToUtc,
 } from "@/lib/time";
+import { safeNextPath } from "@/lib/safe-redirect";
 import { appointmentInputSchema, fieldErrorsFromZod, passwordSchema } from "@/lib/validation";
 
 const settings = { salesCanViewReports: true, technicianCanSeeContacts: true };
@@ -155,5 +156,14 @@ describe("codes and formatting", () => {
     expect(parseAppointmentCode("Ahmed")).toBeNull();
     expect(phoneDigits("+20 (100) 123-4567")).toBe("201001234567");
     expect(minutesLabel(150)).toBe("2 h 30 min");
+  });
+});
+
+describe("post-login redirect", () => {
+  it("only allows same-site relative paths", () => {
+    expect(safeNextPath("/calendar?view=week")).toBe("/calendar?view=week");
+    for (const bad of ["//evil.com", "/\\evil.com", "https://evil.com", "/api/users", "javascript:alert(1)", "/ok\u0000x", undefined]) {
+      expect(safeNextPath(bad as string | undefined)).toBe("/");
+    }
   });
 });

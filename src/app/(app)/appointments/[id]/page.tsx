@@ -102,7 +102,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
                       href={loc.link}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="flex w-full items-center justify-center gap-2 rounded-xl bg-brand-strong px-5 py-3.5 text-base font-semibold text-white shadow-card hover:bg-brand-stronger sm:w-auto sm:justify-start"
+                      className="hidden w-auto items-center gap-2 rounded-xl bg-brand-strong px-5 py-3.5 text-base font-semibold text-white shadow-card hover:bg-brand-stronger xl:inline-flex"
                     >
                       <Navigation className="h-5 w-5" /> Open Location
                       <ExternalLink className="h-4 w-4 opacity-80" />

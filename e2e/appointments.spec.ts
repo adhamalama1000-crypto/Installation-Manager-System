@@ -36,6 +36,15 @@ test.describe("Sales booking workflow", () => {
     await expect(page.getByText("Floor", { exact: true }).locator("..")).toContainText("4");
     await expect(page.getByText("Original Sales creator").locator("..")).toContainText("Sara Mahmoud");
 
+    // Reschedule through the edit form; the change is recorded in the history.
+    await page.getByRole("link", { name: "Edit" }).click();
+    await expect(page.getByLabel("Customer full name")).toHaveValue(name);
+    await page.getByLabel("Start time").fill("15:30");
+    await page.getByRole("button", { name: "Save changes" }).click();
+    await page.waitForURL(/\/appointments\/(?!new)[a-z0-9]+$/);
+    await expect(page.getByText(/^Rescheduled APT-\d{6} from .* to .*15:30/)).toBeVisible();
+    await expect(page.getByText("Original Sales creator").locator("..")).toContainText("Sara Mahmoud");
+
     // Cancel via the dialog; the appointment stays with status Cancelled.
     await page.getByRole("button", { name: "Cancel", exact: true }).click();
     await page.getByLabel("Reason").fill("Customer travelling");

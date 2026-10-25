@@ -1,0 +1,17 @@
+# Local PostgreSQL for development and tests:  docker compose up -d
+services:
+  db:
+    image: postgres:16
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ims
+      POSTGRES_PASSWORD: ims_dev_password
+      POSTGRES_DB: installation_manager
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro
+
+volumes:
+  pgdata:
