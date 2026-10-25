@@ -7,6 +7,7 @@ import { appointmentScope, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
 import { categoryLabel } from "./appointments";
+import { appointmentExportRows, appointmentFilterSql } from "./appointment-reads";
 
 export type ReportRange = { from: string; to: string };
 
@@ -138,19 +139,7 @@ export async function reportCsv(user: CurrentUser, type: ReportType, range: Repo
 
 async function appointmentsCsv(user: CurrentUser, range: ReportRange) {
   const tz = user.settings.timezone;
-  const { start, end } = dayRangeUtc(range.from, range.to, tz);
-  const rows = await prisma.appointment.findMany({
-    where: { AND: [appointmentScope(user), { startsAt: { gte: start, lt: end } }] },
-    include: {
-      customer: true,
-      location: true,
-      status: true,
-      createdBy: { select: { name: true } },
-      technicians: { include: { technician: { select: { name: true } } } },
-    },
-    orderBy: { startsAt: "asc" },
-    take: 20_000,
-  });
+  const rows = await appointmentExportRows(appointmentFilterSql(user, { from: range.from, to: range.to }), "asc");
   const contact = hasPermission(user, "customers.contact");
   const loc = hasPermission(user, "location.view");
   // Internal notes are never exported.
@@ -178,15 +167,15 @@ async function appointmentsCsv(user: CurrentUser, range: ReportRange) {
       fmt(a.startsAt, tz, "HH:mm"),
       fmt(a.endsAt, tz, "HH:mm"),
       a.durationMinutes,
-      a.status.name,
-      a.customer.name,
-      ...(contact ? [a.customer.phone, a.customer.secondaryPhone] : []),
-      ...(loc ? [a.location.area, a.location.streetAddress, a.location.building, a.location.apartment, a.location.floor, a.location.mapUrl] : []),
+      a.statusName,
+      a.customerName,
+      ...(contact ? [a.phone, a.secondaryPhone] : []),
+      ...(loc ? [a.area, a.streetAddress, a.building, a.apartment, a.floor, a.mapUrl] : []),
       categoryLabel(a),
       a.brand,
       a.model,
-      a.createdBy.name,
-      a.technicians.map((t) => t.technician.name).join("; "),
+      a.creatorName,
+      a.technicianNames ?? "",
     ]),
   ]);
 }

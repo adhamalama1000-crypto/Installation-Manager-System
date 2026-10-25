@@ -25,13 +25,14 @@ function telHref(phone: string) {
 export default async function AppointmentPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePagePermission("appointments.view");
   const { id } = await params;
-  const a = await loadOr404(() => getAppointment(user, id));
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [history, statuses] = await Promise.all([
-    canHistory ? getAppointmentHistory(user, id) : Promise.resolve(null),
-    a.canManage ? listStatuses() : Promise.resolve([]),
+  const [a, history, allStatuses] = await Promise.all([
+    loadOr404(() => getAppointment(user, id)),
+    canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
+    user.permissions.includes("appointments.manage") ? listStatuses() : Promise.resolve([]),
   ]);
+  const statuses = a.canManage ? allStatuses : [];
   const loc = a.location;
   const cancelled = a.status.kind === "CANCELLED";
   const salesColor = colorOrFallback(a.createdBy.color);

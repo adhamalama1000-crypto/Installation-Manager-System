@@ -26,6 +26,13 @@ import {
 import { diffValues, recordAudit } from "./audit";
 import { notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
+import {
+  appointmentFilterSql,
+  appointmentListRows,
+  appointmentOrderSql,
+  countAppointments,
+  escapeLike,
+} from "./appointment-reads";
 import { getSettings } from "./settings";
 
 const userRefSelect = { id: true, name: true, color: true, isActive: true } as const;
@@ -44,6 +51,9 @@ export const appointmentInclude = {
 
 type AppointmentFull = Prisma.AppointmentGetPayload<{ include: typeof appointmentInclude }>;
 
+/** What the DTO needs: the appointment, its relations and the assigned technicians. */
+type AppointmentView = Omit<AppointmentFull, "technicians"> & { technicians: Pick<AppointmentFull["technicians"][number], "technician">[] };
+
 const TX_OPTIONS = { timeout: 20_000, maxWait: 10_000 };
 
 // ---------------------------------------------------------------------------------------------
@@ -60,7 +70,7 @@ function decimalToNumber(v: Prisma.Decimal | null): number | null {
   return v === null ? null : v.toNumber();
 }
 
-export function toAppointmentDTO(a: AppointmentFull, user: CurrentUser): AppointmentDTO {
+export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): AppointmentDTO {
   const canContact = hasPermission(user, "customers.contact");
   const canLocation = hasPermission(user, "location.view");
   const canNotes = hasPermission(user, "notes.internal");
@@ -121,44 +131,6 @@ export function toAppointmentDTO(a: AppointmentFull, user: CurrentUser): Appoint
   };
 }
 
-const listInclude = {
-  customer: { select: { name: true, phone: true } },
-  location: { select: { area: true, building: true, mapUrl: true, latitude: true } },
-  status: { select: { id: true, name: true, kind: true, color: true } },
-  createdBy: { select: userRefSelect },
-  technicians: { select: { technician: { select: { id: true, name: true } } }, orderBy: { technician: { name: "asc" } } },
-} satisfies Prisma.AppointmentInclude;
-
-type AppointmentListRow = Prisma.AppointmentGetPayload<{ include: typeof listInclude }>;
-
-function toListItem(a: AppointmentListRow, user: CurrentUser): AppointmentListItem {
-  const canContact = hasPermission(user, "customers.contact");
-  const canLocation = hasPermission(user, "location.view");
-  return {
-    id: a.id,
-    code: appointmentCode(a.number),
-    startsAt: a.startsAt.toISOString(),
-    endsAt: a.endsAt.toISOString(),
-    durationMinutes: a.durationMinutes,
-    customerName: a.customer.name,
-    ...(canContact ? { customerPhone: a.customer.phone } : {}),
-    ...(canLocation
-      ? {
-          area: a.location.area,
-          building: a.location.building,
-          hasLocation: Boolean(a.location.mapUrl || a.location.latitude !== null),
-        }
-      : {}),
-    productCategory: a.productCategory,
-    categoryOther: a.categoryOther,
-    brand: a.brand,
-    model: a.model,
-    status: a.status,
-    createdBy: a.createdBy,
-    technicians: a.technicians.map((t) => t.technician),
-  };
-}
-
 // ---------------------------------------------------------------------------------------------
 // Queries
 // ---------------------------------------------------------------------------------------------
@@ -201,7 +173,7 @@ export function parseAppointmentFilters(params: URLSearchParams | Record<string,
 }
 
 function contains(value: string) {
-  return { contains: value, mode: "insensitive" as const };
+  return { contains: escapeLike(value), mode: "insensitive" as const };
 }
 
 export function buildAppointmentWhere(user: CurrentUser, f: Partial<AppointmentFilters>): Prisma.AppointmentWhereInput {
@@ -247,27 +219,15 @@ export function buildAppointmentWhere(user: CurrentUser, f: Partial<AppointmentF
 
 export async function listAppointments(user: CurrentUser, f: AppointmentFilters) {
   assertCan(user, "appointments.view");
-  const where = buildAppointmentWhere(user, f);
-  const orderBy: Prisma.AppointmentOrderByWithRelationInput[] =
-    f.sort === "customer"
-      ? [{ customer: { name: f.dir } }, { startsAt: "asc" }]
-      : f.sort === "createdAt"
-        ? [{ createdAt: f.dir }]
-        : f.sort === "number"
-          ? [{ number: f.dir }]
-          : [{ startsAt: f.dir }, { number: "asc" }];
+  const where = appointmentFilterSql(user, f);
   const [total, rows] = await Promise.all([
-    prisma.appointment.count({ where }),
-    prisma.appointment.findMany({
-      where,
-      include: listInclude,
-      orderBy,
-      skip: (f.page - 1) * f.pageSize,
-      take: f.pageSize,
+    countAppointments(where),
+    appointmentListRows(user, where, appointmentOrderSql(f.sort, f.dir), f.pageSize, (f.page - 1) * f.pageSize, {
+      orderedByCustomer: f.sort === "customer",
     }),
   ]);
   return {
-    rows: rows.map((r) => toListItem(r, user)),
+    rows,
     total,
     page: f.page,
     pageSize: f.pageSize,
@@ -287,27 +247,52 @@ export async function calendarAppointments(
   }
   const { start, end } = dayRangeUtc(range.from, range.to, user.settings.timezone);
   if (end.getTime() - start.getTime() > 62 * 24 * 3600 * 1000) throw new ValidationError({ to: "Range too large" });
-  const where = buildAppointmentWhere(user, { ...f, from: undefined, to: undefined });
-  const rows = await prisma.appointment.findMany({
-    where: { AND: [where, { startsAt: { lt: end } }, { endsAt: { gt: start } }] },
-    include: listInclude,
-    orderBy: [{ startsAt: "asc" }, { number: "asc" }],
-    take: 3000,
-  });
-  return rows.map((r) => toListItem(r, user));
+  const where = appointmentFilterSql(user, { ...f, from: undefined, to: undefined });
+  // Appointments last at most 24 hours (validation + the appointments_duration_check constraint),
+  // so anything overlapping the range starts after `start - 24h`. Stating that bound lets the
+  // startsAt index serve the query even with a generic (parameter-blind) prepared-statement plan,
+  // which otherwise walks every earlier appointment.
+  const earliestStart = new Date(start.getTime() - 1440 * 60_000);
+  return appointmentListRows(
+    user,
+    Prisma.sql`${where} AND a."startsAt" < ${end} AND a."startsAt" > ${earliestStart} AND a."endsAt" > ${start}`,
+    Prisma.sql`a."startsAt" ASC, a.number ASC`,
+    3000,
+  );
 }
 
-async function findVisibleAppointment(user: CurrentUser, id: string) {
+/**
+ * Loads an appointment with its relations in two round trips (the row, then its relations in
+ * parallel) instead of one sequential query per relation.
+ */
+async function findVisibleAppointment(user: CurrentUser, id: string): Promise<AppointmentView> {
   assertCan(user, "appointments.view");
   if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Appointment not found.");
   // The scope is part of the query: a technician asking for someone else's appointment gets a
   // plain 404, exactly as if the ID did not exist.
-  const appt = await prisma.appointment.findFirst({
-    where: { AND: [{ id }, appointmentScope(user)] },
-    include: appointmentInclude,
-  });
+  const appt = await prisma.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] } });
   if (!appt) throw new NotFoundError("Appointment not found.");
-  return appt;
+  const [customer, location, status, people, technicians] = await Promise.all([
+    prisma.customer.findUniqueOrThrow({ where: { id: appt.customerId } }),
+    prisma.customerLocation.findUniqueOrThrow({ where: { id: appt.locationId } }),
+    prisma.appointmentStatus.findUniqueOrThrow({ where: { id: appt.statusId } }),
+    prisma.user.findMany({ where: { id: { in: [appt.createdById, appt.updatedById ?? appt.createdById] } }, select: userRefSelect }),
+    prisma.user.findMany({
+      where: { assignments: { some: { appointmentId: appt.id } } },
+      select: userRefSelect,
+      orderBy: { name: "asc" },
+    }),
+  ]);
+  const person = (pid: string) => people.find((p) => p.id === pid)!;
+  return {
+    ...appt,
+    customer,
+    location,
+    status,
+    createdBy: person(appt.createdById),
+    updatedBy: appt.updatedById ? { id: appt.updatedById, name: person(appt.updatedById).name } : null,
+    technicians: technicians.map((technician) => ({ technician })),
+  };
 }
 
 export async function getAppointment(user: CurrentUser, id: string): Promise<AppointmentDTO> {
@@ -337,13 +322,19 @@ export function redactChanges(user: CurrentUser, changes: unknown): AuditEntryDT
 
 export async function getAppointmentHistory(user: CurrentUser, id: string): Promise<AuditEntryDTO[]> {
   assertCan(user, "history.view");
-  const appt = await findVisibleAppointment(user, id);
-  const rows = await prisma.auditLog.findMany({
-    where: { appointmentId: appt.id },
-    include: { actor: { select: { id: true, name: true } } },
-    orderBy: { createdAt: "desc" },
-    take: 200,
-  });
+  assertCan(user, "appointments.view");
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Appointment not found.");
+  // Both queries run at once; the history is only returned if the appointment is visible.
+  const [visible, rows] = await Promise.all([
+    prisma.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] }, select: { id: true } }),
+    prisma.auditLog.findMany({
+      where: { appointmentId: id },
+      include: { actor: { select: { id: true, name: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 200,
+    }),
+  ]);
+  if (!visible) throw new NotFoundError("Appointment not found.");
   return rows.map((r) => ({
     id: r.id,
     action: r.action,

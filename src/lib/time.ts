@@ -34,8 +34,72 @@ export function computeEnd(startsAt: Date, durationMinutes: number): Date {
   return addMinutes(startsAt, durationMinutes);
 }
 
+const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
+
+// One Intl formatter per timezone. Building a formatter is the expensive part of timezone
+// formatting (date-fns-tz does it on every call), so pages that format thousands of dates - the
+// calendar, CSV exports - spent most of their time here.
+const partFormatters = new Map<string, Intl.DateTimeFormat>();
+
+function zonedParts(date: Date, tz: string) {
+  let f = partFormatters.get(tz);
+  if (!f) {
+    f = new Intl.DateTimeFormat("en-US", {
+      timeZone: tz,
+      hourCycle: "h23",
+      year: "numeric",
+      month: "numeric",
+      day: "numeric",
+      hour: "numeric",
+      minute: "numeric",
+    });
+    partFormatters.set(tz, f);
+  }
+  const p = { year: 0, month: 0, day: 0, hour: 0, minute: 0 };
+  for (const part of f.formatToParts(date)) {
+    if (part.type in p) p[part.type as keyof typeof p] = Number(part.value);
+  }
+  return p;
+}
+
+// The tokens this app uses. Any other pattern (other letters, quoted text) goes to date-fns-tz.
+const TOKENS = "yyyy(?!y)|MMMM(?!M)|MMM(?!M)|MM(?!M)|EEEE(?!E)|EEE(?!E)|dd(?!d)|d(?!d)|HH(?!H)|mm(?!m)";
+const TOKEN_RE = new RegExp(`${TOKENS}|[^A-Za-z]+`, "g");
+const FAST_PATTERN_RE = new RegExp(`^(?:${TOKENS}|[^A-Za-z'])+$`);
+
+/** Formats `date` as wall-clock time in `tz` with a date-fns pattern. */
 export function fmt(date: Date | string, tz: string, pattern: string): string {
-  return formatInTimeZone(typeof date === "string" ? new Date(date) : date, tz, pattern);
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (!FAST_PATTERN_RE.test(pattern) || Number.isNaN(d.getTime())) return formatInTimeZone(d, tz, pattern);
+  const p = zonedParts(d, tz);
+  return pattern.replace(TOKEN_RE, (t) => {
+    switch (t) {
+      case "yyyy":
+        return String(p.year).padStart(4, "0");
+      case "MMMM":
+        return MONTHS[p.month - 1]!;
+      case "MMM":
+        return MONTHS[p.month - 1]!.slice(0, 3);
+      case "MM":
+        return pad2(p.month);
+      case "EEEE":
+        return WEEKDAYS[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()]!;
+      case "EEE":
+        return WEEKDAYS[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()]!.slice(0, 3);
+      case "dd":
+        return pad2(p.day);
+      case "d":
+        return String(p.day);
+      case "HH":
+        return pad2(p.hour);
+      case "mm":
+        return pad2(p.minute);
+      default:
+        return t;
+    }
+  });
 }
 
 /** "2026-10-25" in the given timezone. */

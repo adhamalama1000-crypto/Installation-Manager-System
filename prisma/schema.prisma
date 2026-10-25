@@ -140,6 +140,11 @@ model Customer {
   @@index([phoneDigits])
   @@index([secondaryPhoneDigits])
   @@index([name])
+  @@index([updatedAt])
+  /// Trigram indexes make "contains" searches (ILIKE '%...%') use an index (needs pg_trgm).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_name_trgm_idx")
+  @@index([phoneDigits(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_phoneDigits_trgm_idx")
+  @@index([secondaryPhoneDigits(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_secondaryPhoneDigits_trgm_idx")
   @@map("customers")
 }
 
@@ -168,6 +173,9 @@ model CustomerLocation {
   @@index([customerId])
   @@index([area])
   @@index([building])
+  @@index([area(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_locations_area_trgm_idx")
+  @@index([building(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_locations_building_trgm_idx")
+  @@index([streetAddress(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_locations_streetAddress_trgm_idx")
   @@map("customer_locations")
 }
 
@@ -287,6 +295,7 @@ model AuditLog {
   @@index([appointmentId, createdAt])
   @@index([actorId, createdAt])
   @@index([createdAt])
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "audit_logs_summary_trgm_idx")
   @@map("audit_logs")
 }
 

@@ -1,8 +1,8 @@
-import { prisma } from "@/server/db";
 import { hasPermission } from "@/server/access";
 import { apiRoute } from "@/server/http";
 import { assertCan } from "@/server/access";
-import { buildAppointmentWhere, categoryLabel, parseAppointmentFilters } from "@/server/services/appointments";
+import { categoryLabel, parseAppointmentFilters } from "@/server/services/appointments";
+import { appointmentExportRows, appointmentFilterSql } from "@/server/services/appointment-reads";
 import { toCsv } from "@/server/services/reports";
 import { appointmentCode } from "@/lib/constants";
 import { fmt, todayKey } from "@/lib/time";
@@ -12,18 +12,7 @@ export const GET = apiRoute(async ({ req, user }) => {
   assertCan(user, "appointments.view");
   const filters = parseAppointmentFilters(new URL(req.url).searchParams);
   const tz = user.settings.timezone;
-  const rows = await prisma.appointment.findMany({
-    where: buildAppointmentWhere(user, filters),
-    include: {
-      customer: true,
-      location: true,
-      status: true,
-      createdBy: { select: { name: true } },
-      technicians: { include: { technician: { select: { name: true } } } },
-    },
-    orderBy: { startsAt: filters.dir },
-    take: 20_000,
-  });
+  const rows = await appointmentExportRows(appointmentFilterSql(user, filters), filters.dir);
   const contact = hasPermission(user, "customers.contact");
   const loc = hasPermission(user, "location.view");
   const csv = toCsv([
@@ -47,15 +36,15 @@ export const GET = apiRoute(async ({ req, user }) => {
       fmt(a.startsAt, tz, "yyyy-MM-dd"),
       fmt(a.startsAt, tz, "HH:mm"),
       fmt(a.endsAt, tz, "HH:mm"),
-      a.status.name,
-      a.customer.name,
-      ...(contact ? [a.customer.phone] : []),
-      ...(loc ? [a.location.area, a.location.streetAddress, a.location.building, a.location.apartment, a.location.floor, a.location.mapUrl] : []),
+      a.statusName,
+      a.customerName,
+      ...(contact ? [a.phone] : []),
+      ...(loc ? [a.area, a.streetAddress, a.building, a.apartment, a.floor, a.mapUrl] : []),
       categoryLabel(a),
       a.brand,
       a.model,
-      a.createdBy.name,
-      a.technicians.map((t) => t.technician.name).join("; "),
+      a.creatorName,
+      a.technicianNames ?? "",
     ]),
   ]);
   return new Response(csv, {

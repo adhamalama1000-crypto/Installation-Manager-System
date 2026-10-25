@@ -21,11 +21,16 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   technicianCanSeeContacts: true,
 };
 
+/** Stored settings JSON (or null when never saved) merged over the defaults. */
+export function parseSettings(value: unknown): SettingsValues {
+  if (!value || typeof value !== "object") return { ...DEFAULT_SETTINGS };
+  const parsed = settingsSchema.safeParse({ ...DEFAULT_SETTINGS, ...value });
+  return parsed.success ? parsed.data : { ...DEFAULT_SETTINGS };
+}
+
 export async function getSettings(db: Db = prisma): Promise<SettingsValues> {
   const row = await db.setting.findUnique({ where: { key: SETTINGS_KEY } });
-  if (!row) return { ...DEFAULT_SETTINGS };
-  const parsed = settingsSchema.safeParse({ ...DEFAULT_SETTINGS, ...(row.value as object) });
-  return parsed.success ? parsed.data : { ...DEFAULT_SETTINGS };
+  return parseSettings(row?.value);
 }
 
 export async function updateSettings(actor: CurrentUser, input: unknown): Promise<SettingsValues> {
