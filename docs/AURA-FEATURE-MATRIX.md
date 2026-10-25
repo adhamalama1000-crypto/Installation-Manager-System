@@ -43,7 +43,7 @@ porting (reason given).
 | Check-in stages with GPS (at office, picked up, left, arrived, started, done, problem) and distance flags | — | ✗ | Later: location tracking needs consent and a privacy policy |
 | Live board of where every technician is, office TV screen link | Calendar + dashboard | ✗ | Later (needs check-ins) |
 | Late alerts every 15 minutes, morning e-mail summary | In-app notifications only; no e-mail provider | ✗ | Later (needs an e-mail/WhatsApp provider) |
-| Day plan: one WhatsApp message per technician with tomorrow's visits | — | ✗ | **Now** (message text + `wa.me` link; nothing is sent automatically) |
+| Day plan: one WhatsApp message per technician with tomorrow's visits | Day plan page (any day, tomorrow by default): one message per technician with times, customer and phone, address, map link, equipment, amount to collect, notes and colleagues; `wa.me` link + copy; a reminder link per customer | ✅ | Done (messages are in English; nothing is sent automatically) |
 | Technician specialty (lock / smart home / both) and best-technician suggestion | Live available/busy list | ◐ | Later |
 | Temporary 10-minute hold of a slot while on the phone | — | ✗ | Later |
 | Company car / driver route with stops | — | ✗ | Later |

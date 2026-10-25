@@ -43,6 +43,9 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
   return (
     <form onSubmit={save} className="space-y-6">
       <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <Field label="Company name" error={errors.companyName} hint="Used in WhatsApp reminders to customers.">
+          {(p) => <Input {...p} maxLength={80} value={v.companyName} onChange={(e) => upd({ companyName: e.target.value })} />}
+        </Field>
         <Field label="Company timezone" error={errors.timezone} hint="All dates and times are entered and shown in this timezone.">
           {(p) => (
             <Select {...p} value={v.timezone} onChange={(e) => upd({ timezone: e.target.value })}>

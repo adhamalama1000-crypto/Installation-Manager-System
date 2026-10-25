@@ -359,6 +359,8 @@ export const settingsSchema = z
       .array(z.coerce.number().int().min(0).max(6))
       .max(6, "At least one day must stay open")
       .refine((d) => new Set(d).size === d.length, "A day was selected twice"),
+    /** Used in messages to customers (WhatsApp reminders); blank = "your installation team". */
+    companyName: z.preprocess((v) => (typeof v === "string" ? v.trim() : (v ?? "")), z.string().max(80, "Must be at most 80 characters")),
   })
   .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: "Must be after the start hour" });
 
