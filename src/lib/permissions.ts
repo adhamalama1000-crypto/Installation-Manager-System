@@ -1,0 +1,106 @@
+/**
+ * Role-based permissions. This module is pure so the same rules drive both the server-side
+ * enforcement (src/server/access.ts, every API route and query) and the UI (which only hides
+ * actions the server would refuse anyway).
+ */
+import type { Role } from "@prisma/client";
+
+export const PERMISSIONS = [
+  /** See appointments. Technicians are additionally restricted to their own assignments. */
+  "appointments.view",
+  /** Create, edit, reschedule, assign technicians, change status, cancel. */
+  "appointments.manage",
+  /** Customer directory pages. */
+  "customers.view",
+  /** Customer phone numbers. */
+  "customers.contact",
+  /** Address, apartment, floor, access instructions and map link. */
+  "location.view",
+  /** Internal company notes. */
+  "notes.internal",
+  /** Change history of an appointment. */
+  "history.view",
+  "reports.view",
+  "users.manage",
+  "settings.manage",
+  /** System-wide audit log. */
+  "audit.view",
+] as const;
+
+export type Permission = (typeof PERMISSIONS)[number];
+
+/** Permissions an Admin may grant to individual Viewer accounts. */
+export const VIEWER_GRANTABLE: Permission[] = [
+  "appointments.view",
+  "customers.view",
+  "customers.contact",
+  "location.view",
+  "notes.internal",
+  "history.view",
+  "reports.view",
+];
+
+export const VIEWER_PERMISSION_LABELS: Record<string, { label: string; description: string }> = {
+  "appointments.view": { label: "Appointments & calendar", description: "Dashboard, calendar and appointment list (read-only)." },
+  "customers.view": { label: "Customer directory", description: "Customer list and customer pages." },
+  "customers.contact": { label: "Customer phone numbers", description: "Primary and secondary phone numbers." },
+  "location.view": { label: "Installation address & map", description: "Address, apartment, floor, access instructions and map link." },
+  "notes.internal": { label: "Internal notes", description: "Internal company notes on appointments." },
+  "history.view": { label: "Appointment history", description: "Who changed what and when." },
+  "reports.view": { label: "Reports", description: "Reports and CSV exports." },
+};
+
+export const DEFAULT_VIEWER_PERMISSIONS: Permission[] = ["appointments.view"];
+
+/** Settings that adjust role permissions (managed by Admin in Settings). */
+export type PermissionSettings = {
+  salesCanViewReports: boolean;
+  technicianCanSeeContacts: boolean;
+};
+
+export type PermissionSubject = {
+  role: Role;
+  viewerPermissions?: string[] | null;
+  isActive?: boolean;
+};
+
+export function permissionsFor(user: PermissionSubject, settings: PermissionSettings): Set<Permission> {
+  if (user.isActive === false) return new Set();
+  switch (user.role) {
+    case "ADMIN":
+      return new Set(PERMISSIONS);
+    case "SALES": {
+      const p: Permission[] = [
+        "appointments.view",
+        "appointments.manage",
+        "customers.view",
+        "customers.contact",
+        "location.view",
+        "notes.internal",
+        "history.view",
+      ];
+      if (settings.salesCanViewReports) p.push("reports.view");
+      return new Set(p);
+    }
+    case "TECHNICIAN": {
+      const p: Permission[] = ["appointments.view", "location.view"];
+      if (settings.technicianCanSeeContacts) p.push("customers.contact");
+      return new Set(p);
+    }
+    case "VIEWER": {
+      const granted = (user.viewerPermissions ?? []).filter((p): p is Permission =>
+        (VIEWER_GRANTABLE as string[]).includes(p),
+      );
+      return new Set(granted);
+    }
+  }
+}
+
+export function can(user: PermissionSubject, permission: Permission, settings: PermissionSettings): boolean {
+  return permissionsFor(user, settings).has(permission);
+}
+
+/** Technicians only ever see appointments they are assigned to. */
+export function isAssignmentScoped(role: Role): boolean {
+  return role === "TECHNICIAN";
+}

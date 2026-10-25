@@ -1,0 +1,317 @@
+// Installation Manager System - database schema.
+//
+// Notes on invariants that live in SQL (see migrations), because Prisma cannot express them:
+//  * appointment_technicians has an EXCLUSION constraint that makes it impossible for a
+//    technician to hold two overlapping schedule-blocking assignments, even under concurrent
+//    requests. The service layer checks first (for a friendly message); the database is the
+//    final guarantee.
+//  * audit_logs rows cannot be updated or deleted (trigger).
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  ADMIN
+  SALES
+  TECHNICIAN
+  VIEWER
+}
+
+enum ProductCategory {
+  SMART_LOCK
+  SMART_HOME
+  CCTV
+  INTERCOM
+  OTHER
+}
+
+/// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
+/// reports so admins can rename or add statuses without breaking the statistics.
+enum StatusKind {
+  SCHEDULED
+  IN_PROGRESS
+  COMPLETED
+  POSTPONED
+  CANCELLED
+  UNABLE_TO_COMPLETE
+}
+
+model User {
+  id                String    @id @default(cuid())
+  name              String
+  /// Stored lower-cased; used as the login identifier.
+  email             String    @unique
+  phone             String?
+  role              Role
+  isActive          Boolean   @default(true)
+  /// bcrypt hash. Null until the user sets a password through an invitation link.
+  passwordHash      String?
+  /// Calendar colour (hex, e.g. #E55823). Used for Sales employees; kept if the role changes so
+  /// historical appointments keep their colour.
+  color             String?
+  /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
+  viewerPermissions String[]  @default([])
+  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
+  passwordChangedAt DateTime? @db.Timestamptz(3)
+
+  sessions            Session[]
+  passwordTokens      PasswordToken[]         @relation("TokenUser")
+  issuedTokens        PasswordToken[]         @relation("TokenIssuer")
+  createdAppointments Appointment[]           @relation("AppointmentCreator")
+  updatedAppointments Appointment[]           @relation("AppointmentUpdater")
+  assignments         AppointmentTechnician[] @relation("AssignmentTechnician")
+  assignedByMe        AppointmentTechnician[] @relation("AssignmentAssigner")
+  auditLogs           AuditLog[]
+  notifications       Notification[]
+  settingsUpdated     Setting[]
+
+  @@index([role, isActive])
+  @@map("users")
+}
+
+model Session {
+  /// SHA-256 of the random token stored in the browser cookie. The raw token is never stored.
+  id         String   @id
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  expiresAt  DateTime @db.Timestamptz(3)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastSeenAt DateTime @default(now()) @db.Timestamptz(3)
+  userAgent  String?
+  ipAddress  String?
+
+  @@index([userId])
+  @@index([expiresAt])
+  @@map("sessions")
+}
+
+/// One-time links used for account invitations and admin-initiated password resets.
+model PasswordToken {
+  id          String    @id @default(cuid())
+  /// SHA-256 of the token in the link.
+  tokenHash   String    @unique
+  userId      String
+  user        User      @relation("TokenUser", fields: [userId], references: [id], onDelete: Cascade)
+  purpose     String // "INVITE" | "RESET"
+  expiresAt   DateTime  @db.Timestamptz(3)
+  usedAt      DateTime? @db.Timestamptz(3)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  createdById String?
+  createdBy   User?     @relation("TokenIssuer", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([userId])
+  @@map("password_tokens")
+}
+
+/// Records login attempts for rate limiting (works across multiple app instances).
+model LoginAttempt {
+  id        BigInt   @id @default(autoincrement())
+  email     String
+  ipAddress String
+  success   Boolean
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([email, createdAt])
+  @@index([ipAddress, createdAt])
+  @@map("login_attempts")
+}
+
+model Customer {
+  id                   String   @id @default(cuid())
+  name                 String
+  phone                String
+  /// Digits only, used for searching and for matching repeat customers.
+  phoneDigits          String
+  secondaryPhone       String?
+  secondaryPhoneDigits String?
+  createdAt            DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt            DateTime @updatedAt @db.Timestamptz(3)
+
+  locations    CustomerLocation[]
+  appointments Appointment[]
+
+  @@index([phoneDigits])
+  @@index([secondaryPhoneDigits])
+  @@index([name])
+  @@map("customers")
+}
+
+/// An installation site belonging to a customer. A repeat customer can have several sites
+/// (home, office, ...) and many appointments per site.
+model CustomerLocation {
+  id                 String   @id @default(cuid())
+  customerId         String
+  customer           Customer @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  label              String?
+  area               String?
+  streetAddress      String?
+  building           String?
+  apartment          String?
+  floor              String?
+  accessInstructions String?
+  /// Map link exactly as entered by the user (validated as http/https).
+  mapUrl             String?
+  latitude           Decimal? @db.Decimal(9, 6)
+  longitude          Decimal? @db.Decimal(9, 6)
+  createdAt          DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime @updatedAt @db.Timestamptz(3)
+
+  appointments Appointment[]
+
+  @@index([customerId])
+  @@index([area])
+  @@index([building])
+  @@map("customer_locations")
+}
+
+model AppointmentStatus {
+  id             String     @id @default(cuid())
+  name           String     @unique
+  kind           StatusKind
+  /// Hex colour for status badges.
+  color          String
+  /// Whether appointments in this status occupy the assigned technicians' time.
+  blocksSchedule Boolean    @default(true)
+  /// Status given to newly created appointments (exactly one should be true).
+  isDefault      Boolean    @default(false)
+  isActive       Boolean    @default(true)
+  sortOrder      Int        @default(0)
+  createdAt      DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime   @updatedAt @db.Timestamptz(3)
+
+  appointments Appointment[]
+
+  @@map("appointment_statuses")
+}
+
+model Appointment {
+  id         String           @id @default(cuid())
+  /// Sequential number used for the human-readable ID (e.g. APT-000123).
+  number     Int              @unique @default(autoincrement())
+  customerId String
+  customer   Customer         @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  locationId String
+  location   CustomerLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
+
+  productCategory   ProductCategory
+  /// Free-text category when productCategory = OTHER.
+  categoryOther     String?
+  brand             String?
+  model             String?
+  description       String?
+  requiredEquipment String?
+  additionalNotes   String?
+  /// Visible only to roles allowed to see internal notes.
+  internalNotes     String?
+
+  startsAt        DateTime @db.Timestamptz(3)
+  endsAt          DateTime @db.Timestamptz(3)
+  durationMinutes Int
+
+  statusId String
+  status   AppointmentStatus @relation(fields: [statusId], references: [id], onDelete: Restrict)
+
+  /// The Sales employee who originally created the appointment. Never changes; determines the
+  /// appointment colour.
+  createdById String
+  createdBy   User    @relation("AppointmentCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById String?
+  updatedBy   User?   @relation("AppointmentUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+
+  /// Client-generated id that makes "create" idempotent (double clicks / retries).
+  clientRequestId String? @unique
+  /// Optimistic-locking counter; incremented on every update.
+  version         Int     @default(1)
+
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  technicians   AppointmentTechnician[]
+  auditLogs     AuditLog[]
+  notifications Notification[]
+
+  @@index([startsAt])
+  @@index([endsAt])
+  @@index([statusId, startsAt])
+  @@index([createdById, startsAt])
+  @@index([customerId])
+  @@index([locationId])
+  @@index([productCategory])
+  @@map("appointments")
+}
+
+/// Technician assignment. startsAt/endsAt/blocksSchedule are copies of the appointment's values,
+/// kept in sync by the service layer, so that PostgreSQL can enforce "no overlapping active
+/// assignments per technician" with an exclusion constraint.
+model AppointmentTechnician {
+  appointmentId  String
+  appointment    Appointment @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  technicianId   String
+  technician     User        @relation("AssignmentTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
+  startsAt       DateTime    @db.Timestamptz(3)
+  endsAt         DateTime    @db.Timestamptz(3)
+  blocksSchedule Boolean
+  assignedAt     DateTime    @default(now()) @db.Timestamptz(3)
+  assignedById   String?
+  assignedBy     User?       @relation("AssignmentAssigner", fields: [assignedById], references: [id], onDelete: Restrict)
+
+  @@id([appointmentId, technicianId])
+  @@index([technicianId, startsAt])
+  @@map("appointment_technicians")
+}
+
+model AuditLog {
+  id            String       @id @default(cuid())
+  /// APPOINTMENT | USER | STATUS | SETTINGS | CUSTOMER
+  entityType    String
+  entityId      String
+  /// e.g. APPOINTMENT_CREATED, APPOINTMENT_RESCHEDULED, USER_ROLE_CHANGED ...
+  action        String
+  summary       String
+  /// { field: { from, to } } for updates, or a snapshot for creations.
+  changes       Json?
+  actorId       String?
+  actor         User?        @relation(fields: [actorId], references: [id], onDelete: Restrict)
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([entityType, entityId, createdAt])
+  @@index([appointmentId, createdAt])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Notification {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  type          String
+  message       String
+  readAt        DateTime?    @db.Timestamptz(3)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, readAt, createdAt])
+  @@map("notifications")
+}
+
+/// Key/value system settings (timezone, working hours, role options ...).
+model Setting {
+  key         String   @id
+  value       Json
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  updatedById String?
+  updatedBy   User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
+
+  @@map("settings")
+}
