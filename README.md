@@ -29,7 +29,8 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 11. [Environment variables](#environment-variables)
 12. [Branding](#branding)
 13. [Notifications - what is and isn't included](#notifications---what-is-and-isnt-included)
-14. [Known limitations](#known-limitations)
+14. [Performance](#performance)
+15. [Known limitations](#known-limitations)
 
 ---
 
@@ -54,7 +55,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 
 ## Quick start (local development)
 
-**Prerequisites:** Node.js 20.9+ (22 recommended, see `.nvmrc`) and PostgreSQL 14+ with the standard `contrib` extensions (for `btree_gist`; included in the official Docker image and most distributions).
+**Prerequisites:** Node.js 20.9+ (22 recommended, see `.nvmrc`) and PostgreSQL 14+ with the standard `contrib` extensions (`btree_gist` and `pg_trgm`; included in the official Docker image, most distributions and managed providers).
 
 ```bash
 # 1. Install dependencies
@@ -100,6 +101,7 @@ Useful scripts:
 | `npm run db:seed` | Demo data (only on an empty database; `SEED_FORCE=1` wipes and reseeds - never in production) |
 | `npm run db:reset` | Drop, re-migrate and reseed the development database |
 | `npm run create-admin` | Create the first Admin in a fresh production database |
+| `npx tsx scripts/perf/…` | Performance measurements: large test data set, response times and SQL counts, browser timings, load test (see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)) |
 
 ## Demo accounts
 
@@ -193,7 +195,7 @@ e2e/                       Playwright browser tests
 - **Validation**: the same Zod schemas validate in the browser (instant feedback) and on the server (authoritative).
 - **Reads** happen in React Server Components via the service layer with the current user. **Writes** go through `/api/*` route handlers that call the same services. Every service function receives the acting user and checks permissions itself.
 - **Errors**: services throw typed errors (validation, conflict, forbidden, not found, stale). The API returns them as structured JSON. Unexpected errors are logged on the server with a reference ID and the user only sees a generic message (no stack traces).
-- **Freshness**: dashboard, list and detail pages refresh every 30 seconds and when the tab regains focus. The calendar re-fetches its range on the same schedule, and notifications poll every 60 seconds.
+- **Freshness**: dashboard, list and detail pages refresh every 30 seconds and when the tab regains focus. The calendar re-fetches its range on the same schedule (an unchanged range costs a `304` with no body), and notifications poll every 60 seconds. Business data is never cached: every request reads the database.
 
 ## Database
 
@@ -208,7 +210,7 @@ Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customer
 ## Testing
 
 ```bash
-npm test            # 65 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
+npm test            # 75 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
 npm run test:e2e    # 9 Playwright tests against a running, seeded app
 ```
 
@@ -244,7 +246,7 @@ Production checklist:
 - Back up the PostgreSQL database regularly.
 - Do **not** run `npm run db:seed` in production (it refuses unless forced).
 
-Serverless platforms work too. Use a pooled connection string for `DATABASE_URL` if your provider recommends one.
+Serverless platforms work too. Use a pooled connection string for `DATABASE_URL` if your provider recommends one. Keep the database close to the app (same region): each page needs a few database round trips, so distance adds directly to every page load.
 
 ## Environment variables
 
@@ -273,9 +275,15 @@ No secrets are committed. `.env` is git-ignored and `.env.example` documents the
 - **Included:** in-app notifications (bell icon) for technicians: new assignment, removal, reschedule, update, status change and cancellation. Pages and the calendar also refresh automatically.
 - **Not included:** email, SMS, WhatsApp or push. No such service is configured, so nothing is sent outside the app. Invitation and password-reset links are shown to the Admin, who passes them on. Adding an email provider would mean sending those links (and optionally the in-app notifications) from `src/server/services/users.ts` and `notifications.ts`.
 
+## Performance
+
+Measured on a production build with 33,000 appointments and 30,000 customers: pages respond in 12–75 ms with the database on the same machine and 30–145 ms with 20 ms of network distance to it; the calendar renders a month of 1,350 events without blocking the browser. What was slow, what changed and all measurements are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+Judge speed on `npm run build && npm start`, not `npm run dev`: the development server compiles each page the first time it is opened and is several times slower.
+
 ## Known limitations
 
 - No map picker or geocoding: Sales paste a map link (or coordinates). Coordinates can be read automatically from full Google Maps URLs. Short links (`maps.app.goo.gl`) are saved and opened as-is.
-- Text search uses PostgreSQL `ILIKE` with B-tree indexes. For very large data sets, add `pg_trgm` indexes.
+- Text search uses PostgreSQL `ILIKE` with `pg_trgm` indexes; search terms shorter than 3 characters cannot use them and scan instead.
 - Recurring appointments and file attachments (photos, documents) are not implemented.
 - The UI is in English. Dates use the `en-GB` format.
