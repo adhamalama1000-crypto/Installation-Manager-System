@@ -33,7 +33,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
           )
         }
       />
-      <div className="grid gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[360px_minmax(0,1fr)]">
         <div className="space-y-6">
           {c.phone !== undefined && (
             <Card>

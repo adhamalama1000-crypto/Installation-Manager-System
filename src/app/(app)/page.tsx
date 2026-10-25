@@ -103,7 +103,7 @@ export default async function DashboardPage() {
         ))}
       </section>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <Card>
           <CardHeader
             title={tech ? "My appointments today" : "Today's schedule"}

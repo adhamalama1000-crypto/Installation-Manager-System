@@ -62,13 +62,34 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
         }
       />
 
+      {/* Phones: the two things a technician needs on site, right at the top. */}
+      {(a.customer.phone || loc?.link) && (
+        <div className="mb-6 grid grid-cols-2 gap-2 xl:hidden">
+          {a.customer.phone && (
+            <a href={telHref(a.customer.phone)} className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-fg shadow-card">
+              <Phone className="h-4 w-4 text-brand-text" /> Call customer
+            </a>
+          )}
+          {loc?.link && (
+            <a
+              href={loc.link}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="col-start-2 flex items-center justify-center gap-2 rounded-xl bg-brand-strong px-3 py-3 text-sm font-semibold text-white shadow-card"
+            >
+              <Navigation className="h-4 w-4" /> Open Location
+            </a>
+          )}
+        </div>
+      )}
+
       {cancelled && (
         <Alert tone="warning" className="mb-6" title="This appointment is cancelled">
           It no longer blocks the technicians&apos; schedules.
         </Alert>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">
           {/* Location first: it is what technicians need most on site. */}
           <Card>

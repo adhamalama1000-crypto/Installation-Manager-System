@@ -95,7 +95,8 @@ export async function createUser(actor: CurrentUser, raw: unknown) {
   const passwordHash = input.password ? await hashPassword(input.password) : null;
   try {
     return await prisma.$transaction(async (tx) => {
-      const color = input.color ?? (role === "SALES" ? await nextSuggestedColor(tx) : null);
+      // Sales and Admins can book appointments, so they always get a distinct calendar colour.
+      const color = input.color ?? (role === "SALES" || role === "ADMIN" ? await nextSuggestedColor(tx) : null);
       const user = await tx.user.create({
         data: {
           name: input.name,
@@ -145,7 +146,7 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
       }
 
       let color = input.color === undefined ? before.color : input.color;
-      if (role === "SALES" && !color) color = await nextSuggestedColor(tx);
+      if ((role === "SALES" || role === "ADMIN") && !color) color = await nextSuggestedColor(tx);
 
       const after = await tx.user.update({
         where: { id },

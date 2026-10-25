@@ -13,7 +13,7 @@ export default async function ProfilePage() {
   return (
     <>
       <PageHeader title="My profile" />
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card>
           <CardHeader title="Account" icon={<UserCircle className="h-4 w-4" />} />
           <CardBody>

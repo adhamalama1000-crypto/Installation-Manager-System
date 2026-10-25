@@ -24,7 +24,7 @@ export default async function SettingsPage() {
             <GeneralSettings initial={settings} />
           </CardBody>
         </Card>
-        <div className="grid gap-6 xl:grid-cols-2">
+        <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <Card>
             <CardHeader title="Appointment statuses" description="Rename, recolour or add statuses" icon={<Tags className="h-4 w-4" />} />
             <StatusesManager statuses={statuses} />

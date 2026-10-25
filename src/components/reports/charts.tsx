@@ -60,7 +60,7 @@ export function BarList({
 
 /** Daily column chart (single series) with a hover/focus tooltip per column. */
 export function DailyColumns({ days, labelFor }: { days: { day: string; count: number }[]; labelFor: (day: string) => string }) {
-  if (!days.length) return <p className="py-6 text-center text-sm text-fg-muted">No appointments in this period.</p>;
+  if (!days.some((d) => d.count > 0)) return <p className="py-6 text-center text-sm text-fg-muted">No appointments in this period.</p>;
   const max = Math.max(...days.map((d) => d.count), 1);
   const ticks = [max, Math.round(max / 2), 0].filter((v, i, a) => a.indexOf(v) === i);
   return (

@@ -46,7 +46,23 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
     { label: "This year", from: `${today.slice(0, 4)}-01-01`, to: `${today.slice(0, 4)}-12-31` },
   ];
   const closed = r.completed + r.cancelled;
-  const dayLabel = (d: string) => formatKey(d, { day: "numeric", month: "short" });
+  // Every day (or month, for long ranges) gets a column - empty periods show as zero, so the
+  // time axis stays honest.
+  const counts = new Map(r.daily.map((d) => [d.day, d.count]));
+  const spanDays = Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000) + 1;
+  const monthly = spanDays > 62;
+  const buckets: { day: string; count: number }[] = [];
+  if (monthly) {
+    for (let m = startOfMonthKey(from); m <= to; m = addMonthsToKey(m, 1)) {
+      const key = m.slice(0, 7);
+      let n = 0;
+      for (const [d, c] of counts) if (d.startsWith(key)) n += c;
+      buckets.push({ day: m, count: n });
+    }
+  } else {
+    for (let d = from; d <= to; d = addDaysToKey(d, 1)) buckets.push({ day: d, count: counts.get(d) ?? 0 });
+  }
+  const bucketLabel = (d: string) => (monthly ? formatKey(d, { month: "short", year: "numeric" }) : formatKey(d, { weekday: "short", day: "numeric", month: "short" }));
 
   return (
     <>
@@ -102,11 +118,11 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
         <StatTile label="Completion rate" value={closed ? `${Math.round((r.completed / closed) * 100)}%` : "—"} sub="Completed vs. completed + cancelled" />
       </div>
 
-      <div className="mt-6 grid gap-6 xl:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-2">
         <Card className="xl:col-span-2">
-          <CardHeader title="Appointments per day" icon={<BarChart3 className="h-4 w-4" />} actions={<ExportButton type="daily" from={from} to={to} />} />
+          <CardHeader title={monthly ? "Appointments per month" : "Appointments per day"} icon={<BarChart3 className="h-4 w-4" />} actions={<ExportButton type="daily" from={from} to={to} />} />
           <CardBody>
-            <DailyColumns days={r.daily} labelFor={dayLabel} />
+            <DailyColumns days={buckets} labelFor={bucketLabel} />
           </CardBody>
         </Card>
 

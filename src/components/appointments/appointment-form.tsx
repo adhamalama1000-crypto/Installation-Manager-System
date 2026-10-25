@@ -250,7 +250,7 @@ export function AppointmentForm({
   const activeTechs = technicians.filter((t) => t.isActive || v.technicianIds.includes(t.id));
 
   return (
-    <form onSubmit={submit} noValidate className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
+    <form onSubmit={submit} noValidate className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
       <div className="space-y-6">
         {formError && (
           <Alert tone="danger" title="Could not save">

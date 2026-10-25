@@ -32,7 +32,7 @@ const STATUSES: { name: string; kind: StatusKind; color: string; blocksSchedule:
 ];
 
 const USERS: { name: string; email: string; role: Role; color?: string; isActive?: boolean; phone?: string; viewerPermissions?: string[] }[] = [
-  { name: "System Admin", email: "admin@example.com", role: "ADMIN", color: "#292929" },
+  { name: "System Admin", email: "admin@example.com", role: "ADMIN", color: "#7C3AED" },
   { name: "Sara Mahmoud", email: "sara.sales@example.com", role: "SALES", color: "#E55823", phone: "+20 100 111 2233" },
   { name: "Omar Hassan", email: "omar.sales@example.com", role: "SALES", color: "#2563EB", phone: "+20 100 222 3344" },
   { name: "Mona Adel", email: "mona.sales@example.com", role: "SALES", color: "#059669", phone: "+20 100 333 4455" },
