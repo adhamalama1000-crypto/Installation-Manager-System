@@ -546,7 +546,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
           description: input.description,
           requiredEquipment: input.requiredEquipment,
           additionalNotes: input.additionalNotes,
-          internalNotes: input.internalNotes,
+          internalNotes: hasPermission(user, "notes.internal") ? input.internalNotes : null,
           startsAt,
           endsAt,
           durationMinutes: input.durationMinutes,
@@ -670,7 +670,8 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           description: input.description,
           requiredEquipment: input.requiredEquipment,
           additionalNotes: input.additionalNotes,
-          internalNotes: input.internalNotes,
+          // Never overwrite notes the editor is not allowed to see.
+          internalNotes: hasPermission(user, "notes.internal") ? input.internalNotes : existing.internalNotes,
           startsAt,
           endsAt,
           durationMinutes: input.durationMinutes,
