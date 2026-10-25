@@ -515,6 +515,13 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
 
   try {
     const id = await prisma.$transaction(async (tx) => {
+      if (input.clientRequestId) {
+        // A double-click sends the same request twice at once: the second one waits here and then
+        // returns the appointment the first one created instead of reporting a "conflict" with it.
+        await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended(${`request:${input.clientRequestId}`}, 0))`;
+        const existing = await tx.appointment.findUnique({ where: { clientRequestId: input.clientRequestId }, select: { id: true } });
+        if (existing) return existing.id;
+      }
       const status = await resolveStatus(tx, input.statusId);
       await validateTechnicians(tx, input.technicianIds, []);
       await lockTechnicians(tx, input.technicianIds);
