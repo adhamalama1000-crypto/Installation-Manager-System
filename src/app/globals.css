@@ -1,0 +1,144 @@
+@import "tailwindcss";
+
+@custom-variant dark (&:where(.dark, .dark *));
+
+/*
+ * Design tokens. Brand colours are sampled from the supplied logo:
+ *   logo orange  #E55823   (accents, focus rings, active indicators)
+ *   logo charcoal #292929  ("Smart Home Systems" lettering - primary text)
+ * Primary buttons use #C44617, a deeper shade of the same orange, so white button text keeps a
+ * WCAG AA contrast ratio (4.96:1; the pure logo orange is 3.65:1 with white).
+ */
+:root {
+  --brand: #e55823;
+  --brand-strong: #c44617;
+  --brand-stronger: #a43b13;
+  --brand-soft: #fceee8;
+  --brand-text: #b54016;
+
+  --bg: #f7f7f6;
+  --surface: #ffffff;
+  --surface-muted: #f3f3f2;
+  --surface-hover: #efefed;
+  --line: #e4e4e2;
+  --line-strong: #d1d1ce;
+  --fg: #292929;
+  --fg-muted: #5f5f5c;
+  --fg-subtle: #7a7a76;
+
+  --success: #047857;
+  --success-soft: #e7f6ef;
+  --warning: #a16207;
+  --warning-soft: #fdf6e3;
+  --danger: #c0262d;
+  --danger-soft: #fdecec;
+  --info: #1d4ed8;
+  --info-soft: #eaf0fd;
+
+  --shadow-sm: 0 1px 2px rgb(16 16 16 / 0.05);
+  --shadow-md: 0 4px 16px rgb(16 16 16 / 0.08);
+  color-scheme: light;
+}
+
+.dark {
+  --brand: #e55823;
+  --brand-strong: #c44617;
+  --brand-stronger: #e55823;
+  --brand-soft: rgb(229 88 35 / 0.14);
+  --brand-text: #f07a4c;
+
+  --bg: #0b0b0b;
+  --surface: #151515;
+  --surface-muted: #1c1c1c;
+  --surface-hover: #232323;
+  --line: #2b2b2b;
+  --line-strong: #3a3a3a;
+  --fg: #f4f4f3;
+  --fg-muted: #b3b3ae;
+  --fg-subtle: #8e8e89;
+
+  --success: #34d399;
+  --success-soft: rgb(52 211 153 / 0.12);
+  --warning: #fbbf24;
+  --warning-soft: rgb(251 191 36 / 0.12);
+  --danger: #f87171;
+  --danger-soft: rgb(248 113 113 / 0.12);
+  --info: #93b4fb;
+  --info-soft: rgb(147 180 251 / 0.12);
+
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
+  --shadow-md: 0 6px 20px rgb(0 0 0 / 0.5);
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-brand: var(--brand);
+  --color-brand-strong: var(--brand-strong);
+  --color-brand-stronger: var(--brand-stronger);
+  --color-brand-soft: var(--brand-soft);
+  --color-brand-text: var(--brand-text);
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-surface-muted: var(--surface-muted);
+  --color-surface-hover: var(--surface-hover);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-fg: var(--fg);
+  --color-fg-muted: var(--fg-muted);
+  --color-fg-subtle: var(--fg-subtle);
+  --color-success: var(--success);
+  --color-success-soft: var(--success-soft);
+  --color-warning: var(--warning);
+  --color-warning-soft: var(--warning-soft);
+  --color-danger: var(--danger);
+  --color-danger-soft: var(--danger-soft);
+  --color-info: var(--info);
+  --color-info-soft: var(--info-soft);
+  --shadow-card: var(--shadow-sm);
+  --shadow-pop: var(--shadow-md);
+  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+}
+
+html,
+body {
+  background: var(--bg);
+  color: var(--fg);
+}
+
+body {
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+}
+
+::selection {
+  background: rgb(229 88 35 / 0.25);
+}
+
+/* Native date/time pickers follow the theme. */
+input[type="date"]::-webkit-calendar-picker-indicator,
+input[type="time"]::-webkit-calendar-picker-indicator {
+  cursor: pointer;
+  opacity: 0.7;
+}
+.dark input[type="date"]::-webkit-calendar-picker-indicator,
+.dark input[type="time"]::-webkit-calendar-picker-indicator {
+  filter: invert(1);
+}
+
+dialog::backdrop {
+  background: rgb(10 10 10 / 0.45);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}

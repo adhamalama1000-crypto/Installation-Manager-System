@@ -1,0 +1,693 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import { ChevronLeft, ChevronRight, ExternalLink, Loader2, MapPin, Plus, RefreshCw, Users, X } from "lucide-react";
+import { api, ApiError } from "@/lib/api-client";
+import { chipColors, colorOrFallback } from "@/lib/colors";
+import { productLine, timeRange } from "@/lib/format";
+import {
+  addDaysToKey,
+  addMonthsToKey,
+  dateKey,
+  formatKey,
+  minutesOfDay,
+  startOfMonthKey,
+  startOfWeekKey,
+  todayKey,
+} from "@/lib/time";
+import type { AppointmentListItem, StatusDTO } from "@/lib/types";
+import { Alert, SalesTag, StatusBadge } from "@/components/ui/misc";
+import { buttonClasses } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+
+export type CalendarViewMode = "month" | "week" | "day" | "agenda";
+
+type Person = { id: string; name: string; color?: string | null; isActive?: boolean };
+
+const HOUR_PX = 56;
+const VIEWS: { id: CalendarViewMode; label: string }[] = [
+  { id: "day", label: "Day" },
+  { id: "week", label: "Week" },
+  { id: "month", label: "Month" },
+  { id: "agenda", label: "Agenda" },
+];
+
+function rangeFor(view: CalendarViewMode, date: string, weekStartsOn: number) {
+  switch (view) {
+    case "day":
+      return { from: date, to: date };
+    case "week": {
+      const from = startOfWeekKey(date, weekStartsOn);
+      return { from, to: addDaysToKey(from, 6) };
+    }
+    case "month": {
+      const from = startOfWeekKey(startOfMonthKey(date), weekStartsOn);
+      return { from, to: addDaysToKey(from, 41) };
+    }
+    case "agenda":
+      return { from: date, to: addDaysToKey(date, 13) };
+  }
+}
+
+function titleFor(view: CalendarViewMode, date: string, weekStartsOn: number) {
+  if (view === "month") return formatKey(date, { month: "long", year: "numeric" });
+  if (view === "day") return formatKey(date, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+  const r = rangeFor(view, date, weekStartsOn);
+  return `${formatKey(r.from, { day: "numeric", month: "short" })} – ${formatKey(r.to, { day: "numeric", month: "short", year: "numeric" })}`;
+}
+
+function shift(view: CalendarViewMode, date: string, dir: 1 | -1) {
+  if (view === "month") return addMonthsToKey(date, dir);
+  if (view === "week") return addDaysToKey(date, 7 * dir);
+  if (view === "agenda") return addDaysToKey(date, 14 * dir);
+  return addDaysToKey(date, dir);
+}
+
+function daysBetween(from: string, to: string) {
+  const out: string[] = [];
+  for (let d = from; d <= to; d = addDaysToKey(d, 1)) out.push(d);
+  return out;
+}
+
+/** Events touching a given local day, with start/end minutes clipped to that day. */
+function eventsForDay(events: AppointmentListItem[], day: string, tz: string) {
+  return events
+    .filter((e) => dateKey(e.startsAt, tz) <= day && dateKey(new Date(new Date(e.endsAt).getTime() - 1), tz) >= day)
+    .map((e) => {
+      const startDay = dateKey(e.startsAt, tz);
+      const endDay = dateKey(new Date(new Date(e.endsAt).getTime() - 1), tz);
+      const start = startDay < day ? 0 : minutesOfDay(e.startsAt, tz);
+      const end = endDay > day ? 1440 : minutesOfDay(e.endsAt, tz) || 1440;
+      return { e, start, end: Math.max(end, start + 15) };
+    })
+    .sort((a, b) => a.start - b.start || b.end - a.end);
+}
+
+/** Side-by-side columns for overlapping events (classic calendar layout). */
+function layoutDay(items: ReturnType<typeof eventsForDay>) {
+  const out: { item: (typeof items)[number]; col: number; cols: number }[] = [];
+  let cluster: { item: (typeof items)[number]; col: number }[] = [];
+  let clusterEnd = -1;
+  const flush = () => {
+    const cols = Math.max(1, ...cluster.map((c) => c.col + 1));
+    for (const c of cluster) out.push({ ...c, cols });
+    cluster = [];
+  };
+  for (const item of items) {
+    if (item.start >= clusterEnd && cluster.length) flush();
+    const used = new Set(cluster.filter((c) => c.item.end > item.start).map((c) => c.col));
+    let col = 0;
+    while (used.has(col)) col++;
+    cluster.push({ item, col });
+    clusterEnd = Math.max(clusterEnd, item.end);
+  }
+  if (cluster.length) flush();
+  return out;
+}
+
+export function CalendarView({
+  tz,
+  weekStartsOn,
+  dayStartHour,
+  dayEndHour,
+  initialView,
+  initialDate,
+  initialFilters,
+  sales,
+  technicians,
+  statuses,
+  canCreate,
+  isTechnician,
+}: {
+  tz: string;
+  weekStartsOn: number;
+  dayStartHour: number;
+  dayEndHour: number;
+  initialView: CalendarViewMode | null;
+  initialDate: string;
+  initialFilters: { salesId?: string; technicianId?: string; status?: string };
+  sales: Person[];
+  technicians: Person[];
+  statuses: StatusDTO[];
+  canCreate: boolean;
+  isTechnician: boolean;
+}) {
+  const [view, setView] = useState<CalendarViewMode>(initialView ?? "week");
+  const [date, setDate] = useState(initialDate);
+  const [filters, setFilters] = useState(initialFilters);
+  const [events, setEvents] = useState<AppointmentListItem[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [selected, setSelected] = useState<AppointmentListItem | null>(null);
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null);
+  const [now, setNow] = useState(() => new Date());
+
+  // Small screens start in the agenda view unless a view was requested explicitly.
+  useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- viewport-dependent default
+    if (!initialView && window.matchMedia("(max-width: 767px)").matches) setView("agenda");
+  }, [initialView]);
+
+  const range = useMemo(() => rangeFor(view, date, weekStartsOn), [view, date, weekStartsOn]);
+
+  // Keep the URL in sync so a view can be bookmarked or shared.
+  useEffect(() => {
+    const p = new URLSearchParams({ view, date });
+    for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v);
+    window.history.replaceState(null, "", `?${p.toString()}`);
+  }, [view, date, filters]);
+
+  const load = useCallback(
+    async (signal?: AbortSignal, quiet = false) => {
+      if (!quiet) setLoading(true);
+      try {
+        const p = new URLSearchParams({ from: range.from, to: range.to });
+        for (const [k, v] of Object.entries(filters)) if (v) p.set(k, v);
+        const res = await api<{ events: AppointmentListItem[] }>(`/api/calendar?${p.toString()}`, { signal });
+        setEvents(res.events);
+        setError(null);
+        setLastUpdated(new Date());
+      } catch (e) {
+        if ((e as Error).name === "AbortError") return;
+        setError(e instanceof ApiError ? e.message : "Could not load the calendar.");
+      } finally {
+        if (!signal?.aborted) setLoading(false);
+      }
+    },
+    [range.from, range.to, filters],
+  );
+
+  useEffect(() => {
+    const ctrl = new AbortController();
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- fetching external data for the visible range
+    void load(ctrl.signal);
+    return () => ctrl.abort();
+  }, [load]);
+
+  // Poll for changes made by other users; refresh immediately when the tab becomes visible.
+  useEffect(() => {
+    const tick = () => {
+      if (document.visibilityState === "visible") {
+        void load(undefined, true);
+        setNow(new Date());
+      }
+    };
+    const t = setInterval(tick, 30_000);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      clearInterval(t);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, [load]);
+
+  const today = todayKey(tz, now);
+  const days = daysBetween(range.from, range.to);
+
+  const visibleHours = useMemo(() => {
+    let start = dayStartHour;
+    let end = dayEndHour;
+    if (view === "day" || view === "week") {
+      for (const d of days) {
+        for (const it of eventsForDay(events, d, tz)) {
+          start = Math.min(start, Math.floor(it.start / 60));
+          end = Math.max(end, Math.ceil(it.end / 60));
+        }
+      }
+    }
+    return { start, end: Math.min(24, Math.max(end, start + 1)) };
+  }, [events, days, tz, view, dayStartHour, dayEndHour]);
+
+  const setFilter = (k: keyof typeof filters, v: string) => setFilters((f) => ({ ...f, [k]: v || undefined }));
+
+  return (
+    <div className="space-y-4">
+      {/* Toolbar */}
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="flex rounded-lg border border-line bg-surface shadow-card">
+            <button type="button" onClick={() => setDate(shift(view, date, -1))} className="rounded-l-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Previous">
+              <ChevronLeft className="h-4 w-4" />
+            </button>
+            <button type="button" onClick={() => setDate(today)} className="border-x border-line px-3 text-sm font-medium hover:bg-surface-muted">
+              Today
+            </button>
+            <button type="button" onClick={() => setDate(shift(view, date, 1))} className="rounded-r-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Next">
+              <ChevronRight className="h-4 w-4" />
+            </button>
+          </div>
+          <h2 className="text-lg font-semibold text-fg" aria-live="polite">
+            {titleFor(view, date, weekStartsOn)}
+          </h2>
+          {loading && <Loader2 className="h-4 w-4 animate-spin text-fg-subtle" aria-label="Loading" />}
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          <div className="inline-flex rounded-lg border border-line bg-surface-muted p-0.5" role="tablist" aria-label="Calendar view">
+            {VIEWS.map((v) => (
+              <button
+                key={v.id}
+                type="button"
+                role="tab"
+                aria-selected={view === v.id}
+                onClick={() => setView(v.id)}
+                className={cn(
+                  "rounded-md px-3 py-1.5 text-sm font-medium transition-colors",
+                  view === v.id ? "bg-surface text-brand-text shadow-card" : "text-fg-muted hover:text-fg",
+                )}
+              >
+                {v.label}
+              </button>
+            ))}
+          </div>
+          <button type="button" onClick={() => load()} className={buttonClasses("outline", "icon")} title="Refresh">
+            <RefreshCw className="h-4 w-4" />
+            <span className="sr-only">Refresh</span>
+          </button>
+          {canCreate && (
+            <Link href={`/appointments/new?date=${date}`} className={buttonClasses("primary")}>
+              <Plus className="h-4 w-4" /> New
+            </Link>
+          )}
+        </div>
+      </div>
+
+      {/* Filters + Sales colour legend */}
+      <div className="rounded-xl border border-line bg-surface p-3 shadow-card">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5" aria-label="Sales colour legend">
+            <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-fg-subtle">Sales</span>
+            {sales.map((s) => {
+              const active = filters.salesId === s.id;
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => setFilter("salesId", active ? "" : s.id)}
+                  aria-pressed={active}
+                  className={cn(
+                    "inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs font-medium transition-colors",
+                    active ? "border-fg bg-surface-muted text-fg" : "border-transparent text-fg-muted hover:bg-surface-muted",
+                    filters.salesId && !active && "opacity-50",
+                  )}
+                  title={active ? "Show all Sales employees" : `Show only ${s.name}`}
+                >
+                  <span className="h-3 w-3 rounded-full ring-1 ring-black/10 dark:ring-white/20" style={{ backgroundColor: colorOrFallback(s.color) }} aria-hidden />
+                  {s.name}
+                  {s.isActive === false && <span className="text-fg-subtle">(inactive)</span>}
+                </button>
+              );
+            })}
+          </div>
+          <div className="flex flex-wrap gap-2">
+            {!isTechnician && (
+              <select
+                aria-label="Filter by technician"
+                value={filters.technicianId ?? ""}
+                onChange={(e) => setFilter("technicianId", e.target.value)}
+                className="h-9 rounded-lg border border-line-strong bg-surface px-2 text-sm"
+              >
+                <option value="">All technicians</option>
+                {technicians.map((t) => (
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                    {t.isActive === false ? " (inactive)" : ""}
+                  </option>
+                ))}
+              </select>
+            )}
+            <select
+              aria-label="Filter by status"
+              value={filters.status ?? ""}
+              onChange={(e) => setFilter("status", e.target.value)}
+              className="h-9 rounded-lg border border-line-strong bg-surface px-2 text-sm"
+            >
+              <option value="">All statuses</option>
+              {statuses.map((s) => (
+                <option key={s.id} value={s.id}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+      </div>
+
+      {error && <Alert tone="danger" title="Calendar could not be loaded">{error}</Alert>}
+
+      <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
+        {view === "month" && (
+          <MonthGrid days={days} month={date.slice(0, 7)} today={today} events={events} tz={tz} onSelect={setSelected} onDay={(d) => { setDate(d); setView("day"); }} canCreate={canCreate} />
+        )}
+        {(view === "week" || view === "day") && (
+          <TimeGrid days={days} today={today} events={events} tz={tz} hours={visibleHours} detailed={view === "day"} onSelect={setSelected} now={now} canCreate={canCreate} onDay={(d) => { setDate(d); setView("day"); }} />
+        )}
+        {view === "agenda" && <Agenda days={days} today={today} events={events} tz={tz} onSelect={setSelected} />}
+      </div>
+      <p className="text-right text-xs text-fg-subtle">
+        Times shown in {tz}. {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}; refreshes automatically.` : ""}
+      </p>
+
+      {selected && <DetailsPanel a={selected} tz={tz} onClose={() => setSelected(null)} />}
+    </div>
+  );
+}
+
+function EventChip({ a, tz, onSelect, compact }: { a: AppointmentListItem; tz: string; onSelect: (a: AppointmentListItem) => void; compact?: boolean }) {
+  const cancelled = a.status.kind === "CANCELLED";
+  return (
+    <button
+      type="button"
+      onClick={() => onSelect(a)}
+      className={cn("block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium leading-4", cancelled && "line-through opacity-50")}
+      style={chipColors(a.createdBy.color)}
+      title={`${timeRange(a.startsAt, a.endsAt, tz)} ${a.customerName} (${a.status.name})`}
+    >
+      {!compact && <span className="tabular-nums opacity-90">{timeRange(a.startsAt, a.endsAt, tz).split("–")[0]} </span>}
+      {a.customerName}
+    </button>
+  );
+}
+
+function MonthGrid({
+  days,
+  month,
+  today,
+  events,
+  tz,
+  onSelect,
+  onDay,
+  canCreate,
+}: {
+  days: string[];
+  month: string;
+  today: string;
+  events: AppointmentListItem[];
+  tz: string;
+  onSelect: (a: AppointmentListItem) => void;
+  onDay: (d: string) => void;
+  canCreate: boolean;
+}) {
+  const byDay = useMemo(() => {
+    const m = new Map<string, AppointmentListItem[]>();
+    for (const d of days) m.set(d, eventsForDay(events, d, tz).map((x) => x.e));
+    return m;
+  }, [days, events, tz]);
+  return (
+    <div>
+      <div className="grid grid-cols-7 border-b border-line bg-surface-muted/60">
+        {days.slice(0, 7).map((d) => (
+          <div key={d} className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-fg-subtle">
+            <span className="hidden sm:inline">{formatKey(d, { weekday: "short" })}</span>
+            <span className="sm:hidden">{formatKey(d, { weekday: "narrow" })}</span>
+          </div>
+        ))}
+      </div>
+      <div className="grid grid-cols-7">
+        {days.map((d) => {
+          const list = byDay.get(d) ?? [];
+          const inMonth = d.startsWith(month);
+          const max = 3;
+          return (
+            <div key={d} className={cn("group relative min-h-24 border-b border-r border-line p-1 sm:min-h-28 sm:p-1.5 [&:nth-child(7n)]:border-r-0", !inMonth && "bg-surface-muted/50")}>
+              <div className="mb-1 flex items-center justify-between">
+                <button
+                  type="button"
+                  onClick={() => onDay(d)}
+                  className={cn(
+                    "flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium hover:bg-surface-hover",
+                    d === today ? "bg-brand-strong text-white hover:bg-brand-stronger" : inMonth ? "text-fg" : "text-fg-subtle",
+                  )}
+                  aria-label={`Open ${formatKey(d, { weekday: "long", day: "numeric", month: "long" })}`}
+                >
+                  {Number(d.slice(8))}
+                </button>
+                {canCreate && (
+                  <Link href={`/appointments/new?date=${d}`} className="rounded p-0.5 text-fg-subtle opacity-0 hover:bg-surface-hover hover:text-fg group-hover:opacity-100 focus:opacity-100" aria-label={`New appointment on ${d}`}>
+                    <Plus className="h-3.5 w-3.5" />
+                  </Link>
+                )}
+              </div>
+              <div className="space-y-0.5">
+                {/* On phones show coloured dots instead of text chips. */}
+                <div className="flex flex-wrap gap-0.5 sm:hidden">
+                  {list.map((a) => (
+                    <button key={a.id} type="button" onClick={() => onSelect(a)} className="h-2 w-2 rounded-full" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-label={`${a.customerName} ${timeRange(a.startsAt, a.endsAt, tz)}`} />
+                  ))}
+                </div>
+                <div className="hidden space-y-0.5 sm:block">
+                  {list.slice(0, max).map((a) => (
+                    <EventChip key={a.id} a={a} tz={tz} onSelect={onSelect} />
+                  ))}
+                  {list.length > max && (
+                    <button type="button" onClick={() => onDay(d)} className="px-1.5 text-[11px] font-medium text-fg-muted hover:text-fg">
+                      +{list.length - max} more
+                    </button>
+                  )}
+                </div>
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+function TimeGrid({
+  days,
+  today,
+  events,
+  tz,
+  hours,
+  detailed,
+  onSelect,
+  now,
+  canCreate,
+  onDay,
+}: {
+  days: string[];
+  today: string;
+  events: AppointmentListItem[];
+  tz: string;
+  hours: { start: number; end: number };
+  detailed: boolean;
+  onSelect: (a: AppointmentListItem) => void;
+  now: Date;
+  canCreate: boolean;
+  onDay: (d: string) => void;
+}) {
+  const hourList = Array.from({ length: hours.end - hours.start }, (_, i) => hours.start + i);
+  const height = hourList.length * HOUR_PX;
+  const nowMin = minutesOfDay(now, tz);
+  return (
+    <div className="overflow-x-auto">
+      <div className={cn(!detailed && "min-w-[760px]")}>
+        <div className="sticky top-0 z-10 grid border-b border-line bg-surface-muted/80 backdrop-blur" style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0, 1fr))` }}>
+          <div />
+          {days.map((d) => (
+            <button key={d} type="button" onClick={() => onDay(d)} className="border-l border-line px-2 py-2 text-center hover:bg-surface-hover">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-fg-subtle">{formatKey(d, { weekday: "short" })}</span>
+              <span className={cn("mx-auto mt-0.5 flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold", d === today ? "bg-brand-strong text-white" : "text-fg")}>
+                {Number(d.slice(8))}
+              </span>
+            </button>
+          ))}
+        </div>
+        <div className="grid" style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0, 1fr))` }}>
+          <div className="relative" style={{ height }}>
+            {hourList.map((h, i) => (
+              <div key={h} className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-fg-subtle" style={{ top: i * HOUR_PX }}>
+                {i === 0 ? "" : `${String(h).padStart(2, "0")}:00`}
+              </div>
+            ))}
+          </div>
+          {days.map((d) => {
+            const items = layoutDay(eventsForDay(events, d, tz));
+            return (
+              <div key={d} className={cn("relative border-l border-line", d === today && "bg-brand-soft/30")} style={{ height }}>
+                {hourList.map((h, i) => (
+                  <div key={h} className="absolute inset-x-0 border-t border-line/70" style={{ top: i * HOUR_PX }}>
+                    {canCreate && (
+                      <Link
+                        href={`/appointments/new?date=${d}&time=${String(h).padStart(2, "0")}:00`}
+                        className="block opacity-0 hover:bg-surface-muted/60 hover:opacity-100 focus:opacity-100"
+                        style={{ height: HOUR_PX }}
+                        aria-label={`New appointment ${d} ${h}:00`}
+                        tabIndex={-1}
+                      />
+                    )}
+                  </div>
+                ))}
+                {items.map(({ item, col, cols }) => {
+                  const a = item.e;
+                  const top = ((item.start - hours.start * 60) / 60) * HOUR_PX;
+                  const h = Math.max(((item.end - item.start) / 60) * HOUR_PX - 2, 20);
+                  const cancelled = a.status.kind === "CANCELLED";
+                  return (
+                    <button
+                      key={a.id}
+                      type="button"
+                      onClick={() => onSelect(a)}
+                      className={cn(
+                        "absolute overflow-hidden rounded-md border border-black/10 px-1.5 py-1 text-left text-xs shadow-sm transition-[filter] hover:brightness-95 focus-visible:z-20 dark:border-white/10",
+                        cancelled && "opacity-50",
+                      )}
+                      style={{
+                        top,
+                        height: h,
+                        left: `calc(${(col / cols) * 100}% + 2px)`,
+                        width: `calc(${100 / cols}% - 4px)`,
+                        ...chipColors(a.createdBy.color),
+                      }}
+                      title={`${timeRange(a.startsAt, a.endsAt, tz)} · ${a.customerName} · ${a.status.name}`}
+                    >
+                      <span className={cn("block font-semibold leading-tight", cancelled && "line-through")}>{a.customerName}</span>
+                      <span className="block tabular-nums leading-tight opacity-90">{timeRange(a.startsAt, a.endsAt, tz)}</span>
+                      {h > 52 && <span className="block truncate leading-tight opacity-90">{productLine(a)}</span>}
+                      {detailed && h > 70 && (
+                        <span className="mt-0.5 block truncate leading-tight opacity-90">
+                          {a.technicians.map((t) => t.name).join(", ") || "Unassigned"}
+                          {a.area ? ` · ${a.area}` : ""}
+                        </span>
+                      )}
+                      {detailed && h > 88 && <span className="mt-0.5 block truncate leading-tight opacity-90">{a.status.name}</span>}
+                    </button>
+                  );
+                })}
+                {d === today && nowMin >= hours.start * 60 && nowMin <= hours.end * 60 && (
+                  <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: ((nowMin - hours.start * 60) / 60) * HOUR_PX }} aria-hidden>
+                    <span className="-ml-1 h-2.5 w-2.5 rounded-full bg-brand" />
+                    <span className="h-0.5 flex-1 bg-brand" />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Agenda({
+  days,
+  today,
+  events,
+  tz,
+  onSelect,
+}: {
+  days: string[];
+  today: string;
+  events: AppointmentListItem[];
+  tz: string;
+  onSelect: (a: AppointmentListItem) => void;
+}) {
+  const groups = days.map((d) => ({ d, list: events.filter((e) => dateKey(e.startsAt, tz) === d) })).filter((g) => g.list.length);
+  if (!groups.length) return <p className="px-6 py-14 text-center text-sm text-fg-muted">No appointments in this period.</p>;
+  return (
+    <div className="divide-y divide-line">
+      {groups.map(({ d, list }) => (
+        <section key={d} className="px-4 py-3 sm:px-5">
+          <h3 className={cn("mb-2 text-sm font-semibold", d === today ? "text-brand-text" : "text-fg")}>
+            {formatKey(d, { weekday: "long", day: "numeric", month: "long" })}
+            {d === today && " · Today"}
+            <span className="ml-2 font-normal text-fg-subtle">{list.length}</span>
+          </h3>
+          <ul className="space-y-2">
+            {list.map((a) => (
+              <li key={a.id}>
+                <button type="button" onClick={() => onSelect(a)} className="flex w-full gap-3 rounded-lg border border-line p-3 text-left hover:bg-surface-muted">
+                  <span className="w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-hidden />
+                  <span className="w-24 shrink-0 text-sm font-semibold tabular-nums">{timeRange(a.startsAt, a.endsAt, tz)}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="flex flex-wrap items-center gap-2">
+                      <span className={cn("font-medium", a.status.kind === "CANCELLED" && "line-through")}>{a.customerName}</span>
+                      <StatusBadge name={a.status.name} color={a.status.color} />
+                    </span>
+                    <span className="mt-0.5 block truncate text-sm text-fg-muted">{productLine(a)}</span>
+                    <span className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-fg-subtle">
+                      {(a.area || a.building) && (
+                        <span className="inline-flex items-center gap-1">
+                          <MapPin className="h-3 w-3" /> {[a.building, a.area].filter(Boolean).join(", ")}
+                        </span>
+                      )}
+                      <span className="inline-flex items-center gap-1">
+                        <Users className="h-3 w-3" /> {a.technicians.map((t) => t.name).join(", ") || "Unassigned"}
+                      </span>
+                    </span>
+                  </span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  );
+}
+
+function DetailsPanel({ a, tz, onClose }: { a: AppointmentListItem; tz: string; onClose: () => void }) {
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+  return (
+    <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={`Appointment ${a.code}`}>
+      <button type="button" className="absolute inset-0 bg-black/30" onClick={onClose} aria-label="Close details" />
+      <aside className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-line bg-surface shadow-pop">
+        <div className="h-1.5" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-hidden />
+        <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
+          <div>
+            <p className="text-xs font-medium text-fg-subtle">{a.code}</p>
+            <h2 className="text-lg font-semibold">{a.customerName}</h2>
+            <p className="text-sm text-fg-muted">
+              {formatKey(dateKey(a.startsAt, tz), { weekday: "long", day: "numeric", month: "long" })} · <span className="tabular-nums">{timeRange(a.startsAt, a.endsAt, tz)}</span>
+            </p>
+          </div>
+          <button type="button" onClick={onClose} className="rounded-md p-1 text-fg-subtle hover:bg-surface-muted" aria-label="Close">
+            <X className="h-5 w-5" />
+          </button>
+        </div>
+        <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4 text-sm">
+          <div className="flex flex-wrap items-center gap-2">
+            <StatusBadge name={a.status.name} color={a.status.color} />
+          </div>
+          <dl className="space-y-3">
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Installation</dt>
+              <dd className="mt-0.5">{productLine(a)}</dd>
+            </div>
+            {a.customerPhone && (
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Phone</dt>
+                <dd className="mt-0.5">{a.customerPhone}</dd>
+              </div>
+            )}
+            {(a.area || a.building) && (
+              <div>
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Location</dt>
+                <dd className="mt-0.5">{[a.building, a.area].filter(Boolean).join(", ")}</dd>
+              </div>
+            )}
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Technicians</dt>
+              <dd className="mt-0.5">{a.technicians.map((t) => t.name).join(", ") || <span className="text-warning">No technician assigned</span>}</dd>
+            </div>
+            <div>
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Sales employee</dt>
+              <dd className="mt-1">
+                <SalesTag name={a.createdBy.name} color={a.createdBy.color} inactive={!a.createdBy.isActive} />
+              </dd>
+            </div>
+          </dl>
+        </div>
+        <div className="border-t border-line p-4">
+          <Link href={`/appointments/${a.id}`} className={buttonClasses("primary", "md", "w-full")}>
+            Open full details <ExternalLink className="h-4 w-4" />
+          </Link>
+        </div>
+      </aside>
+    </div>
+  );
+}

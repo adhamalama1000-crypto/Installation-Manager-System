@@ -43,17 +43,19 @@ export const STATUS_KINDS: StatusKind[] = [
 
 export const DURATION_PRESETS = [30, 60, 90, 120, 180, 240, 360, 480];
 
-/** Calendar colours offered to admins for Sales employees (all readable with white or dark text). */
+/**
+ * Calendar colours offered to admins for Sales employees, in assignment order. Validated as a
+ * categorical palette (lightness band, chroma, colour-blind separation of neighbours, contrast)
+ * on both light and dark surfaces. Colours are always shown next to the employee's name.
+ */
 export const SALES_COLOR_SUGGESTIONS = [
   "#E55823",
   "#2563EB",
   "#059669",
   "#7C3AED",
-  "#DB2777",
+  "#A16207",
   "#0891B2",
-  "#CA8A04",
-  "#4B5563",
-  "#DC2626",
+  "#DB2777",
   "#65A30D",
 ];
 
