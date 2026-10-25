@@ -48,6 +48,8 @@ export default async function EditAppointmentPage({ params }: { params: Promise<
         canSeeInternalNotes={user.permissions.includes("notes.internal")}
         tz={tz}
         originalCreator={appt.createdBy}
+        closedWeekdays={user.settings.closedWeekdays}
+        isAdmin={user.role === "ADMIN"}
         initialLocations={locations.map((l) => ({
           id: l.id,
           area: l.area,

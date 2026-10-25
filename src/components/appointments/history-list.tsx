@@ -1,6 +1,6 @@
 import { History as HistoryIcon } from "lucide-react";
 import type { AuditEntryDTO } from "@/lib/types";
-import { PRODUCT_CATEGORY_LABELS } from "@/lib/constants";
+import { CONFIRMATION_LABELS, PRODUCT_CATEGORY_LABELS, VISIT_TYPE_LABELS } from "@/lib/constants";
 import { dateTime } from "@/lib/format";
 
 const FIELD_LABELS: Record<string, string> = {
@@ -17,6 +17,8 @@ const FIELD_LABELS: Record<string, string> = {
   "location.latitude": "Latitude",
   "location.longitude": "Longitude",
   productCategory: "Category",
+  visitType: "Visit type",
+  customerConfirmation: "Customer confirmation",
   categoryOther: "Category (other)",
   brand: "Brand",
   model: "Model",
@@ -46,6 +48,8 @@ export function formatAuditValue(v: unknown, tz: string, key?: string): string {
   if (v === null || v === undefined || v === "") return "—";
   if (typeof v === "string" && ISO_RE.test(v)) return dateTime(v, tz);
   if (key === "productCategory" && typeof v === "string") return PRODUCT_CATEGORY_LABELS[v as keyof typeof PRODUCT_CATEGORY_LABELS] ?? v;
+  if (key === "visitType" && typeof v === "string") return VISIT_TYPE_LABELS[v as keyof typeof VISIT_TYPE_LABELS] ?? v;
+  if (key === "customerConfirmation" && typeof v === "string") return CONFIRMATION_LABELS[v as keyof typeof CONFIRMATION_LABELS] ?? v;
   if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
   if (typeof v === "boolean") return v ? "Yes" : "No";
   if (typeof v === "object") return JSON.stringify(v);

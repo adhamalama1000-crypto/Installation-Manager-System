@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 import { HEX_COLOR_RE } from "./colors";
-import { PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, phoneDigits } from "./constants";
+import { CONFIRMATIONS, PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, VISIT_TYPES, phoneDigits } from "./constants";
 import { checkMapUrl, isValidLatitude, isValidLongitude } from "./maps";
 import { VIEWER_GRANTABLE } from "./permissions";
 import { TIME_RE, isValidDateString, isValidTimeZone } from "./time";
@@ -90,6 +90,12 @@ export const appointmentInputSchema = z
     customer: customerInputSchema,
     location: locationInputSchema,
     productCategory: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: "Choose a product category" }),
+    visitType: z.preprocess((v) => (v === "" ? null : v), z.enum(VISIT_TYPES as [string, ...string[]], { error: "Choose a visit type" }).nullable().optional()),
+    customerConfirmation: z.enum(CONFIRMATIONS as [string, ...string[]]).optional(),
+    /** Create only: the earlier appointment this visit follows up. */
+    followUpOfId: idField.optional().nullable(),
+    /** Admin only: book on a weekday configured as closed. */
+    allowClosedDay: z.boolean().optional(),
     categoryOther: optionalText(120),
     brand: optionalText(120),
     model: optionalText(120),
@@ -123,6 +129,11 @@ export const statusChangeSchema = z.object({
   statusId: idField,
   version: z.number().int().positive().optional(),
   note: optionalText(1000),
+});
+
+export const confirmationSchema = z.object({
+  confirmation: z.enum(CONFIRMATIONS as [string, ...string[]], { error: "Choose a confirmation status" }),
+  version: z.number().int().positive().optional(),
 });
 
 export const cancelSchema = z.object({
@@ -214,6 +225,11 @@ export const settingsSchema = z
     salesCanViewReports: z.boolean(),
     salesCanEditOthersAppointments: z.boolean(),
     technicianCanSeeContacts: z.boolean(),
+    /** Weekdays (0 = Sunday ... 6 = Saturday) on which no visits can be booked. */
+    closedWeekdays: z
+      .array(z.coerce.number().int().min(0).max(6))
+      .max(6, "At least one day must stay open")
+      .refine((d) => new Set(d).size === d.length, "A day was selected twice"),
   })
   .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: "Must be after the start hour" });
 

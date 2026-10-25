@@ -19,6 +19,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   salesCanViewReports: true,
   salesCanEditOthersAppointments: true,
   technicianCanSeeContacts: true,
+  closedWeekdays: [],
 };
 
 /** Stored settings JSON (or null when never saved) merged over the defaults. */

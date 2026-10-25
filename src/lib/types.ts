@@ -1,4 +1,4 @@
-import type { ProductCategory, Role, StatusKind } from "@prisma/client";
+import type { CustomerConfirmation, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
 
 export type StatusDTO = {
   id: string;
@@ -34,6 +34,11 @@ export type AppointmentDTO = {
   code: string;
   productCategory: ProductCategory;
   categoryOther: string | null;
+  visitType: VisitType | null;
+  customerConfirmation: CustomerConfirmation;
+  /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
+  followUpOf: { id: string; code: string } | null;
+  followUps: { id: string; code: string; startsAt: string; status: { name: string; color: string; kind: StatusKind } }[];
   brand: string | null;
   model: string | null;
   description: string | null;
@@ -76,6 +81,8 @@ export type AppointmentListItem = {
   building?: string | null;
   productCategory: ProductCategory;
   categoryOther: string | null;
+  visitType: VisitType | null;
+  customerConfirmation: CustomerConfirmation;
   brand: string | null;
   model: string | null;
   status: Pick<StatusDTO, "id" | "name" | "kind" | "color">;

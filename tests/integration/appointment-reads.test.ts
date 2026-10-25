@@ -182,6 +182,8 @@ describe("appointment list SQL", () => {
       hasLocation: Boolean(a.location.mapUrl || a.location.latitude !== null),
       productCategory: a.productCategory,
       categoryOther: a.categoryOther,
+      visitType: a.visitType,
+      customerConfirmation: a.customerConfirmation,
       brand: a.brand,
       model: a.model,
       status: { id: a.status.id, name: a.status.name, kind: a.status.kind, color: a.status.color },

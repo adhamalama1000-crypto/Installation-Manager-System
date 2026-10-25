@@ -17,14 +17,25 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { ProductCategory } from "@prisma/client";
+import type { CustomerConfirmation, ProductCategory, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert, Badge, SalesTag } from "@/components/ui/misc";
 import { api, ApiError } from "@/lib/api-client";
 import { colorOrFallback } from "@/lib/colors";
-import { DURATION_PRESETS, PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, minutesLabel } from "@/lib/constants";
+import {
+  CONFIRMATIONS,
+  CONFIRMATION_LABELS,
+  DURATION_PRESETS,
+  PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORY_LABELS,
+  VISIT_TYPES,
+  VISIT_TYPE_LABELS,
+  WEEKDAY_NAMES,
+  minutesLabel,
+} from "@/lib/constants";
+import { weekdayOfKey } from "@/lib/time";
 import { timeRange } from "@/lib/format";
 import { checkMapUrl, extractCoordinates } from "@/lib/maps";
 import type { AppointmentDTO, ConflictDTO, StatusDTO } from "@/lib/types";
@@ -72,6 +83,9 @@ export function AppointmentForm({
   tz,
   originalCreator,
   initialLocations = [],
+  closedWeekdays = [],
+  isAdmin = false,
+  followUpOf,
 }: {
   mode: "create" | "edit";
   initial: FormValues;
@@ -87,6 +101,11 @@ export function AppointmentForm({
   originalCreator?: { name: string; color: string | null; isActive: boolean };
   /** Saved sites of the customer being edited. */
   initialLocations?: SavedLocation[];
+  /** Weekdays (0 = Sunday) that cannot be booked (Settings). */
+  closedWeekdays?: number[];
+  isAdmin?: boolean;
+  /** Code of the visit this one follows up (create only). */
+  followUpOf?: { id: string; code: string };
 }) {
   const router = useRouter();
   const [v, setV] = useState<FormValues>(initial);
@@ -99,6 +118,7 @@ export function AppointmentForm({
   const [checking, setChecking] = useState(false);
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>(initialLocations);
   const [customDuration, setCustomDuration] = useState(!DURATION_PRESETS.includes(initial.durationMinutes));
+  const [allowClosedDay, setAllowClosedDay] = useState(false);
   const requestId = useRef<string>("");
   const techSection = useRef<HTMLDivElement>(null);
 
@@ -158,6 +178,7 @@ export function AppointmentForm({
     };
   }, [v.date, v.startTime, v.durationMinutes, appointmentId]);
 
+  const closedDay = /^\d{4}-\d{2}-\d{2}$/.test(v.date) && closedWeekdays.includes(weekdayOfKey(v.date));
   const selectedStatus = statuses.find((st) => st.id === v.statusId);
   const statusBlocks = selectedStatus ? selectedStatus.blocksSchedule : true;
   const end = addMinutesToTime(v.startTime, v.durationMinutes);
@@ -180,6 +201,10 @@ export function AppointmentForm({
       customer: v.customer,
       location: v.location,
       productCategory: v.productCategory,
+      visitType: v.visitType || null,
+      customerConfirmation: v.customerConfirmation,
+      followUpOfId: mode === "create" ? v.followUpOfId : undefined,
+      allowClosedDay: isAdmin && closedDay ? allowClosedDay : undefined,
       categoryOther: v.categoryOther,
       brand: v.brand,
       model: v.model,
@@ -252,6 +277,11 @@ export function AppointmentForm({
   return (
     <form onSubmit={submit} noValidate className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
       <div className="space-y-6">
+        {followUpOf && (
+          <Alert tone="info" title={`Follow-up visit for ${followUpOf.code}`}>
+            The customer, site and installation details were copied from the earlier visit. The two appointments are linked.
+          </Alert>
+        )}
         {formError && (
           <Alert tone="danger" title="Could not save">
             {formError}
@@ -450,15 +480,27 @@ export function AppointmentForm({
                 )}
               </Field>
             </div>
+            <div data-field="visitType">
+              <Field label="Visit type" error={err("visitType")}>
+                {(p) => (
+                  <Select {...p} value={v.visitType} onChange={(e) => set("visitType", e.target.value as VisitType | "")}>
+                    <option value="">Not specified</option>
+                    {VISIT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {VISIT_TYPE_LABELS[t]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
             {v.productCategory === "OTHER" ? (
               <div data-field="categoryOther">
                 <Field label="Describe the category" required error={err("categoryOther")}>
                   {(p) => <Input {...p} value={v.categoryOther} onChange={(e) => set("categoryOther", e.target.value)} />}
                 </Field>
               </div>
-            ) : (
-              <div className="hidden sm:block" />
-            )}
+            ) : null}
             <div data-field="brand">
               <Field label="Brand" error={err("brand")}>
                 {(p) => <Input {...p} value={v.brand} onChange={(e) => set("brand", e.target.value)} />}
@@ -504,6 +546,20 @@ export function AppointmentForm({
                 {(p) => <Input {...p} type="date" value={v.date} onChange={(e) => set("date", e.target.value)} />}
               </Field>
             </div>
+            {closedDay && (
+              <div className="sm:col-span-2">
+                <Alert tone="warning" title={`${WEEKDAY_NAMES[weekdayOfKey(v.date)]} is a closed day`}>
+                  {isAdmin ? (
+                    <label className="mt-1 flex items-center gap-2">
+                      <input type="checkbox" checked={allowClosedDay} onChange={(e) => setAllowClosedDay(e.target.checked)} className="h-4 w-4 accent-[var(--brand-strong)]" />
+                      Book on a closed day anyway
+                    </label>
+                  ) : (
+                    "Choose another date."
+                  )}
+                </Alert>
+              </div>
+            )}
             <div data-field="startTime">
               <Field label="Start time" required error={err("startTime")}>
                 {(p) => <Input {...p} type="time" step={300} value={v.startTime} onChange={(e) => set("startTime", e.target.value)} />}
@@ -568,6 +624,19 @@ export function AppointmentForm({
                           {st.name}
                         </option>
                       ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <div data-field="customerConfirmation" className="sm:col-span-2">
+              <Field label="Customer confirmation" error={err("customerConfirmation")}>
+                {(p) => (
+                  <Select {...p} value={v.customerConfirmation} onChange={(e) => set("customerConfirmation", e.target.value as CustomerConfirmation)}>
+                    {CONFIRMATIONS.map((c) => (
+                      <option key={c} value={c}>
+                        {CONFIRMATION_LABELS[c]}
+                      </option>
+                    ))}
                   </Select>
                 )}
               </Field>

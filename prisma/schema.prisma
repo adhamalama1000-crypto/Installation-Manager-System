@@ -31,6 +31,23 @@ enum ProductCategory {
   OTHER
 }
 
+/// What the visit is for (Aura: معاينة / تركيب / تكملة / برمجة / صيانة).
+enum VisitType {
+  INSPECTION
+  INSTALLATION
+  COMPLETION
+  PROGRAMMING
+  MAINTENANCE
+}
+
+/// Whether the customer has confirmed the booked time.
+enum CustomerConfirmation {
+  PENDING
+  CONFIRMED
+  RESCHEDULE_REQUESTED
+  UNREACHABLE
+}
+
 /// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
 /// reports so admins can rename or add statuses without breaking the statistics.
 enum StatusKind {
@@ -208,16 +225,23 @@ model Appointment {
   locationId String
   location   CustomerLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
 
-  productCategory   ProductCategory
+  productCategory      ProductCategory
+  /// Null for appointments booked before visit types existed.
+  visitType            VisitType?
+  customerConfirmation CustomerConfirmation @default(PENDING)
+  /// The earlier visit this one continues (a repeat / follow-up visit).
+  followUpOfId         String?
+  followUpOf           Appointment?         @relation("FollowUp", fields: [followUpOfId], references: [id], onDelete: Restrict)
+  followUps            Appointment[]        @relation("FollowUp")
   /// Free-text category when productCategory = OTHER.
-  categoryOther     String?
-  brand             String?
-  model             String?
-  description       String?
-  requiredEquipment String?
-  additionalNotes   String?
+  categoryOther        String?
+  brand                String?
+  model                String?
+  description          String?
+  requiredEquipment    String?
+  additionalNotes      String?
   /// Visible only to roles allowed to see internal notes.
-  internalNotes     String?
+  internalNotes        String?
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -252,6 +276,7 @@ model Appointment {
   @@index([customerId])
   @@index([locationId])
   @@index([productCategory])
+  @@index([followUpOfId])
   @@map("appointments")
 }
 

@@ -1,5 +1,5 @@
 import "server-only";
-import { Prisma, type ProductCategory, type StatusKind } from "@prisma/client";
+import { Prisma, type CustomerConfirmation, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
 import { appointmentCode, parseAppointmentCode, phoneDigits } from "@/lib/constants";
 import type { AppointmentListItem } from "@/lib/types";
 import { dayRangeUtc } from "@/lib/time";
@@ -80,6 +80,8 @@ type ListRow = {
   durationMinutes: number;
   productCategory: ProductCategory;
   categoryOther: string | null;
+  visitType: VisitType | null;
+  customerConfirmation: CustomerConfirmation;
   brand: string | null;
   model: string | null;
   customerName: string;
@@ -133,6 +135,7 @@ export async function appointmentListRows(
       GROUP BY at."appointmentId"
     )
     SELECT a.id, a.number, a."startsAt", a."endsAt", a."durationMinutes", a."productCategory", a."categoryOther", a.brand, a.model,
+           a."visitType", a."customerConfirmation",
            c.name AS "customerName", c.phone AS "customerPhone",
            l.area, l.building, (l."mapUrl" IS NOT NULL OR l.latitude IS NOT NULL) AS "hasLocation",
            s.id AS "statusId", s.name AS "statusName", s.kind AS "statusKind", s.color AS "statusColor",
@@ -159,6 +162,8 @@ export async function appointmentListRows(
     ...(canLocation ? { area: r.area, building: r.building, hasLocation: r.hasLocation } : {}),
     productCategory: r.productCategory,
     categoryOther: r.categoryOther,
+    visitType: r.visitType,
+    customerConfirmation: r.customerConfirmation,
     brand: r.brand,
     model: r.model,
     status: { id: r.statusId, name: r.statusName, kind: r.statusKind, color: r.statusColor },

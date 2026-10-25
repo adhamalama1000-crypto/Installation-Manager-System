@@ -23,6 +23,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   const monthStart = startOfMonthKey(today);
   const monthRange = dayRangeUtc(monthStart, addDaysToKey(addMonthsToKey(monthStart, 1), -1), tz);
   const weekAhead = dayRangeUtc(today, addDaysToKey(today, 7), tz).end;
+  const endOfTomorrow = dayRangeUtc(today, addDaysToKey(today, 1), tz).end;
   const scope = appointmentScope(user);
   const scopeSql = appointmentScopeSql(user);
   const notCancelled: Prisma.AppointmentWhereInput = { status: { kind: { not: "CANCELLED" } } };
@@ -31,7 +32,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   const upcomingWeek = Prisma.sql`${scopeSql} AND s.kind <> 'CANCELLED' AND a."startsAt" >= ${now} AND a."startsAt" < ${weekAhead}`;
 
   // Everything is independent, so it all runs in a single round trip.
-  const [todayCount, upcoming, scheduled, completed, postponed, cancelled, overdue, unassigned, noLocation, todays] = await Promise.all([
+  const [todayCount, upcoming, scheduled, completed, postponed, cancelled, overdue, unassigned, noLocation, unconfirmed, todays] = await Promise.all([
     count({ ...notCancelled, startsAt: { gte: todayRange.start, lt: todayRange.end } }),
     count({ ...notCancelled, startsAt: { gte: now }, status: { kind: { notIn: ["CANCELLED", "COMPLETED", "UNABLE_TO_COMPLETE"] } } }),
     count({ status: { kind: "SCHEDULED" }, startsAt: { gte: todayRange.start } }),
@@ -54,6 +55,13 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
     hasPermission(user, "location.view")
       ? appointmentListRows(user, Prisma.sql`${upcomingWeek} AND l."mapUrl" IS NULL AND l.latitude IS NULL`, soonest, 20)
       : Promise.resolve([]),
+    appointmentListRows(
+      user,
+      Prisma.sql`${scopeSql} AND s.kind IN ('SCHEDULED', 'IN_PROGRESS') AND a."startsAt" >= ${now} AND a."startsAt" < ${endOfTomorrow}
+        AND a."customerConfirmation" <> 'CONFIRMED'`,
+      soonest,
+      20,
+    ),
     calendarAppointments(user, { from: today, to: today }),
   ]);
 
@@ -69,6 +77,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   push(overdue, "Past end time - status not updated");
   push(unassigned, "No technician assigned");
   push(noLocation, "No map location saved");
+  push(unconfirmed, "Customer has not confirmed - call before the visit");
 
   return {
     today,

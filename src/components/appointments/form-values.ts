@@ -1,4 +1,4 @@
-import type { ProductCategory } from "@prisma/client";
+import type { CustomerConfirmation, ProductCategory, VisitType } from "@prisma/client";
 import type { AppointmentDTO } from "@/lib/types";
 import { dateKey, timeKey } from "@/lib/time";
 
@@ -17,6 +17,10 @@ export type FormValues = {
     longitude: string;
   };
   productCategory: ProductCategory | "";
+  visitType: VisitType | "";
+  customerConfirmation: CustomerConfirmation;
+  /** Create only: the visit this one follows up. */
+  followUpOfId: string | null;
   categoryOther: string;
   brand: string;
   model: string;
@@ -50,6 +54,9 @@ export function valuesFromAppointment(a: AppointmentDTO, tz: string): FormValues
       longitude: a.location?.longitude != null ? String(a.location.longitude) : "",
     },
     productCategory: a.productCategory,
+    visitType: a.visitType ?? "",
+    customerConfirmation: a.customerConfirmation,
+    followUpOfId: null,
     categoryOther: s(a.categoryOther),
     brand: s(a.brand),
     model: s(a.model),
@@ -72,6 +79,9 @@ export function emptyValues(opts: { date: string; durationMinutes: number; statu
     customer: { id: null, name: "", phone: "", secondaryPhone: "" },
     location: { id: null, area: "", streetAddress: "", building: "", apartment: "", floor: "", accessInstructions: "", mapUrl: "", latitude: "", longitude: "" },
     productCategory: "",
+    visitType: "INSTALLATION",
+    customerConfirmation: "PENDING",
+    followUpOfId: null,
     categoryOther: "",
     brand: "",
     model: "",

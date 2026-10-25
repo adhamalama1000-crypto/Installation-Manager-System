@@ -1,14 +1,15 @@
 import "server-only";
-import { Prisma, type AppointmentStatus, type ProductCategory } from "@prisma/client";
+import { Prisma, type AppointmentStatus, type CustomerConfirmation, type ProductCategory, type VisitType } from "@prisma/client";
 import { z } from "zod";
-import { PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, appointmentCode, parseAppointmentCode, phoneDigits } from "@/lib/constants";
+import { CONFIRMATION_LABELS, PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, WEEKDAY_NAMES, appointmentCode, parseAppointmentCode, phoneDigits } from "@/lib/constants";
 import { resolveLocationLink } from "@/lib/maps";
 import { type Permission } from "@/lib/permissions";
 import type { AppointmentDTO, AppointmentListItem, AuditEntryDTO } from "@/lib/types";
-import { computeEnd, dayRangeUtc, fmt, isValidDateString, zonedToUtc } from "@/lib/time";
+import { computeEnd, dateKey, dayRangeUtc, fmt, isValidDateString, weekdayOfKey, zonedToUtc } from "@/lib/time";
 import {
   appointmentInputSchema,
   cancelSchema,
+  confirmationSchema,
   fieldErrorsFromZod,
   statusChangeSchema,
   type AppointmentInput,
@@ -51,8 +52,11 @@ export const appointmentInclude = {
 
 type AppointmentFull = Prisma.AppointmentGetPayload<{ include: typeof appointmentInclude }>;
 
-/** What the DTO needs: the appointment, its relations and the assigned technicians. */
-type AppointmentView = Omit<AppointmentFull, "technicians"> & { technicians: Pick<AppointmentFull["technicians"][number], "technician">[] };
+/** What the DTO needs: the appointment, its relations, the assigned technicians and linked visits. */
+type AppointmentView = Omit<AppointmentFull, "technicians"> & {
+  technicians: Pick<AppointmentFull["technicians"][number], "technician">[];
+  links: Pick<AppointmentDTO, "followUpOf" | "followUps">;
+};
 
 const TX_OPTIONS = { timeout: 20_000, maxWait: 10_000 };
 
@@ -81,6 +85,10 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     code: appointmentCode(a.number),
     productCategory: a.productCategory,
     categoryOther: a.categoryOther,
+    visitType: a.visitType,
+    customerConfirmation: a.customerConfirmation,
+    followUpOf: a.links.followUpOf,
+    followUps: a.links.followUps,
     brand: a.brand,
     model: a.model,
     description: a.description,
@@ -272,7 +280,8 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
   // plain 404, exactly as if the ID did not exist.
   const appt = await prisma.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] } });
   if (!appt) throw new NotFoundError("Appointment not found.");
-  const [customer, location, status, people, technicians] = await Promise.all([
+  const scope = appointmentScope(user);
+  const [customer, location, status, people, technicians, followUpOf, followUps] = await Promise.all([
     prisma.customer.findUniqueOrThrow({ where: { id: appt.customerId } }),
     prisma.customerLocation.findUniqueOrThrow({ where: { id: appt.locationId } }),
     prisma.appointmentStatus.findUniqueOrThrow({ where: { id: appt.statusId } }),
@@ -281,6 +290,15 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
       where: { assignments: { some: { appointmentId: appt.id } } },
       select: userRefSelect,
       orderBy: { name: "asc" },
+    }),
+    appt.followUpOfId
+      ? prisma.appointment.findFirst({ where: { AND: [{ id: appt.followUpOfId }, scope] }, select: { id: true, number: true } })
+      : Promise.resolve(null),
+    prisma.appointment.findMany({
+      where: { AND: [{ followUpOfId: appt.id }, scope] },
+      select: { id: true, number: true, startsAt: true, status: { select: { name: true, color: true, kind: true } } },
+      orderBy: { startsAt: "asc" },
+      take: 20,
     }),
   ]);
   const person = (pid: string) => people.find((p) => p.id === pid)!;
@@ -292,6 +310,10 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
     createdBy: person(appt.createdById),
     updatedBy: appt.updatedById ? { id: appt.updatedById, name: person(appt.updatedById).name } : null,
     technicians: technicians.map((technician) => ({ technician })),
+    links: {
+      followUpOf: followUpOf ? { id: followUpOf.id, code: appointmentCode(followUpOf.number) } : null,
+      followUps: followUps.map((f) => ({ id: f.id, code: appointmentCode(f.number), startsAt: f.startsAt.toISOString(), status: f.status })),
+    },
   };
 }
 
@@ -435,6 +457,8 @@ function snapshot(a: AppointmentFull | null) {
     "location.longitude": a.location.longitude,
     productCategory: a.productCategory,
     categoryOther: a.categoryOther,
+    visitType: a.visitType,
+    customerConfirmation: a.customerConfirmation,
     brand: a.brand,
     model: a.model,
     description: a.description,
@@ -442,6 +466,17 @@ function snapshot(a: AppointmentFull | null) {
     additionalNotes: a.additionalNotes,
     internalNotes: a.internalNotes,
   };
+}
+
+/** Closed weekdays (Settings) cannot be booked; only an Admin may book one, and only explicitly. */
+function assertOpenDay(user: CurrentUser, date: string, closedWeekdays: number[], allowClosedDay: boolean | undefined) {
+  const day = weekdayOfKey(date);
+  if (!closedWeekdays.includes(day)) return;
+  if (user.role === "ADMIN" && allowClosedDay) return;
+  throw new ValidationError(
+    { date: `${WEEKDAY_NAMES[day]} is a closed day.${user.role === "ADMIN" ? " Tick \"Book on a closed day\" to book it anyway." : " Choose another date."}` },
+    "This date is a closed day.",
+  );
 }
 
 function whenLabel(startsAt: Date, endsAt: Date, tz: string) {
@@ -503,6 +538,10 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
 
   const startsAt = zonedToUtc(input.date, input.startTime, tz);
   const endsAt = computeEnd(startsAt, input.durationMinutes);
+  if (input.followUpOfId) {
+    const original = await prisma.appointment.findFirst({ where: { AND: [{ id: input.followUpOfId }, appointmentScope(user)] }, select: { id: true } });
+    if (!original) throw new ValidationError({ followUpOfId: "The original appointment no longer exists." });
+  }
 
   try {
     const id = await prisma.$transaction(async (tx) => {
@@ -514,6 +553,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         if (existing) return existing.id;
       }
       const status = await resolveStatus(tx, input.statusId);
+      if (status.blocksSchedule) assertOpenDay(user, input.date, settings.closedWeekdays, input.allowClosedDay);
       await validateTechnicians(tx, input.technicianIds, []);
       await lockTechnicians(tx, input.technicianIds);
       if (status.blocksSchedule) {
@@ -532,6 +572,9 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
           locationId: location.id,
           productCategory: input.productCategory as ProductCategory,
           categoryOther: input.productCategory === "OTHER" ? input.categoryOther : null,
+          visitType: (input.visitType as VisitType | null | undefined) ?? null,
+          customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? "PENDING",
+          followUpOfId: input.followUpOfId ?? null,
           brand: input.brand,
           model: input.model,
           description: input.description,
@@ -634,6 +677,9 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
     await prisma.$transaction(async (tx) => {
       const existing = await loadForUpdate(tx, user, id, input.version);
       const status = await resolveStatus(tx, input.statusId, existing.status);
+      if (status.blocksSchedule && dateKey(existing.startsAt, tz) !== input.date) {
+        assertOpenDay(user, input.date, settings.closedWeekdays, input.allowClosedDay);
+      }
       const currentTechIds = existing.technicians.map((t) => t.technicianId);
       await validateTechnicians(tx, input.technicianIds, currentTechIds);
       await lockTechnicians(tx, [...currentTechIds, ...input.technicianIds]);
@@ -656,6 +702,9 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           locationId: location.id,
           productCategory: input.productCategory as ProductCategory,
           categoryOther: input.productCategory === "OTHER" ? input.categoryOther : null,
+          visitType: input.visitType === undefined ? existing.visitType : ((input.visitType as VisitType | null) ?? null),
+          customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? existing.customerConfirmation,
+          // followUpOfId is set at creation only.
           brand: input.brand,
           model: input.model,
           description: input.description,
@@ -869,6 +918,37 @@ export async function cancelAppointment(user: CurrentUser, id: string, raw: unkn
   const parsed = cancelSchema.safeParse(raw ?? {});
   if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
   return applyStatusChange(user, id, { kind: "CANCELLED" }, parsed.data.version, parsed.data.reason);
+}
+
+/** Records whether the customer confirmed the booked time (quick action on the details page). */
+export async function setCustomerConfirmation(user: CurrentUser, id: string, raw: unknown): Promise<AppointmentDTO> {
+  assertCan(user, "appointments.manage");
+  const parsed = confirmationSchema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
+  const next = parsed.data.confirmation as CustomerConfirmation;
+  try {
+    await prisma.$transaction(async (tx) => {
+      const existing = await loadForUpdate(tx, user, id, parsed.data.version);
+      if (existing.customerConfirmation === next) return;
+      await tx.appointment.update({
+        where: { id, version: existing.version },
+        data: { customerConfirmation: next, updatedById: user.id, version: { increment: 1 } },
+      });
+      await recordAudit(tx, {
+        entityType: "APPOINTMENT",
+        entityId: id,
+        appointmentId: id,
+        action: "CONFIRMATION_CHANGED",
+        summary: `${appointmentCode(existing.number)}: ${CONFIRMATION_LABELS[next]}`,
+        changes: { customerConfirmation: { from: existing.customerConfirmation, to: next } },
+        actorId: user.id,
+      });
+    }, TX_OPTIONS);
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") throw new StaleRecordError();
+    throw e;
+  }
+  return getAppointment(user, id);
 }
 
 export function categoryLabel(a: { productCategory: ProductCategory; categoryOther: string | null }) {

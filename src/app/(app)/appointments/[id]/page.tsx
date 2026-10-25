@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { CalendarClock, ExternalLink, History, MapPin, MapPinOff, Navigation, Package, Phone, User } from "lucide-react";
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
+import { ConfirmationControl } from "@/components/appointments/confirmation-control";
 import { HistoryList } from "@/components/appointments/history-list";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Alert, Badge, DefinitionList, PageHeader, SalesTag, StatusBadge } from "@/components/ui/misc";
 import { colorOrFallback } from "@/lib/colors";
-import { minutesLabel } from "@/lib/constants";
-import { categoryText, dateTime, longDate, timeRange } from "@/lib/format";
+import { VISIT_TYPE_LABELS, minutesLabel } from "@/lib/constants";
+import { categoryText, dateTime, longDate, shortDate, timeRange } from "@/lib/format";
 import { requirePagePermission } from "@/server/auth/session";
 import { getAppointment, getAppointmentHistory } from "@/server/services/appointments";
 import { listStatuses } from "@/server/services/statuses";
@@ -138,6 +139,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
             <CardBody>
               <DefinitionList
                 items={[
+                  { label: "Visit type", value: a.visitType ? VISIT_TYPE_LABELS[a.visitType] : null },
                   { label: "Category", value: categoryText(a) },
                   { label: "Brand / model", value: [a.brand, a.model].filter(Boolean).join(" ") || null },
                   { label: "Description", value: a.description && <span className="whitespace-pre-line">{a.description}</span>, full: true },
@@ -205,6 +207,31 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
                   { label: "Time", value: <span className="tabular-nums">{timeRange(a.startsAt, a.endsAt, tz)}</span> },
                   { label: "Duration", value: minutesLabel(a.durationMinutes) },
                   { label: "Status", value: <StatusBadge name={a.status.name} color={a.status.color} /> },
+                  {
+                    label: "Customer confirmation",
+                    value: <ConfirmationControl id={a.id} version={a.version} value={a.customerConfirmation} canManage={a.canManage && !cancelled} />,
+                  },
+                  ...(a.followUpOf
+                    ? [{ label: "Follow-up of", value: <Link href={`/appointments/${a.followUpOf.id}`} className="font-mono text-brand-text hover:underline">{a.followUpOf.code}</Link> }]
+                    : []),
+                  ...(a.followUps.length
+                    ? [
+                        {
+                          label: "Follow-up visits",
+                          value: (
+                            <ul className="space-y-1">
+                              {a.followUps.map((f) => (
+                                <li key={f.id} className="flex flex-wrap items-center gap-2">
+                                  <Link href={`/appointments/${f.id}`} className="font-mono text-brand-text hover:underline">{f.code}</Link>
+                                  <span className="text-fg-muted">{shortDate(f.startsAt, tz)}</span>
+                                  <StatusBadge name={f.status.name} color={f.status.color} />
+                                </li>
+                              ))}
+                            </ul>
+                          ),
+                        },
+                      ]
+                    : []),
                   { label: "Original Sales creator", value: <SalesTag name={a.createdBy.name} color={a.createdBy.color} inactive={!a.createdBy.isActive} /> },
                   {
                     label: "Assigned technicians",

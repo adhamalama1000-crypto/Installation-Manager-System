@@ -78,6 +78,27 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
           {(p) => <Input {...p} type="number" min={0} max={240} step={5} value={v.travelBufferMinutes} onChange={(e) => upd({ travelBufferMinutes: Number(e.target.value) })} />}
         </Field>
       </div>
+      <fieldset>
+        <legend className="mb-2 text-sm font-medium text-fg">Closed days</legend>
+        <p className="mb-2 text-xs text-fg-muted">No visits can be booked on these weekdays. Admins can still book one when needed.</p>
+        <div className="flex flex-wrap gap-2">
+          {WEEKDAYS.map((d, i) => {
+            const on = v.closedWeekdays.includes(i);
+            return (
+              <label key={d} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${on ? "border-brand bg-brand-soft text-fg" : "border-line text-fg-muted"}`}>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[var(--brand-strong)]"
+                  checked={on}
+                  onChange={(e) => upd({ closedWeekdays: e.target.checked ? [...v.closedWeekdays, i].sort() : v.closedWeekdays.filter((x) => x !== i) })}
+                />
+                {d}
+              </label>
+            );
+          })}
+        </div>
+        {errors.closedWeekdays && <p className="mt-1 text-xs text-danger">{errors.closedWeekdays}</p>}
+      </fieldset>
       <div className="grid gap-2 sm:grid-cols-3">
         <Checkbox label="Sales can view reports" checked={v.salesCanViewReports} onChange={(e) => upd({ salesCanViewReports: e.target.checked })} />
         <Checkbox

@@ -7,7 +7,7 @@
  *
  * All demo accounts use the password in SEED_PASSWORD (default "ChangeMe123!").
  */
-import { PrismaClient, type ProductCategory, type Role, type StatusKind } from "@prisma/client";
+import { PrismaClient, type ProductCategory, type Role, type StatusKind, type VisitType } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 
@@ -141,6 +141,7 @@ async function main() {
         salesCanViewReports: true,
         salesCanEditOthersAppointments: true,
         technicianCanSeeContacts: true,
+        closedWeekdays: [5], // Friday
       },
     },
   });
@@ -220,6 +221,8 @@ async function main() {
           customerId: customer.id,
           locationId: pick(customer.locations),
           productCategory: product.category,
+          visitType: pick<VisitType>(["INSTALLATION", "INSTALLATION", "INSTALLATION", "INSPECTION", "MAINTENANCE", "PROGRAMMING"]),
+          customerConfirmation: offset < 0 || rand() < 0.6 ? "CONFIRMED" : "PENDING",
           categoryOther: product.category === "OTHER" ? "Motorised curtains" : null,
           brand: product.brand,
           model: pick(product.models),

@@ -1,4 +1,4 @@
-import type { ProductCategory, Role, StatusKind } from "@prisma/client";
+import type { CustomerConfirmation, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
 
 export const APP_NAME = "Installation Manager System";
 
@@ -22,6 +22,27 @@ export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = {
 };
 
 export const PRODUCT_CATEGORIES: ProductCategory[] = ["SMART_LOCK", "SMART_HOME", "CCTV", "INTERCOM", "OTHER"];
+
+export const VISIT_TYPE_LABELS: Record<VisitType, string> = {
+  INSPECTION: "Inspection",
+  INSTALLATION: "Installation",
+  COMPLETION: "Completion",
+  PROGRAMMING: "Programming",
+  MAINTENANCE: "Maintenance",
+};
+
+export const VISIT_TYPES: VisitType[] = ["INSTALLATION", "INSPECTION", "COMPLETION", "PROGRAMMING", "MAINTENANCE"];
+
+export const CONFIRMATION_LABELS: Record<CustomerConfirmation, string> = {
+  PENDING: "Awaiting confirmation",
+  CONFIRMED: "Confirmed by customer",
+  RESCHEDULE_REQUESTED: "Customer asked to reschedule",
+  UNREACHABLE: "Customer unreachable",
+};
+
+export const CONFIRMATIONS: CustomerConfirmation[] = ["PENDING", "CONFIRMED", "RESCHEDULE_REQUESTED", "UNREACHABLE"];
+
+export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 export const STATUS_KIND_LABELS: Record<StatusKind, string> = {
   SCHEDULED: "Scheduled",
