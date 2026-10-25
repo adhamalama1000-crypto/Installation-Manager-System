@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, MapPinOff, Navigation, Package, Phone, User } from "lucide-react";
+import { Boxes, CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, MapPinOff, Navigation, Package, Phone, User } from "lucide-react";
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
 import { OutcomePanel } from "@/components/appointments/outcome-panel";
@@ -10,10 +10,12 @@ import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Alert, Badge, DefinitionList, PageHeader, SalesTag, StatusBadge } from "@/components/ui/misc";
 import { colorOrFallback } from "@/lib/colors";
 import { VISIT_TYPE_LABELS, minutesLabel } from "@/lib/constants";
+import { formatKey, todayKey } from "@/lib/time";
 import { categoryText, dateTime, longDate, shortDate, timeRange } from "@/lib/format";
 import { requirePagePermission } from "@/server/auth/session";
 import { getAppointment, getAppointmentHistory } from "@/server/services/appointments";
 import { listStatuses } from "@/server/services/statuses";
+import { heldBy } from "@/server/services/stock";
 import { loadOr404 } from "./load";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -30,11 +32,14 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const { id } = await params;
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [a, history, allStatuses] = await Promise.all([
+  const [a, history, allStatuses, myStock] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
     canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
     user.permissions.includes("appointments.manage") ? listStatuses() : Promise.resolve([]),
+    // A technician's own custody, offered as quick picks for the installed serial numbers.
+    user.role === "TECHNICIAN" ? heldBy(user.id) : Promise.resolve([]),
   ]);
+  const today = todayKey(tz);
   const statuses = a.canManage ? allStatuses : [];
   const loc = a.location;
   const cancelled = a.status.kind === "CANCELLED";
@@ -163,7 +168,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           </Card>
 
           {reportable ? (
-            <OutcomePanel id={a.id} version={a.version} statusKind={a.status.kind} report={a.visitReport} payment={a.payment} />
+            <OutcomePanel id={a.id} version={a.version} statusKind={a.status.kind} report={a.visitReport} payment={a.payment} myStock={myStock} />
           ) : (
             a.visitReport && (
               <Card>
@@ -218,6 +223,25 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           </Card>
 
           {a.payment && <PaymentCard payment={a.payment} tz={tz} />}
+
+          {a.installed.length > 0 && (
+            <Card>
+              <CardHeader title="Installed items" description="Serial numbers and warranty" icon={<Boxes className="h-4 w-4" />} />
+              <ul className="divide-y divide-line">
+                {a.installed.map((i) => (
+                  <li key={i.serial} className="px-5 py-3 text-sm">
+                    <span className="font-mono font-medium text-fg">{i.serial}</span>
+                    <span className="ml-2 text-fg-muted">{i.model}</span>
+                    {i.warrantyUntil && (
+                      <span className={`block text-xs ${i.warrantyUntil >= today ? "text-success" : "text-fg-subtle"}`}>
+                        {i.warrantyUntil >= today ? "Under warranty until" : "Warranty ended"} {formatKey(i.warrantyUntil, { day: "numeric", month: "short", year: "numeric" })}
+                      </span>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           <Card id="schedule">
             <CardHeader title="Schedule" icon={<CalendarClock className="h-4 w-4" />} />

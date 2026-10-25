@@ -64,8 +64,8 @@ porting (reason given).
 
 | Aura feature | This app | Status | Plan |
 |---|---|:-:|---|
-| Serial-number stock: goods in, custody to a technician, installed on an order, returned, faulty; optional "serial required" on install | — | ✗ | **Now** |
-| Warranty per model (months) and warranty end date per order | — | ✗ | **Now** (on installed serials) |
+| Serial-number stock: goods in, custody to a technician, installed on an order, returned, faulty; optional "serial required" on install | Inventory page: goods in by serial, hand to / take back from technicians, returned / faulty, append-only history per serial; technicians install from their own custody when finishing a visit | ✅ | Done; serials are optional on install (no "serial required" setting yet) |
+| Warranty per model (months) and warranty end date per order | Warranty months per model; each installed serial gets an end date from the visit date, shown on the appointment | ✅ | Done |
 | Complaints: open on an order, warranty status, assign to a technician, link the maintenance visit, resolve, close | — | ✗ | Later |
 | Client satisfaction rating and head-of-installations quality grade | — | ✗ | Later |
 | Maintenance reminders 6 / 12 months after an install | — | ✗ | Later |
@@ -75,8 +75,8 @@ porting (reason given).
 | Aura feature | This app | Status | Plan |
 |---|---|:-:|---|
 | 6-digit PIN login, sessions in the script cache | E-mail + password (bcrypt), server sessions, rate limiting, invitation links | ⚠ | No: PINs are weaker; keep the current login |
-| 10 roles (admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant) | Admin, Sales, Technician, Accountant, Viewer (+ per-viewer permissions) | ◐ | Accountant added; Store keeper comes with inventory; heads = Admin for now |
-| Editable lists (engineers, sales, areas, order types, doors, devices, models) | Users and statuses are managed; categories fixed | ◐ | **Now**: product models with warranty months for stock |
+| 10 roles (admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant) | Admin, Sales, Technician, Accountant, Store keeper, Viewer (+ per-viewer permissions) | ◐ | Accountant and Store keeper added; heads = Admin, driver/engineer not needed yet |
+| Editable lists (engineers, sales, areas, order types, doors, devices, models) | Users, statuses and product models (with warranty months) are managed; categories fixed | ◐ | Areas/doors/devices lists: Later |
 | In-app notifications | Notifications for technicians, Sales (visit outcome, leave clashes) and Admins (leave requests) | ✅ | Done |
 | Monthly statistics (by sales, engineer, type, area; ratings; visit durations) | Reports by status, Sales, category, technician workload, per day | ◐ | Later: by area |
 | Month export to Excel | CSV exports | ✅ | — |

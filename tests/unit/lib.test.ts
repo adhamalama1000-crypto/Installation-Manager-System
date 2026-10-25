@@ -1,10 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { appointmentCode, parseAppointmentCode, phoneDigits, minutesLabel } from "@/lib/constants";
+import { appointmentCode, parseAppointmentCode, parseSerials, phoneDigits, minutesLabel } from "@/lib/constants";
 import { checkMapUrl, extractCoordinates, resolveLocationLink } from "@/lib/maps";
 import { contrastRatio, readableTextColor } from "@/lib/colors";
 import { permissionsFor } from "@/lib/permissions";
 import {
   addDaysToKey,
+  addMonthsKeepDay,
   addMonthsToKey,
   dateKey,
   dayRangeUtc,
@@ -45,6 +46,10 @@ describe("time helpers", () => {
     expect(startOfWeekKey("2026-10-25", 0)).toBe("2026-10-25");
     expect(isValidDateString("2026-02-29")).toBe(false);
     expect(isValidDateString("2028-02-29")).toBe(true);
+    // Warranty dates keep the day of month, clamped to shorter months.
+    expect(addMonthsKeepDay("2030-03-10", 24)).toBe("2032-03-10");
+    expect(addMonthsKeepDay("2030-01-31", 1)).toBe("2030-02-28");
+    expect(addMonthsKeepDay("2031-12-31", 2)).toBe("2032-02-29");
   });
 
   it("treats ranges as half-open", () => {
@@ -101,10 +106,11 @@ describe("permissions", () => {
     expect(sales.has("settings.manage")).toBe(false);
     expect(permissionsFor({ role: "SALES" }, { ...settings, salesCanViewReports: false }).has("reports.view")).toBe(false);
     const tech = permissionsFor({ role: "TECHNICIAN" }, settings);
-    expect([...tech].sort()).toEqual(["appointments.view", "customers.contact", "leaves.request", "location.view", "visits.report"]);
+    expect([...tech].sort()).toEqual(["appointments.view", "customers.contact", "leaves.request", "location.view", "stock.view", "visits.report"]);
     expect(tech.has("appointments.manage")).toBe(false);
     const accountant = permissionsFor({ role: "ACCOUNTANT" }, settings);
-    expect([...accountant].sort()).toEqual(["appointments.view", "cash.receive", "customers.contact", "customers.view", "finance.view"]);
+    expect([...accountant].sort()).toEqual(["appointments.view", "cash.receive", "customers.contact", "customers.view", "finance.view", "stock.view"]);
+    expect([...permissionsFor({ role: "STORE" }, settings)].sort()).toEqual(["appointments.view", "stock.manage", "stock.view"]);
   });
 
   it("viewers only get grantable permissions, and inactive users get none", () => {
@@ -158,6 +164,7 @@ describe("codes and formatting", () => {
     expect(parseAppointmentCode("Ahmed")).toBeNull();
     expect(phoneDigits("+20 (100) 123-4567")).toBe("201001234567");
     expect(minutesLabel(150)).toBe("2 h 30 min");
+    expect(parseSerials("ab-1\n SN 12 34 ,ab-1;x9\r\n\n")).toEqual(["AB-1", "SN1234", "X9"]);
   });
 });
 

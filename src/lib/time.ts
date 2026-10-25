@@ -148,6 +148,14 @@ export function addMonthsToKey(key: string, months: number): string {
   return dt.toISOString().slice(0, 10);
 }
 
+/** Same day `months` later, clamped to the end of shorter months (31 Jan + 1 month = 28/29 Feb). */
+export function addMonthsKeepDay(key: string, months: number): string {
+  const [y, m, d] = key.split("-").map(Number);
+  const first = new Date(Date.UTC(y!, m! - 1 + months, 1));
+  const last = new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth() + 1, 0)).getUTCDate();
+  return new Date(Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), Math.min(d!, last))).toISOString().slice(0, 10);
+}
+
 export function daysInMonthOfKey(key: string): number {
   const [y, m] = key.split("-").map(Number);
   return new Date(Date.UTC(y!, m!, 0)).getUTCDate();

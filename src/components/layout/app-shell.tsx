@@ -5,6 +5,7 @@ import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Boxes,
   CalendarDays,
   ClipboardList,
   History,
@@ -41,6 +42,7 @@ function navFor(user: ShellUser) {
     { href: "/appointments", label: tech ? "My appointments" : "Appointments", icon: ClipboardList, show: has("appointments.view") },
     { href: "/customers", label: "Customers", icon: Contact, show: has("customers.view") },
     { href: "/leaves", label: tech ? "My leave" : "Leave", icon: Plane, show: has("leaves.manage") || has("leaves.request") },
+    { href: "/inventory", label: tech ? "My stock" : "Inventory", icon: Boxes, show: has("stock.view") },
     { href: "/finance", label: "Finance", icon: Wallet, show: has("finance.view") },
     { href: "/reports", label: "Reports", icon: BarChart3, show: has("reports.view") },
     { href: "/users", label: "Users", icon: Users, show: has("users.manage") },

@@ -33,6 +33,7 @@ const FIELD_LABELS: Record<string, string> = {
   extraFee: "Extra fee",
   collectedAmount: "Collected at visit",
   collectedMethod: "Collected by method",
+  installedSerials: "Installed serial numbers",
   startsAt: "Start",
   endsAt: "End",
   durationMinutes: "Duration (min)",

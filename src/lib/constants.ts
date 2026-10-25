@@ -1,4 +1,4 @@
-import type { CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, StockStatus, VisitType } from "@prisma/client";
 
 export const APP_NAME = "Installation Manager System";
 
@@ -10,9 +10,35 @@ export const ROLE_LABELS: Record<Role, string> = {
   TECHNICIAN: "Technician",
   VIEWER: "Viewer",
   ACCOUNTANT: "Accountant",
+  STORE: "Store keeper",
 };
 
-export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "ACCOUNTANT", "VIEWER"];
+export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "ACCOUNTANT", "STORE", "VIEWER"];
+
+export const STOCK_STATUS_LABELS: Record<StockStatus, string> = {
+  IN_STORE: "In store",
+  WITH_TECHNICIAN: "With technician",
+  INSTALLED: "Installed",
+  RETURNED: "Returned",
+  FAULTY: "Faulty",
+};
+
+export const STOCK_STATUSES: StockStatus[] = ["IN_STORE", "WITH_TECHNICIAN", "INSTALLED", "RETURNED", "FAULTY"];
+
+/** Serials are compared without spaces and in upper case, so "ab 12" and "AB12" are the same item. */
+export function normalizeSerial(raw: string): string {
+  return raw.replace(/\s+/g, "").toUpperCase();
+}
+
+/**
+ * One serial per line (commas, Arabic commas and semicolons also separate them); spaces inside a
+ * serial are ignored, since printed serials are often grouped ("SN 1234 5678"). Duplicates dropped.
+ */
+export function parseSerials(text: string | null | undefined): string[] {
+  return [...new Set((text ?? "").split(/[\r\n,،;]+/).map(normalizeSerial).filter(Boolean))];
+}
+
+export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 
 export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
   CASH: "Cash",

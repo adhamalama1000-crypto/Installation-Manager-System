@@ -39,6 +39,7 @@ import { notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
 import { assertTechniciansNotOnLeave } from "./leaves";
 import { canSeePrices, loadCustody, paymentDTO, prepareCollection, type CustodyView } from "./payments";
+import { installSerials, installedOn } from "./stock";
 import {
   appointmentFilterSql,
   appointmentListRows,
@@ -71,6 +72,7 @@ type AppointmentView = Omit<AppointmentFull, "technicians"> & {
   reportedBy: { id: string; name: string } | null;
   collectedBy: { id: string; name: string } | null;
   custody: CustodyView | null;
+  installed: AppointmentDTO["installed"];
 };
 
 /** Statuses from which the outcome of a visit can be recorded (not cancelled or postponed). */
@@ -164,6 +166,7 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     canManage: canManageAppointment(user, a),
     canReport: canReportVisit(user, a),
     payment: paymentDTO(user, a, a.collectedBy, a.custody),
+    installed: a.installed,
   };
 }
 
@@ -309,7 +312,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
   const appt = await prisma.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] } });
   if (!appt) throw new NotFoundError("Appointment not found.");
   const scope = appointmentScope(user);
-  const [customer, location, status, people, technicians, followUpOf, followUps, custody] = await Promise.all([
+  const [customer, location, status, people, technicians, followUpOf, followUps, custody, installed] = await Promise.all([
     prisma.customer.findUniqueOrThrow({ where: { id: appt.customerId } }),
     prisma.customerLocation.findUniqueOrThrow({ where: { id: appt.locationId } }),
     prisma.appointmentStatus.findUniqueOrThrow({ where: { id: appt.statusId } }),
@@ -332,6 +335,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
       take: 20,
     }),
     canSeePrices(user) ? loadCustody(appt.id) : Promise.resolve(null),
+    installedOn(appt.id),
   ]);
   const person = (pid: string) => people.find((p) => p.id === pid)!;
   return {
@@ -344,6 +348,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
     reportedBy: appt.reportedById ? { id: appt.reportedById, name: person(appt.reportedById).name } : null,
     collectedBy: appt.collectedById ? { id: appt.collectedById, name: person(appt.collectedById).name } : null,
     custody,
+    installed,
     technicians: technicians.map((technician) => ({ technician })),
     links: {
       followUpOf: followUpOf ? { id: followUpOf.id, code: appointmentCode(followUpOf.number) } : null,
@@ -1019,7 +1024,8 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
       const report = input.report ?? existing.visitReport;
       const now = new Date();
       const collection = await prepareCollection(tx, user, existing, input.collectedAmount, input.collectedMethod, now);
-      if (status.id === existing.statusId && report === existing.visitReport && !collection) return;
+      const installed = await installSerials(tx, user, existing, input.serials ?? [], settings.timezone, now);
+      if (status.id === existing.statusId && report === existing.visitReport && !collection && !installed.length) return;
       const techIds = existing.technicians.map((t) => t.technicianId);
       Object.assign(ctx, { techIds, startsAt: existing.startsAt, endsAt: existing.endsAt });
       if (status.blocksSchedule && !existing.status.blocksSchedule && techIds.length) {
@@ -1061,6 +1067,7 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
           ...(status.id !== existing.statusId ? { status: { from: existing.status.name, to: status.name } } : {}),
           ...(reportChanged ? { visitReport: { from: existing.visitReport, to: report } } : {}),
           ...(collection?.changes ?? {}),
+          ...(installed.length ? { installedSerials: { from: null, to: installed } } : {}),
         },
         actorId: user.id,
       });
@@ -1071,7 +1078,7 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
         {
           appointmentId: id,
           type: "VISIT_OUTCOME",
-          message: `${user.name}: ${code} (${existing.customer.name}) is now "${status.name}"${collection?.summary ? `, ${collection.summary}` : ""}`,
+          message: `${user.name}: ${code} (${existing.customer.name}) is now "${status.name}"${collection?.summary ? `, ${collection.summary}` : ""}${installed.length ? `, installed ${installed.length} item${installed.length === 1 ? "" : "s"}` : ""}`,
         },
         user.id,
       );

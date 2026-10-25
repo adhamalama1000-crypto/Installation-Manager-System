@@ -1,7 +1,7 @@
 /**
  * Development seed data. Creates statuses, demo users (Admin, Sales, Technicians, Accountant,
- * Viewer), customers and ~2 months of non-overlapping appointments around today, with prices,
- * deposits and collections.
+ * Store keeper, Viewer), customers and ~2 months of non-overlapping appointments around today, with
+ * prices, deposits and collections, plus serial-numbered stock (some installed with warranty).
  *
  *   npm run db:seed                 # only runs on an empty database
  *   SEED_FORCE=1 npm run db:seed    # wipes existing data first (never in production)
@@ -44,6 +44,7 @@ const USERS: { name: string; email: string; role: Role; color?: string; isActive
   { name: "Mostafa Ali", email: "mostafa.tech@example.com", role: "TECHNICIAN", phone: "+20 111 000 4444" },
   { name: "Hany Saeed", email: "hany.tech@example.com", role: "TECHNICIAN", isActive: false },
   { name: "Nadia Fawzy", email: "nadia.accounts@example.com", role: "ACCOUNTANT", phone: "+20 100 444 5566" },
+  { name: "Sameh Store", email: "store@example.com", role: "STORE", phone: "+20 100 555 6677" },
   { name: "Laila Viewer", email: "viewer@example.com", role: "VIEWER", viewerPermissions: ["appointments.view", "location.view", "reports.view"] },
 ];
 
@@ -98,7 +99,7 @@ async function main() {
     console.log("SEED_FORCE=1: wiping existing data...");
     // TRUNCATE does not fire the row-level trigger that protects audit_logs.
     await prisma.$executeRawUnsafe(
-      `TRUNCATE TABLE notifications, audit_logs, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
+      `TRUNCATE TABLE notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
         password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
     );
   }
@@ -196,6 +197,7 @@ async function main() {
 
   // Appointments from 21 days ago to 24 days ahead, never overlapping per technician.
   let created = 0;
+  const completedLocks: { id: string; day: string; tech: string; brand: string; model: string }[] = [];
   for (let offset = -21; offset <= 24; offset++) {
     const day = dayKey(offset);
     const weekday = new Date(`${day}T12:00:00Z`).getUTCDay();
@@ -287,9 +289,56 @@ async function main() {
           actorId: creator,
         },
       });
+      if (kind === "COMPLETED" && product.category === "SMART_LOCK" && appt.model) {
+        completedLocks.push({ id: appt.id, day, tech: team[0]!, brand: product.brand, model: appt.model });
+      }
       created++;
     }
   }
+
+  // Stock: every lock model in the catalogue, some locks installed on completed visits (with
+  // warranty), some with technicians and the rest in the store. Serials follow a counter.
+  const storeKeeper = users.get("store@example.com")!.id;
+  const modelIds = new Map<string, string>();
+  for (const p of PRODUCTS) {
+    for (const m of p.models) {
+      const row = await prisma.productModel.create({ data: { name: `${p.brand} ${m}`, category: p.category, warrantyMonths: p.category === "SMART_LOCK" ? 24 : 12 } });
+      modelIds.set(`${p.brand} ${m}`, row.id);
+    }
+  }
+  let serialNo = 1000;
+  const addItem = async (name: string, state: { status: "IN_STORE" | "WITH_TECHNICIAN" | "INSTALLED"; holderId?: string; installer?: string; appointmentId?: string; day?: string }) => {
+    const months = name.startsWith("Yale") || name.startsWith("Samsung") ? 24 : 12;
+    const installedAt = state.day ? fromZonedTime(`${state.day}T18:00:00`, TZ) : null;
+    const warrantyUntil = state.day ? new Date(Date.UTC(Number(state.day.slice(0, 4)) + months / 12, Number(state.day.slice(5, 7)) - 1, Number(state.day.slice(8, 10)))) : null;
+    const item = await prisma.stockItem.create({
+      data: {
+        serial: `SN${++serialNo}`,
+        modelId: modelIds.get(name)!,
+        status: state.status,
+        holderId: state.holderId ?? null,
+        appointmentId: state.appointmentId ?? null,
+        installedAt,
+        warrantyUntil,
+        createdById: storeKeeper,
+      },
+    });
+    await prisma.stockMovement.create({ data: { itemId: item.id, toStatus: "IN_STORE", note: "Goods in (seed)", actorId: storeKeeper } });
+    if (state.status !== "IN_STORE") {
+      await prisma.stockMovement.create({ data: { itemId: item.id, fromStatus: "IN_STORE", toStatus: "WITH_TECHNICIAN", holderId: state.holderId ?? state.installer!, actorId: storeKeeper } });
+    }
+    if (state.status === "INSTALLED") {
+      await prisma.stockMovement.create({ data: { itemId: item.id, fromStatus: "WITH_TECHNICIAN", toStatus: "INSTALLED", appointmentId: state.appointmentId!, actorId: state.installer! } });
+    }
+  };
+  for (const c of completedLocks) {
+    if (!modelIds.has(`${c.brand} ${c.model}`)) continue;
+    await addItem(`${c.brand} ${c.model}`, { status: "INSTALLED", installer: c.tech, appointmentId: c.id, day: c.day });
+  }
+  for (const [i, tech] of techs.entries()) {
+    for (const name of ["Yale Linus L2", "Samsung SHP-DP609"].slice(0, 1 + (i % 2))) await addItem(name, { status: "WITH_TECHNICIAN", holderId: tech });
+  }
+  for (const name of [...modelIds.keys()]) await addItem(name, { status: "IN_STORE" });
 
   console.log(`Seeded ${USERS.length} users, ${customers.length} customers and ${created} appointments.`);
   console.log(`Demo login: admin@example.com / ${password} (see README for all accounts)`);

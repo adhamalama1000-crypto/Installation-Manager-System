@@ -74,6 +74,8 @@ export type AppointmentDTO = {
   canReport: boolean;
   /** Money for this visit; null for roles that may not see it. */
   payment: PaymentDTO | null;
+  /** Serial-numbered items installed at this visit, each with its warranty end date. */
+  installed: { serial: string; model: string; warrantyUntil: string | null }[];
 };
 
 /**

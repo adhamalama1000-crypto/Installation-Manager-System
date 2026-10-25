@@ -114,31 +114,34 @@ Created by `npm run db:seed`. Password for all of them: **`ChangeMe123!`** (or `
 | Technician | `karim.tech@example.com`, `youssef.tech@example.com`, `ahmed.tech@example.com`, `mostafa.tech@example.com` | sees only their assignments |
 | Technician (inactive) | `hany.tech@example.com` | cannot sign in; kept on past appointments |
 | Accountant | `nadia.accounts@example.com` | finance statement and cash hand-over; read-only bookings |
+| Store keeper | `store@example.com` | stock by serial number, custody, models and warranty |
 | Viewer | `viewer@example.com` | appointments, address/map and reports, read-only |
 
-The seed creates ~100 non-overlapping appointments from three weeks ago to three weeks ahead (in `Africa/Cairo`), with prices, deposits, collections and cash custody. It only runs on an empty database, so a database seeded before the Accountant role existed has no Accountant account: an Admin can create one under Users. **Never run the seed against production.**
+The seed creates ~100 non-overlapping appointments from three weeks ago to three weeks ahead (in `Africa/Cairo`), with prices, deposits, collections, cash custody and serial-numbered stock (some installed with warranty). It only runs on an empty database, so a database seeded before the Accountant and Store keeper roles existed has neither account: an Admin can create them under Users. **Never run the seed against production.**
 
 ## Roles & permissions
 
 Permissions are defined once in [`src/lib/permissions.ts`](src/lib/permissions.ts) and enforced on the server in every service function ([`src/server/access.ts`](src/server/access.ts)). The UI only hides what the server would refuse anyway.
 
-| Capability | Admin | Sales | Technician | Accountant | Viewer |
-|---|:-:|:-:|:-:|:-:|:-:|
-| See appointments | all | all | **assigned only** | all | if granted |
-| Create / edit / reschedule / assign / change status / cancel | ✓ | ✓¹ | - | - | - |
-| Record the visit outcome (started / done / unable / needs another visit) with a report and the amount collected | ✓ | ✓¹ | assigned only | - | - |
-| Prices, deposits and payment details | ✓ | ✓ | amount to collect only | ✓ | - |
-| Finance statement, cash with technicians, finance CSV | ✓ | - | - | ✓ | - |
-| Confirm cash handed over by a technician | ✓ | - | - | ✓ | - |
-| Leave: ask for / withdraw own leave | - | - | ✓ | - | - |
-| Leave: approve, reject, record, cancel for any technician | ✓ | - | - | - | - |
-| Customer phone numbers | ✓ | ✓ | ✓² | ✓ | if granted |
-| Address, apartment, floor, map link | ✓ | ✓ | ✓ | - | if granted |
-| Internal notes | ✓ | ✓ | - | - | if granted |
-| Appointment history | ✓ | ✓ | - | - | if granted⁴ |
-| Customer directory | ✓ | ✓ | - | ✓ | if granted |
-| Reports & CSV exports | ✓ | ✓³ | - | - | if granted |
-| Users, roles, colours, settings, statuses, audit log | ✓ | - | - | - | - |
+| Capability | Admin | Sales | Technician | Accountant | Store keeper | Viewer |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| See appointments | all | all | **assigned only** | all | all | if granted |
+| Create / edit / reschedule / assign / change status / cancel | ✓ | ✓¹ | - | - | - | - |
+| Record the visit outcome (started / done / unable / needs another visit) with a report, the amount collected and the serials installed | ✓ | ✓¹ | assigned only | - | - | - |
+| Prices, deposits and payment details | ✓ | ✓ | amount to collect only | ✓ | - | - |
+| Finance statement, cash with technicians, finance CSV | ✓ | - | - | ✓ | - | - |
+| Confirm cash handed over by a technician | ✓ | - | - | ✓ | - | - |
+| Stock by serial number | ✓ | - | own custody | ✓ | ✓ | - |
+| Goods in, hand to / take back from technicians, returned / faulty, models & warranty | ✓ | - | - | - | ✓ | - |
+| Leave: ask for / withdraw own leave | - | - | ✓ | - | - | - |
+| Leave: approve, reject, record, cancel for any technician | ✓ | - | - | - | - | - |
+| Customer phone numbers | ✓ | ✓ | ✓² | ✓ | - | if granted |
+| Address, apartment, floor, map link | ✓ | ✓ | ✓ | - | - | if granted |
+| Internal notes | ✓ | ✓ | - | - | - | if granted |
+| Appointment history | ✓ | ✓ | - | - | - | if granted⁴ |
+| Customer directory | ✓ | ✓ | - | ✓ | - | if granted |
+| Reports & CSV exports | ✓ | ✓³ | - | - | - | if granted |
+| Users, roles, colours, settings, statuses, audit log | ✓ | - | - | - | - | - |
 
 ¹ An Admin can restrict Sales to editing only the appointments they created (Settings → "Sales can edit any appointment").
 ² Configurable (Settings → "Technicians see customer phone numbers").
@@ -218,8 +221,8 @@ Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customer
 ## Testing
 
 ```bash
-npm test            # 106 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
-npm run test:e2e    # 13 Playwright tests against a running, seeded app
+npm test            # 113 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
+npm run test:e2e    # 14 Playwright tests against a running, seeded app
 ```
 
 What is covered:
@@ -231,9 +234,10 @@ What is covered:
 - **Booking details and field work**: visit type, customer confirmation with optimistic locking, closed weekdays (Admin override only), follow-up links scoped for technicians; the technician's visit outcome with a mandatory report, notifications, and the "needs another visit" dashboard alert until a follow-up is booked.
 - **Leave**: requests, approval/rejection, Admin-recorded leave, overlap and date rules; approved leave refusing bookings on company-local days (including visits that cross midnight), re-checks only when a booking moves to other days or is re-activated, existing bookings reported to their Sales creators and flagged on the dashboard.
 - **Payments**: price/deposit/extra-fee validation (also on partial edits), per-role redaction (technicians only see what to collect, viewers see no amounts, history amounts hidden), collections recorded with the outcome, cash custody from collection to the accountant's receipt (corrections, non-cash payments, stale receipts, office collections), the monthly statement totals by method, balances owed, and the finance CSV.
+- **Inventory**: model names unique regardless of case, serial normalisation and duplicate refusal, custody hand-over and return with notifications, technicians seeing only their own custody, append-only movement history, installation only from the technician's own custody (or from the store by a manager), warranty from the visit date, refusal of unknown / faulty / already-installed serials without partial changes, and the faulty-unit swap.
 - **SQL reads**: the hand-written list/calendar/export queries return exactly what the Prisma filters return (300 random filter combinations), including literal `%`/`_` in search terms.
 - **API**: login/logout with cookies, generic login errors, rate limiting, cross-origin rejection, malformed JSON, 401/403/404/409 responses, server-assigned creator.
-- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), and a technician collecting cash that the Admin then receives on the finance page.
+- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), a technician collecting cash that the Admin then receives on the finance page, and the store handing serials to a technician who installs one at the visit (warranty shown, custody updated).
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
 

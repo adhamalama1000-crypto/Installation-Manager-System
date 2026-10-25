@@ -10,7 +10,7 @@ import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/misc";
 import { api, ApiError } from "@/lib/api-client";
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, money } from "@/lib/constants";
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, money, parseSerials } from "@/lib/constants";
 import type { PaymentDTO } from "@/lib/types";
 import { outcomeSchema, fieldErrorsFromZod, type VisitOutcome } from "@/lib/validation";
 import { cn } from "@/lib/utils";
@@ -28,12 +28,15 @@ export function OutcomePanel({
   statusKind,
   report,
   payment,
+  myStock,
 }: {
   id: string;
   version: number;
   statusKind: StatusKind;
   report: string | null;
   payment: PaymentDTO | null;
+  /** Items the technician holds, offered as quick picks. */
+  myStock: { serial: string; model: string }[];
 }) {
   const router = useRouter();
   const current = CHOICES.some((c) => c.value === statusKind) ? (statusKind as (typeof CHOICES)[number]["value"]) : null;
@@ -42,10 +45,13 @@ export function OutcomePanel({
   const recorded = payment?.collectedAmount ?? null;
   const [collected, setCollected] = useState(recorded === null ? "" : String(recorded));
   const [method, setMethod] = useState<PaymentMethod>(payment?.collectedMethod ?? "CASH");
+  const [serials, setSerials] = useState("");
+  const typed = parseSerials(serials);
+  const addSerial = (s: string) => setSerials((v) => (parseSerials(v).includes(s) ? v : `${v.trim() ? `${v.trim()}\n` : ""}${s}`));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function send(body: { outcome: VisitOutcome; report?: string; collectedAmount?: string | null; collectedMethod?: PaymentMethod | null }) {
+  async function send(body: { outcome: VisitOutcome; report?: string; collectedAmount?: string | null; collectedMethod?: PaymentMethod | null; serials?: string }) {
     const check = outcomeSchema.safeParse({ ...body, version });
     if (!check.success) {
       setErrors(fieldErrorsFromZod(check.error));
@@ -56,6 +62,7 @@ export function OutcomePanel({
     try {
       await api(`/api/appointments/${id}/outcome`, { method: "POST", body: { ...body, version } });
       toast.success(body.outcome === "IN_PROGRESS" ? "Job started" : "Visit outcome saved");
+      if (body.serials) setSerials("");
       router.refresh();
     } catch (e) {
       const err = e instanceof ApiError ? e : new ApiError("Could not save", 0, "UNKNOWN");
@@ -97,6 +104,29 @@ export function OutcomePanel({
         <Field label="Visit report" required error={errors.report} hint="What was installed or done, what is missing, anything the next visit needs to know.">
           {(p) => <Textarea {...p} rows={4} value={text} onChange={(e) => setText(e.target.value)} />}
         </Field>
+        {outcome === "COMPLETED" && (
+          <div className="space-y-2">
+            <Field label="Serial numbers installed" error={errors.serials} hint="One per line. Installed items leave your custody; their warranty runs from the visit date.">
+              {(p) => <Textarea {...p} rows={2} className="font-mono" value={serials} onChange={(e) => setSerials(e.target.value)} />}
+            </Field>
+            {myStock.length > 0 && (
+              <div className="flex flex-wrap gap-1.5" aria-label="Items in your custody">
+                {myStock.map((i) => (
+                  <button
+                    key={i.serial}
+                    type="button"
+                    onClick={() => addSerial(i.serial)}
+                    disabled={typed.includes(i.serial)}
+                    className="rounded-full border border-line px-2.5 py-1 font-mono text-xs text-fg-muted hover:bg-surface-muted disabled:opacity-50"
+                    title={i.model}
+                  >
+                    + {i.serial}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
         {payment && (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field
@@ -130,6 +160,7 @@ export function OutcomePanel({
             send({
               outcome,
               report: text,
+              ...(outcome === "COMPLETED" && typed.length ? { serials } : {}),
               ...(payment && !untouched ? { collectedAmount: collected, collectedMethod: Number(collected.replace(/[,\s]/g, "")) ? method : null } : {}),
             });
           }}

@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 import { HEX_COLOR_RE } from "./colors";
-import { CONFIRMATIONS, LEAVE_TYPES, PAYMENT_METHODS, PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, VISIT_TYPES, phoneDigits } from "./constants";
+import { CONFIRMATIONS, LEAVE_TYPES, PAYMENT_METHODS, PRODUCT_CATEGORIES, ROLES, SERIAL_RE, STATUS_KINDS, VISIT_TYPES, parseSerials, phoneDigits } from "./constants";
 import { checkMapUrl, isValidLatitude, isValidLongitude } from "./maps";
 import { VIEWER_GRANTABLE } from "./permissions";
 import { TIME_RE, isValidDateString, isValidTimeZone } from "./time";
@@ -62,6 +62,18 @@ const moneyField = z.preprocess(
     .refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, "At most two decimals")
     .nullable()
     .optional(),
+);
+
+/** Serial numbers typed one per line (or separated by commas/spaces), normalised and checked. */
+const serialsField = z.preprocess(
+  (v) => (Array.isArray(v) ? parseSerials(v.join("\n")) : typeof v === "string" ? parseSerials(v) : v),
+  z
+    .array(z.string())
+    .max(200, "At most 200 serial numbers at once")
+    .superRefine((list, ctx) => {
+      const bad = list.filter((s) => !SERIAL_RE.test(s));
+      if (bad.length) ctx.addIssue({ code: "custom", message: `Not a valid serial number: ${bad.slice(0, 5).join(", ")}` });
+    }),
 );
 
 const paymentMethodField = z.preprocess(
@@ -172,6 +184,8 @@ export const outcomeSchema = z
     /** Paid by the customer at this visit (left out = unchanged). */
     collectedAmount: moneyField,
     collectedMethod: paymentMethodField,
+    /** Serial numbers installed at this visit (added to what is already recorded). */
+    serials: serialsField.optional(),
     version: z.number().int().positive().optional(),
   })
   .superRefine((o, ctx) => {
@@ -184,6 +198,35 @@ export const outcomeSchema = z
     if (o.collectedAmount && !o.collectedMethod) {
       ctx.addIssue({ code: "custom", path: ["collectedMethod"], message: "Choose how the customer paid" });
     }
+    if (o.serials?.length && o.outcome !== "COMPLETED") {
+      ctx.addIssue({ code: "custom", path: ["serials"], message: "Record installed serial numbers when the job is done" });
+    }
+  });
+
+export const productModelSchema = z.object({
+  name: z.preprocess((v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v), z.string({ error: "Model name is required" }).min(1, "Model name is required").max(120)),
+  category: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: "Choose a product category" }),
+  warrantyMonths: z.coerce.number({ error: "Enter the warranty in months" }).int("Whole months").min(0, "Cannot be negative").max(120, "At most 120 months"),
+  isActive: z.boolean().optional(),
+});
+
+export const stockInSchema = z.object({
+  modelId: z.string({ error: "Choose the model" }).min(1, "Choose the model").max(64),
+  serials: serialsField.refine((l) => l.length > 0, "Enter at least one serial number (one per line)"),
+  note: optionalText(500),
+});
+
+export const STOCK_MOVE_TARGETS = ["IN_STORE", "WITH_TECHNICIAN", "RETURNED", "FAULTY"] as const;
+
+export const stockMoveSchema = z
+  .object({
+    itemIds: z.array(idField).min(1, "Choose at least one item").max(500),
+    to: z.enum(STOCK_MOVE_TARGETS, { error: "Choose where the items go" }),
+    technicianId: idField.optional().nullable(),
+    note: optionalText(500),
+  })
+  .superRefine((m, ctx) => {
+    if (m.to === "WITH_TECHNICIAN" && !m.technicianId) ctx.addIssue({ code: "custom", path: ["technicianId"], message: "Choose the technician" });
   });
 
 export const cashReceiveSchema = z.object({
