@@ -11,7 +11,7 @@ import { AUDIT_ENTITY_TYPES, listAuditLog } from "@/server/services/audit-log";
 
 export const metadata = { title: "Audit log" };
 
-const ENTITY_LABELS: Record<string, string> = { APPOINTMENT: "Appointment", USER: "User", STATUS: "Status", SETTINGS: "Settings", CUSTOMER: "Customer" };
+const ENTITY_LABELS: Record<string, string> = { APPOINTMENT: "Appointment", USER: "User", STATUS: "Status", SETTINGS: "Settings", CUSTOMER: "Customer", LEAVE: "Leave" };
 
 type SP = { entityType?: string; actorId?: string; from?: string; to?: string; q?: string; page?: string };
 

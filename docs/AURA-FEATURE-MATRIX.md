@@ -18,17 +18,17 @@ porting (reason given).
 | Fixed day periods (11:30–1:30, 2:30–4:30, 5:30–7:30, "two periods", "whole day", "after hours") | Exact start time + duration (any slot), presets for durations | ⚠ | No: exact times are a superset; periods are just start/duration presets |
 | Double-booking prevention per technician | Server check + PostgreSQL exclusion constraint (concurrency-safe) | ✅ | — |
 | Admin "book anyway" over a conflict | Not possible (the database forbids overlaps) | ⚠ | No: would break the no-double-booking guarantee |
-| Friday closed (booking refused, alert) | No closed-day rule | ✗ | **Now** (configurable closed weekdays) |
+| Friday closed (booking refused, alert) | Configurable closed weekdays (Settings); only an Admin can book one, explicitly | ✅ | Done |
 | Saturday: smart-home inspections only | — | ✗ | No: company-specific rule; can be a status/type convention |
 | Phone must be an Egyptian mobile (11 digits, `01…`) | 7–15 digits, international formats allowed | ⚠ | No: stricter rule would reject landlines and foreign numbers already accepted |
 | No booking in the past (except managers) | Allowed for everyone who can book | ✗ | Later |
-| Order types: install / maintenance / programming / inspection / completion, for lock and smart home | Product category (Smart lock, Smart home, CCTV, Intercom, Other) | ◐ | **Now** (visit type field) |
-| Customer confirmation (awaiting / confirmed / wants another time / unreachable) and "confirm with the client" alert for today and tomorrow | — | ✗ | **Now** |
+| Order types: install / maintenance / programming / inspection / completion, for lock and smart home | Product category + visit type (inspection, installation, completion, programming, maintenance) | ✅ | Done |
+| Customer confirmation (awaiting / confirmed / wants another time / unreachable) and "confirm with the client" alert for today and tomorrow | Confirmation on every booking, changed from the details page; dashboard alert for today and tomorrow | ✅ | Done |
 | Site readiness (wiring, internet) for smart home | Free-text notes | ◐ | Later |
 | Door type, quantity, devices list, "where is the lock" (office / client), electrician needed, size | Brand, model, description, required equipment (free text) | ◐ | Later: structured fields only if reports need them |
-| Status set: confirmed, done, postponed, needs another visit, cancelled | Configurable statuses with kinds (scheduled, in progress, completed, postponed, cancelled, unable to complete) | ◐ | **Now**: "needs another visit" covered by the technician outcome + follow-up link |
-| Follow-up visit linked to the original order | — | ✗ | **Now** |
-| Missing-data and overdue alerts | Dashboard "Needs attention" (overdue status, no technician, no map location) | ✅ | **Now**: add "confirm with customer" |
+| Status set: confirmed, done, postponed, needs another visit, cancelled | Configurable statuses with kinds, now including "needs another visit" | ✅ | Done |
+| Follow-up visit linked to the original order | "Follow-up visit" pre-fills a new booking linked both ways; dashboard asks for one after "needs another visit" | ✅ | Done |
+| Missing-data and overdue alerts | Dashboard "Needs attention" (overdue status, no technician, technician on leave, no map location, unconfirmed, no follow-up booked) | ✅ | Done |
 | Change log of every booking / edit | Field-level history + append-only audit log | ✅ | — |
 | Client history by phone | Customer directory + repeat-customer lookup while booking | ✅ | — |
 
@@ -37,7 +37,7 @@ porting (reason given).
 | Aura feature | This app | Status | Plan |
 |---|---|:-:|---|
 | Technician sees only own visits | Same, enforced on the server | ✅ | — |
-| Technician marks "done" / "needs another visit" with a **mandatory visit report** | Technicians are read-only | ✗ | **Now** |
+| Technician marks "done" / "needs another visit" with a **mandatory visit report** | Assigned technician starts the job and records done / unable / needs another visit with a required report; Sales notified | ✅ | Done (booking details stay read-only for technicians) |
 | Before/after photos, client signature, transfer screenshot (Google Drive) | No file attachments | ✗ | Later: needs file storage (S3-compatible or disk) |
 | Delivery checklist that must be complete before "done" | — | ✗ | Later (with photos) |
 | Check-in stages with GPS (at office, picked up, left, arrived, started, done, problem) and distance flags | — | ✗ | Later: location tracking needs consent and a privacy policy |
@@ -48,7 +48,7 @@ porting (reason given).
 | Temporary 10-minute hold of a slot while on the phone | — | ✗ | Later |
 | Company car / driver route with stops | — | ✗ | Later |
 | Attendance, lateness and monthly points from check-ins | — | ✗ | Later (needs check-ins) |
-| Leave / sick / absence requests, approval, blocks booking, warns about existing bookings | — | ✗ | **Now** |
+| Leave / sick / absence requests, approval, blocks booking, warns about existing bookings | Technicians ask, Admins approve/reject or record; approved leave refuses bookings and shows "On leave" in the form; existing bookings listed, their Sales creators notified, dashboard alert | ✅ | Done |
 
 ## Money
 
@@ -77,7 +77,7 @@ porting (reason given).
 | 6-digit PIN login, sessions in the script cache | E-mail + password (bcrypt), server sessions, rate limiting, invitation links | ⚠ | No: PINs are weaker; keep the current login |
 | 10 roles (admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant) | Admin, Sales, Technician, Viewer (+ per-viewer permissions) | ◐ | **Now**: Store keeper and Accountant roles for the new screens; heads = Admin for now |
 | Editable lists (engineers, sales, areas, order types, doors, devices, models) | Users and statuses are managed; categories fixed | ◐ | **Now**: product models with warranty months for stock |
-| In-app notifications | Notifications for technicians | ✅ | **Now**: also to Sales when a technician finishes |
+| In-app notifications | Notifications for technicians, Sales (visit outcome, leave clashes) and Admins (leave requests) | ✅ | Done |
 | Monthly statistics (by sales, engineer, type, area; ratings; visit durations) | Reports by status, Sales, category, technician workload, per day | ◐ | Later: by area |
 | Month export to Excel | CSV exports | ✅ | — |
 | Google Sheet sync, sheet lock, re-import from month tabs | PostgreSQL is the only store | — | No: Google-Sheets-specific |

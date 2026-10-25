@@ -1,4 +1,4 @@
-import type { CustomerConfirmation, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, LeaveStatus, LeaveType, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
 
 export type StatusDTO = {
   id: string;
@@ -134,4 +134,31 @@ export type ConflictDTO = {
 
 export type ApiErrorBody = {
   error: { code: string; message: string; fieldErrors?: Record<string, string>; conflicts?: ConflictDTO[] };
+};
+
+export type LeaveDTO = {
+  id: string;
+  user: { id: string; name: string };
+  startDate: string;
+  endDate: string;
+  days: number;
+  type: LeaveType;
+  reason: string | null;
+  status: LeaveStatus;
+  requestedBy: { id: string; name: string };
+  decidedBy: { id: string; name: string } | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+  canCancel: boolean;
+  canDecide: boolean;
+};
+
+/** A booking that falls inside a leave and needs another technician. */
+export type LeaveClash = {
+  appointmentId: string;
+  code: string;
+  customerName: string;
+  startsAt: string;
+  createdById: string;
 };

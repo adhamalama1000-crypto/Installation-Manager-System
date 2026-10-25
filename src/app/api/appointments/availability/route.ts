@@ -19,6 +19,7 @@ export const POST = apiRoute(async ({ req, user }) => {
     endsAt,
     excludeAppointmentId: parsed.data.excludeAppointmentId,
     bufferMinutes: settings.travelBufferMinutes,
+    timezone: settings.timezone,
   });
   return { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), technicians };
 });

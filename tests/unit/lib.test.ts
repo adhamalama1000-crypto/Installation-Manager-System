@@ -101,7 +101,7 @@ describe("permissions", () => {
     expect(sales.has("settings.manage")).toBe(false);
     expect(permissionsFor({ role: "SALES" }, { ...settings, salesCanViewReports: false }).has("reports.view")).toBe(false);
     const tech = permissionsFor({ role: "TECHNICIAN" }, settings);
-    expect([...tech].sort()).toEqual(["appointments.view", "customers.contact", "location.view", "visits.report"]);
+    expect([...tech].sort()).toEqual(["appointments.view", "customers.contact", "leaves.request", "location.view", "visits.report"]);
     expect(tech.has("appointments.manage")).toBe(false);
   });
 

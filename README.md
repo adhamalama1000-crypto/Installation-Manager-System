@@ -126,6 +126,8 @@ Permissions are defined once in [`src/lib/permissions.ts`](src/lib/permissions.t
 | See appointments | all | all | **assigned only** | if granted |
 | Create / edit / reschedule / assign / change status / cancel | ✓ | ✓¹ | - | - |
 | Record the visit outcome (started / done / unable / needs another visit) with a report | ✓ | ✓¹ | assigned only | - |
+| Leave: ask for / withdraw own leave | - | - | ✓ | - |
+| Leave: approve, reject, record, cancel for any technician | ✓ | - | - | - |
 | Customer phone numbers | ✓ | ✓ | ✓² | if granted |
 | Address, apartment, floor, map link | ✓ | ✓ | ✓ | if granted |
 | Internal notes | ✓ | ✓ | - | if granted |
@@ -211,8 +213,8 @@ Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customer
 ## Testing
 
 ```bash
-npm test            # 75 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
-npm run test:e2e    # 9 Playwright tests against a running, seeded app
+npm test            # 97 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
+npm run test:e2e    # 12 Playwright tests against a running, seeded app
 ```
 
 What is covered:
@@ -221,8 +223,11 @@ What is covered:
 - **Permissions**: technician scoping (lists, calendar, details, 404 for others' jobs), technician read-only for every write, viewer restrictions and redaction (no phone/address/internal notes unless granted, no phone search), Sales vs Admin powers, history redaction.
 - **Users**: automatic technician availability after creation, deactivation removing them from assignment, colours, invitation links (single use), duplicate emails, last-Admin protection, session revocation.
 - **Audit & reports**: history entries with old/new values, append-only enforcement, report aggregates, CSV without internal notes and with formula-injection protection.
+- **Booking details and field work**: visit type, customer confirmation with optimistic locking, closed weekdays (Admin override only), follow-up links scoped for technicians; the technician's visit outcome with a mandatory report, notifications, and the "needs another visit" dashboard alert until a follow-up is booked.
+- **Leave**: requests, approval/rejection, Admin-recorded leave, overlap and date rules; approved leave refusing bookings on company-local days (including visits that cross midnight), re-checks only when a booking moves to other days or is re-activated, existing bookings reported to their Sales creators and flagged on the dashboard.
+- **SQL reads**: the hand-written list/calendar/export queries return exactly what the Prisma filters return (300 random filter combinations), including literal `%`/`_` in search terms.
 - **API**: login/logout with cookies, generic login errors, rate limiting, cross-origin rejection, malformed JSON, 401/403/404/409 responses, server-assigned creator.
-- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation.
+- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, and a technician asking for leave that the Admin approves (the technician then cannot be booked that day).
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
 

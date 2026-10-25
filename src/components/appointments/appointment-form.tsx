@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock,
+  CalendarOff,
   CheckCircle2,
   Crosshair,
   ExternalLink,
@@ -17,7 +18,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { CustomerConfirmation, ProductCategory, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, LeaveType, ProductCategory, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -28,6 +29,7 @@ import {
   CONFIRMATIONS,
   CONFIRMATION_LABELS,
   DURATION_PRESETS,
+  LEAVE_TYPE_LABELS,
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_LABELS,
   VISIT_TYPES,
@@ -35,7 +37,7 @@ import {
   WEEKDAY_NAMES,
   minutesLabel,
 } from "@/lib/constants";
-import { weekdayOfKey } from "@/lib/time";
+import { dayRangeLabel, weekdayOfKey } from "@/lib/time";
 import { timeRange } from "@/lib/format";
 import { checkMapUrl, extractCoordinates } from "@/lib/maps";
 import type { AppointmentDTO, ConflictDTO, StatusDTO } from "@/lib/types";
@@ -44,7 +46,8 @@ import { appointmentInputSchema, fieldErrorsFromZod } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
 type TechOption = { id: string; name: string; isActive: boolean };
-type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[] }>;
+type LeaveInfo = { type: LeaveType; startDate: string; endDate: string } | null;
+type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }>;
 export type SavedLocation = {
   id: string;
   area: string | null;
@@ -160,12 +163,12 @@ export function AppointmentForm({
     const t = setTimeout(async () => {
       setChecking(true);
       try {
-        const res = await api<{ technicians: { id: string; available: boolean; conflicts: ConflictDTO[] }[] }>("/api/appointments/availability", {
+        const res = await api<{ technicians: { id: string; available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }[] }>("/api/appointments/availability", {
           method: "POST",
           body: { date: v.date, startTime: v.startTime, durationMinutes: v.durationMinutes, excludeAppointmentId: appointmentId ?? null },
           signal: ctrl.signal,
         });
-        setAvailability(Object.fromEntries(res.technicians.map((t2) => [t2.id, { available: t2.available, conflicts: t2.conflicts }])));
+        setAvailability(Object.fromEntries(res.technicians.map((t2) => [t2.id, { available: t2.available, conflicts: t2.conflicts, leave: t2.leave ?? null }])));
       } catch (e) {
         if ((e as Error).name !== "AbortError") setAvailability(null);
       } finally {
@@ -690,7 +693,8 @@ export function AppointmentForm({
             )}
             {busySelected.length > 0 && conflicts.length === 0 && (
               <Alert tone="warning">
-                {busySelected.map((id) => technicians.find((t) => t.id === id)?.name).join(", ")} {busySelected.length === 1 ? "is" : "are"} busy at this time.
+                {busySelected.map((id) => technicians.find((t) => t.id === id)?.name).join(", ")} {busySelected.length === 1 ? "is" : "are"}{" "}
+                {busySelected.every((id) => availability?.[id]?.leave) ? "on leave on this date" : "busy or on leave at this time"}.
               </Alert>
             )}
             {err("technicianIds") && <Alert tone="danger">{err("technicianIds")}</Alert>}
@@ -723,7 +727,11 @@ export function AppointmentForm({
                           <span className="text-sm font-medium text-fg">{t.name}</span>
                           {!t.isActive && <Badge>inactive</Badge>}
                           {a &&
-                            (busy ? (
+                            (busy && a.leave ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
+                                <CalendarOff className="h-3.5 w-3.5" /> On leave
+                              </span>
+                            ) : busy ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
                                 <XCircle className="h-3.5 w-3.5" /> Busy
                               </span>
@@ -733,6 +741,11 @@ export function AppointmentForm({
                               </span>
                             ))}
                         </span>
+                        {busy && a!.leave && (
+                          <span className="mt-0.5 block text-xs text-fg-muted">
+                            {LEAVE_TYPE_LABELS[a!.leave.type]} · {dayRangeLabel(a!.leave.startDate, a!.leave.endDate)}
+                          </span>
+                        )}
                         {busy &&
                           a!.conflicts.map((c) => (
                             <span key={c.appointmentId} className="mt-0.5 block text-xs text-fg-muted">

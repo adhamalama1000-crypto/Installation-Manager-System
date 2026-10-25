@@ -7,7 +7,7 @@ import { assertCan } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { escapeLike } from "./appointment-reads";
 
-export const AUDIT_ENTITY_TYPES = ["APPOINTMENT", "USER", "STATUS", "SETTINGS", "CUSTOMER"] as const;
+export const AUDIT_ENTITY_TYPES = ["APPOINTMENT", "USER", "STATUS", "SETTINGS", "CUSTOMER", "LEAVE"] as const;
 
 export async function listAuditLog(
   user: CurrentUser,

@@ -32,7 +32,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   const upcomingWeek = Prisma.sql`${scopeSql} AND s.kind <> 'CANCELLED' AND a."startsAt" >= ${now} AND a."startsAt" < ${weekAhead}`;
 
   // Everything is independent, so it all runs in a single round trip.
-  const [todayCount, upcoming, scheduled, completed, postponed, cancelled, overdue, unassigned, noLocation, unconfirmed, revisit, todays] = await Promise.all([
+  const [todayCount, upcoming, scheduled, completed, postponed, cancelled, overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, todays] = await Promise.all([
     count({ ...notCancelled, startsAt: { gte: todayRange.start, lt: todayRange.end } }),
     count({ ...notCancelled, startsAt: { gte: now }, status: { kind: { notIn: ["CANCELLED", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"] } } }),
     count({ status: { kind: "SCHEDULED" }, startsAt: { gte: todayRange.start } }),
@@ -71,6 +71,19 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
       Prisma.sql`a."startsAt" DESC, a.number ASC`,
       20,
     ),
+    // Bookings of the next 30 days whose technician has approved leave on that day (booked before
+    // the leave was approved).
+    appointmentListRows(
+      user,
+      Prisma.sql`${scopeSql} AND s.kind <> 'CANCELLED' AND a."startsAt" >= ${now} AND a."startsAt" < ${new Date(now.getTime() + 30 * 86_400_000)}
+        AND EXISTS (SELECT 1 FROM appointment_technicians x
+                    JOIN technician_leaves lv ON lv."userId" = x."technicianId" AND lv.status = 'APPROVED'
+                    WHERE x."appointmentId" = a.id AND x."blocksSchedule"
+                      AND lv."startDate" <= ((a."endsAt" - interval '1 millisecond') AT TIME ZONE ${tz})::date
+                      AND lv."endDate" >= (a."startsAt" AT TIME ZONE ${tz})::date)`,
+      soonest,
+      20,
+    ),
     calendarAppointments(user, { from: today, to: today }),
   ]);
 
@@ -85,6 +98,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   };
   push(overdue, "Past end time - status not updated");
   push(unassigned, "No technician assigned");
+  push(onLeave, "Technician on approved leave - assign someone else");
   push(noLocation, "No map location saved");
   push(unconfirmed, "Customer has not confirmed - call before the visit");
   push(revisit, "Needs another visit - no follow-up booked");

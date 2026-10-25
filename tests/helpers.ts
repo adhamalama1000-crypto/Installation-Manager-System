@@ -9,7 +9,7 @@ export { prisma };
 
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE notifications, audit_logs, appointment_technicians, appointments, customer_locations, customers,
+    `TRUNCATE TABLE notifications, audit_logs, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
       password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
   );
 }

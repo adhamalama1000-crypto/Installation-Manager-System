@@ -22,6 +22,10 @@ export const PERMISSIONS = [
   "history.view",
   /** Record the outcome of an assigned visit (start, done, unable, needs another visit) with a report. */
   "visits.report",
+  /** Ask for leave, sick leave or a day off (own requests only). */
+  "leaves.request",
+  /** Approve, reject, add and cancel leave for any technician. */
+  "leaves.manage",
   "reports.view",
   "users.manage",
   "settings.manage",
@@ -85,7 +89,7 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view", "visits.report"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }

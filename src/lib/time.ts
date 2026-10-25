@@ -169,6 +169,12 @@ export function formatKey(key: string, pattern: Intl.DateTimeFormatOptions): str
   return new Intl.DateTimeFormat("en-GB", { ...pattern, timeZone: "UTC" }).format(new Date(Date.UTC(y!, m! - 1, d!)));
 }
 
+/** "Sat 14 Mar" or "Sat 14 Mar – Mon 16 Mar" for an inclusive range of day keys. */
+export function dayRangeLabel(fromKey: string, toKey: string): string {
+  const day = (k: string) => formatKey(k, { weekday: "short", day: "numeric", month: "short" });
+  return fromKey === toKey ? day(fromKey) : `${day(fromKey)} – ${day(toKey)}`;
+}
+
 export function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
   return aStart < bEnd && bStart < aEnd;
 }

@@ -1,4 +1,4 @@
-import type { CustomerConfirmation, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, LeaveStatus, LeaveType, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
 
 export const APP_NAME = "Installation Manager System";
 
@@ -41,6 +41,21 @@ export const CONFIRMATION_LABELS: Record<CustomerConfirmation, string> = {
 };
 
 export const CONFIRMATIONS: CustomerConfirmation[] = ["PENDING", "CONFIRMED", "RESCHEDULE_REQUESTED", "UNREACHABLE"];
+
+export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
+  LEAVE: "Leave",
+  SICK: "Sick leave",
+  ABSENCE: "Absence",
+};
+
+export const LEAVE_TYPES: LeaveType[] = ["LEAVE", "SICK", "ABSENCE"];
+
+export const LEAVE_STATUS_LABELS: Record<LeaveStatus, string> = {
+  REQUESTED: "Awaiting approval",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  CANCELLED: "Cancelled",
+};
 
 export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 

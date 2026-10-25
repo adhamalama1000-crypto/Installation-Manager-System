@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 import { HEX_COLOR_RE } from "./colors";
-import { CONFIRMATIONS, PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, VISIT_TYPES, phoneDigits } from "./constants";
+import { CONFIRMATIONS, LEAVE_TYPES, PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, VISIT_TYPES, phoneDigits } from "./constants";
 import { checkMapUrl, isValidLatitude, isValidLongitude } from "./maps";
 import { VIEWER_GRANTABLE } from "./permissions";
 import { TIME_RE, isValidDateString, isValidTimeZone } from "./time";
@@ -162,6 +162,31 @@ export const availabilitySchema = z.object({
   startTime: z.string().regex(TIME_RE, "Enter a valid time"),
   durationMinutes: z.coerce.number().int().min(15).max(1440),
   excludeAppointmentId: idField.optional().nullable(),
+});
+
+const dateField = z.string({ error: "Enter a valid date" }).refine(isValidDateString, "Enter a valid date");
+
+/** Leave of a technician: whole company-local days, first and last day inclusive. */
+export const leaveInputSchema = z
+  .object({
+    /** Admins add leave for a technician; a technician always asks for themselves. */
+    userId: idField.optional().nullable(),
+    startDate: dateField,
+    endDate: dateField,
+    type: z.enum(LEAVE_TYPES as [string, ...string[]], { error: "Choose the type of leave" }),
+    reason: optionalText(500),
+  })
+  .superRefine((v, ctx) => {
+    if (!isValidDateString(v.startDate) || !isValidDateString(v.endDate)) return;
+    if (v.endDate < v.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: "The last day must be on or after the first day" });
+    else if (Date.parse(v.endDate) - Date.parse(v.startDate) > 92 * 86_400_000) {
+      ctx.addIssue({ code: "custom", path: ["endDate"], message: "A single leave can cover at most 93 days" });
+    }
+  });
+
+export const leaveDecisionSchema = z.object({
+  decision: z.enum(["APPROVED", "REJECTED"], { error: "Choose approve or reject" }),
+  note: optionalText(500),
 });
 
 export const passwordSchema = z

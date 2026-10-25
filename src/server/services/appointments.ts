@@ -37,6 +37,7 @@ import {
 import { diffValues, recordAudit } from "./audit";
 import { notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
+import { assertTechniciansNotOnLeave } from "./leaves";
 import {
   appointmentFilterSql,
   appointmentListRows,
@@ -584,6 +585,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
       await validateTechnicians(tx, input.technicianIds, []);
       await lockTechnicians(tx, input.technicianIds);
       if (status.blocksSchedule) {
+        await assertTechniciansNotOnLeave(tx, input.technicianIds, startsAt, endsAt, tz);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
           startsAt,
@@ -711,6 +713,12 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
       await validateTechnicians(tx, input.technicianIds, currentTechIds);
       await lockTechnicians(tx, [...currentTechIds, ...input.technicianIds]);
       if (status.blocksSchedule) {
+        // Like closed days: technicians already on the booking are only re-checked when it moves to
+        // other days (or is re-activated), so a booking made before the leave can still be edited.
+        const daysChanged = dateKey(existing.startsAt, tz) !== dateKey(startsAt, tz) || dateKey(existing.endsAt, tz) !== dateKey(endsAt, tz);
+        const recheck = daysChanged || !existing.status.blocksSchedule;
+        const onLeaveCheck = recheck ? input.technicianIds : input.technicianIds.filter((t) => !currentTechIds.includes(t));
+        await assertTechniciansNotOnLeave(tx, onLeaveCheck, startsAt, endsAt, tz);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
           startsAt,
@@ -885,6 +893,7 @@ async function applyStatusChange(
       // Re-activating (e.g. un-cancelling) must not create a double booking.
       if (status.blocksSchedule && !existing.status.blocksSchedule && techIds.length) {
         await lockTechnicians(tx, techIds);
+        await assertTechniciansNotOnLeave(tx, techIds, existing.startsAt, existing.endsAt, tz);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: techIds,
           startsAt: existing.startsAt,
