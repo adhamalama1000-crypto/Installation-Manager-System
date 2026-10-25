@@ -20,6 +20,8 @@ export const PERMISSIONS = [
   "notes.internal",
   /** Change history of an appointment. */
   "history.view",
+  /** Record the outcome of an assigned visit (start, done, unable, needs another visit) with a report. */
+  "visits.report",
   "reports.view",
   "users.manage",
   "settings.manage",
@@ -83,7 +85,7 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }

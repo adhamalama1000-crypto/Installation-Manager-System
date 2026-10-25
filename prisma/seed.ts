@@ -29,6 +29,7 @@ const STATUSES: { name: string; kind: StatusKind; color: string; blocksSchedule:
   { name: "Postponed/Rescheduled", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
   { name: "Cancelled", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
   { name: "Unable to Complete", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
+  { name: "Needs another visit", kind: "NEEDS_REVISIT", color: "#EA580C", blocksSchedule: true },
 ];
 
 const USERS: { name: string; email: string; role: Role; color?: string; isActive?: boolean; phone?: string; viewerPermissions?: string[] }[] = [

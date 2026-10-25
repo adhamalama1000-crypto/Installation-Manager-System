@@ -125,6 +125,7 @@ Permissions are defined once in [`src/lib/permissions.ts`](src/lib/permissions.t
 |---|:-:|:-:|:-:|:-:|
 | See appointments | all | all | **assigned only** | if granted |
 | Create / edit / reschedule / assign / change status / cancel | ✓ | ✓¹ | - | - |
+| Record the visit outcome (started / done / unable / needs another visit) with a report | ✓ | ✓¹ | assigned only | - |
 | Customer phone numbers | ✓ | ✓ | ✓² | if granted |
 | Address, apartment, floor, map link | ✓ | ✓ | ✓ | if granted |
 | Internal notes | ✓ | ✓ | - | if granted |

@@ -57,6 +57,8 @@ enum StatusKind {
   POSTPONED
   CANCELLED
   UNABLE_TO_COMPLETE
+  /// The visit happened but the job needs another visit (follow-up).
+  NEEDS_REVISIT
 }
 
 model User {
@@ -78,16 +80,17 @@ model User {
   updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
   passwordChangedAt DateTime? @db.Timestamptz(3)
 
-  sessions            Session[]
-  passwordTokens      PasswordToken[]         @relation("TokenUser")
-  issuedTokens        PasswordToken[]         @relation("TokenIssuer")
-  createdAppointments Appointment[]           @relation("AppointmentCreator")
-  updatedAppointments Appointment[]           @relation("AppointmentUpdater")
-  assignments         AppointmentTechnician[] @relation("AssignmentTechnician")
-  assignedByMe        AppointmentTechnician[] @relation("AssignmentAssigner")
-  auditLogs           AuditLog[]
-  notifications       Notification[]
-  settingsUpdated     Setting[]
+  sessions             Session[]
+  passwordTokens       PasswordToken[]         @relation("TokenUser")
+  issuedTokens         PasswordToken[]         @relation("TokenIssuer")
+  createdAppointments  Appointment[]           @relation("AppointmentCreator")
+  updatedAppointments  Appointment[]           @relation("AppointmentUpdater")
+  reportedAppointments Appointment[]           @relation("AppointmentReporter")
+  assignments          AppointmentTechnician[] @relation("AssignmentTechnician")
+  assignedByMe         AppointmentTechnician[] @relation("AssignmentAssigner")
+  auditLogs            AuditLog[]
+  notifications        Notification[]
+  settingsUpdated      Setting[]
 
   @@index([role, isActive])
   @@map("users")
@@ -242,6 +245,11 @@ model Appointment {
   additionalNotes      String?
   /// Visible only to roles allowed to see internal notes.
   internalNotes        String?
+  /// What the technician did / found, written when recording the outcome of the visit.
+  visitReport          String?
+  reportedAt           DateTime?            @db.Timestamptz(3)
+  reportedById         String?
+  reportedBy           User?                @relation("AppointmentReporter", fields: [reportedById], references: [id], onDelete: Restrict)
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)

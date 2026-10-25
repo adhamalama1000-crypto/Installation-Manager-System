@@ -26,6 +26,7 @@ const FIELD_LABELS: Record<string, string> = {
   requiredEquipment: "Required equipment",
   additionalNotes: "Additional notes",
   internalNotes: "Internal notes",
+  visitReport: "Visit report",
   startsAt: "Start",
   endsAt: "End",
   durationMinutes: "Duration (min)",

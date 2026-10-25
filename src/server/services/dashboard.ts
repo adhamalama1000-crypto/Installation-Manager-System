@@ -32,9 +32,9 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   const upcomingWeek = Prisma.sql`${scopeSql} AND s.kind <> 'CANCELLED' AND a."startsAt" >= ${now} AND a."startsAt" < ${weekAhead}`;
 
   // Everything is independent, so it all runs in a single round trip.
-  const [todayCount, upcoming, scheduled, completed, postponed, cancelled, overdue, unassigned, noLocation, unconfirmed, todays] = await Promise.all([
+  const [todayCount, upcoming, scheduled, completed, postponed, cancelled, overdue, unassigned, noLocation, unconfirmed, revisit, todays] = await Promise.all([
     count({ ...notCancelled, startsAt: { gte: todayRange.start, lt: todayRange.end } }),
-    count({ ...notCancelled, startsAt: { gte: now }, status: { kind: { notIn: ["CANCELLED", "COMPLETED", "UNABLE_TO_COMPLETE"] } } }),
+    count({ ...notCancelled, startsAt: { gte: now }, status: { kind: { notIn: ["CANCELLED", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"] } } }),
     count({ status: { kind: "SCHEDULED" }, startsAt: { gte: todayRange.start } }),
     count({ status: { kind: "COMPLETED" }, startsAt: { gte: monthRange.start, lt: monthRange.end } }),
     count({ status: { kind: "POSTPONED" } }),
@@ -62,6 +62,15 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
       soonest,
       20,
     ),
+    // Visits that need another visit (last 120 days) with no follow-up booked yet.
+    appointmentListRows(
+      user,
+      Prisma.sql`${scopeSql} AND s.kind = 'NEEDS_REVISIT' AND a."startsAt" >= ${new Date(now.getTime() - 120 * 86_400_000)}
+        AND NOT EXISTS (SELECT 1 FROM appointments f JOIN appointment_statuses fs ON fs.id = f."statusId"
+                        WHERE f."followUpOfId" = a.id AND fs.kind <> 'CANCELLED')`,
+      Prisma.sql`a."startsAt" DESC, a.number ASC`,
+      20,
+    ),
     calendarAppointments(user, { from: today, to: today }),
   ]);
 
@@ -78,6 +87,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   push(unassigned, "No technician assigned");
   push(noLocation, "No map location saved");
   push(unconfirmed, "Customer has not confirmed - call before the visit");
+  push(revisit, "Needs another visit - no follow-up booked");
 
   return {
     today,

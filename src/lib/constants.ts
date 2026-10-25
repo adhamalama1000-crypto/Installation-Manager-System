@@ -51,6 +51,7 @@ export const STATUS_KIND_LABELS: Record<StatusKind, string> = {
   POSTPONED: "Postponed / Rescheduled",
   CANCELLED: "Cancelled",
   UNABLE_TO_COMPLETE: "Unable to Complete",
+  NEEDS_REVISIT: "Needs another visit",
 };
 
 export const STATUS_KINDS: StatusKind[] = [
@@ -60,6 +61,7 @@ export const STATUS_KINDS: StatusKind[] = [
   "POSTPONED",
   "CANCELLED",
   "UNABLE_TO_COMPLETE",
+  "NEEDS_REVISIT",
 ];
 
 export const DURATION_PRESETS = [30, 60, 90, 120, 180, 240, 360, 480];

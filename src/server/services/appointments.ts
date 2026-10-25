@@ -1,7 +1,16 @@
 import "server-only";
-import { Prisma, type AppointmentStatus, type CustomerConfirmation, type ProductCategory, type VisitType } from "@prisma/client";
+import { Prisma, type AppointmentStatus, type CustomerConfirmation, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
 import { z } from "zod";
-import { CONFIRMATION_LABELS, PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, WEEKDAY_NAMES, appointmentCode, parseAppointmentCode, phoneDigits } from "@/lib/constants";
+import {
+  CONFIRMATION_LABELS,
+  PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORY_LABELS,
+  STATUS_KIND_LABELS,
+  WEEKDAY_NAMES,
+  appointmentCode,
+  parseAppointmentCode,
+  phoneDigits,
+} from "@/lib/constants";
 import { resolveLocationLink } from "@/lib/maps";
 import { type Permission } from "@/lib/permissions";
 import type { AppointmentDTO, AppointmentListItem, AuditEntryDTO } from "@/lib/types";
@@ -11,6 +20,7 @@ import {
   cancelSchema,
   confirmationSchema,
   fieldErrorsFromZod,
+  outcomeSchema,
   statusChangeSchema,
   type AppointmentInput,
 } from "@/lib/validation";
@@ -56,7 +66,16 @@ type AppointmentFull = Prisma.AppointmentGetPayload<{ include: typeof appointmen
 type AppointmentView = Omit<AppointmentFull, "technicians"> & {
   technicians: Pick<AppointmentFull["technicians"][number], "technician">[];
   links: Pick<AppointmentDTO, "followUpOf" | "followUps">;
+  reportedBy: { id: string; name: string } | null;
 };
+
+/** Statuses from which the outcome of a visit can be recorded (not cancelled or postponed). */
+const REPORTABLE_KINDS: StatusKind[] = ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"];
+
+function canReportVisit(user: CurrentUser, a: { createdById: string; technicians: { technician: { id: string } }[] }): boolean {
+  if (hasPermission(user, "visits.report") && a.technicians.some((t) => t.technician.id === user.id)) return true;
+  return canManageAppointment(user, a);
+}
 
 const TX_OPTIONS = { timeout: 20_000, maxWait: 10_000 };
 
@@ -95,6 +114,9 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     requiredEquipment: a.requiredEquipment,
     additionalNotes: a.additionalNotes,
     ...(canNotes ? { internalNotes: a.internalNotes } : {}),
+    visitReport: a.visitReport,
+    reportedAt: a.reportedAt?.toISOString() ?? null,
+    reportedBy: a.reportedBy,
     startsAt: a.startsAt.toISOString(),
     endsAt: a.endsAt.toISOString(),
     durationMinutes: a.durationMinutes,
@@ -136,6 +158,7 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     updatedAt: a.updatedAt.toISOString(),
     version: a.version,
     canManage: canManageAppointment(user, a),
+    canReport: canReportVisit(user, a),
   };
 }
 
@@ -285,7 +308,10 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
     prisma.customer.findUniqueOrThrow({ where: { id: appt.customerId } }),
     prisma.customerLocation.findUniqueOrThrow({ where: { id: appt.locationId } }),
     prisma.appointmentStatus.findUniqueOrThrow({ where: { id: appt.statusId } }),
-    prisma.user.findMany({ where: { id: { in: [appt.createdById, appt.updatedById ?? appt.createdById] } }, select: userRefSelect }),
+    prisma.user.findMany({
+      where: { id: { in: [appt.createdById, appt.updatedById ?? appt.createdById, appt.reportedById ?? appt.createdById] } },
+      select: userRefSelect,
+    }),
     prisma.user.findMany({
       where: { assignments: { some: { appointmentId: appt.id } } },
       select: userRefSelect,
@@ -309,6 +335,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
     status,
     createdBy: person(appt.createdById),
     updatedBy: appt.updatedById ? { id: appt.updatedById, name: person(appt.updatedById).name } : null,
+    reportedBy: appt.reportedById ? { id: appt.reportedById, name: person(appt.reportedById).name } : null,
     technicians: technicians.map((technician) => ({ technician })),
     links: {
       followUpOf: followUpOf ? { id: followUpOf.id, code: appointmentCode(followUpOf.number) } : null,
@@ -918,6 +945,95 @@ export async function cancelAppointment(user: CurrentUser, id: string, raw: unkn
   const parsed = cancelSchema.safeParse(raw ?? {});
   if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
   return applyStatusChange(user, id, { kind: "CANCELLED" }, parsed.data.version, parsed.data.reason);
+}
+
+/**
+ * The assigned technician (or a manager) records how the visit went: started, done, unable to
+ * complete or needs another visit, with a report for every outcome except "started".
+ */
+export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unknown): Promise<AppointmentDTO> {
+  if (!hasPermission(user, "visits.report") && !hasPermission(user, "appointments.manage")) throw new ForbiddenError();
+  const parsed = outcomeSchema.safeParse(raw);
+  if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
+  const input = parsed.data;
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Appointment not found.");
+  const settings = await getSettings();
+  const ctx: { techIds: string[]; startsAt?: Date; endsAt?: Date } = { techIds: [] };
+  try {
+    await prisma.$transaction(async (tx) => {
+      await lockAppointmentRow(tx, id);
+      const visible = await tx.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] }, select: { id: true } });
+      if (!visible) throw new NotFoundError("Appointment not found.");
+      const existing = await loadFull(tx, id);
+      if (!canReportVisit(user, existing)) throw new ForbiddenError("Only the assigned technicians can record the outcome of this visit.");
+      if (input.version !== undefined && input.version !== existing.version) throw new StaleRecordError();
+      if (!REPORTABLE_KINDS.includes(existing.status.kind)) {
+        const msg = `This appointment is "${existing.status.name}", so no outcome can be recorded.`;
+        throw new ValidationError({ outcome: msg }, msg);
+      }
+      const status = await tx.appointmentStatus.findFirst({ where: { kind: input.outcome, isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
+      if (!status) {
+        const msg = `No active "${STATUS_KIND_LABELS[input.outcome]}" status is set up. An Admin can add one in Settings.`;
+        throw new ValidationError({ outcome: msg }, msg);
+      }
+      const report = input.report ?? existing.visitReport;
+      if (status.id === existing.statusId && report === existing.visitReport) return;
+      const techIds = existing.technicians.map((t) => t.technicianId);
+      Object.assign(ctx, { techIds, startsAt: existing.startsAt, endsAt: existing.endsAt });
+      if (status.blocksSchedule && !existing.status.blocksSchedule && techIds.length) {
+        await lockTechnicians(tx, techIds);
+        const conflicts = await findTechnicianConflicts(tx, {
+          technicianIds: techIds,
+          startsAt: existing.startsAt,
+          endsAt: existing.endsAt,
+          excludeAppointmentId: id,
+          bufferMinutes: settings.travelBufferMinutes,
+        });
+        if (conflicts.length) throw new SchedulingConflictError(conflicts);
+      }
+      const reportChanged = report !== existing.visitReport;
+      await tx.appointment.update({
+        where: { id, version: existing.version },
+        data: {
+          statusId: status.id,
+          visitReport: report,
+          ...(reportChanged ? { reportedAt: new Date(), reportedById: user.id } : {}),
+          updatedById: user.id,
+          version: { increment: 1 },
+        },
+      });
+      if (status.blocksSchedule !== existing.status.blocksSchedule) {
+        await tx.appointmentTechnician.updateMany({ where: { appointmentId: id }, data: { blocksSchedule: status.blocksSchedule } });
+      }
+      const code = appointmentCode(existing.number);
+      await recordAudit(tx, {
+        entityType: "APPOINTMENT",
+        entityId: id,
+        appointmentId: id,
+        action: "VISIT_OUTCOME",
+        summary: `${user.name} recorded "${status.name}" for ${code}${report ? `: ${report}` : ""}`,
+        changes: {
+          ...(status.id !== existing.statusId ? { status: { from: existing.status.name, to: status.name } } : {}),
+          ...(reportChanged ? { visitReport: { from: existing.visitReport, to: report } } : {}),
+        },
+        actorId: user.id,
+      });
+      // The Sales creator and any other technician on the job hear about it.
+      await notifyUsers(
+        tx,
+        [existing.createdById, ...techIds],
+        { appointmentId: id, type: "VISIT_OUTCOME", message: `${user.name}: ${code} (${existing.customer.name}) is now "${status.name}"` },
+        user.id,
+      );
+    }, TX_OPTIONS);
+  } catch (e) {
+    if (isOverlapViolation(e) && ctx.startsAt && ctx.endsAt) {
+      throw await conflictErrorFor(ctx.techIds, ctx.startsAt, ctx.endsAt, id, settings.travelBufferMinutes);
+    }
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2025") throw new StaleRecordError();
+    throw e;
+  }
+  return getAppointment(user, id);
 }
 
 /** Records whether the customer confirmed the booked time (quick action on the details page). */

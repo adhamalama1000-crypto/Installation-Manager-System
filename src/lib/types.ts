@@ -46,6 +46,9 @@ export type AppointmentDTO = {
   additionalNotes: string | null;
   /** Undefined when the viewer may not see internal notes. */
   internalNotes?: string | null;
+  visitReport: string | null;
+  reportedAt: string | null;
+  reportedBy: { id: string; name: string } | null;
   startsAt: string;
   endsAt: string;
   durationMinutes: number;
@@ -67,6 +70,8 @@ export type AppointmentDTO = {
   version: number;
   /** Whether the current user may edit / reschedule / cancel / change status. */
   canManage: boolean;
+  /** Whether the current user may record the outcome of the visit (assigned technician or manager). */
+  canReport: boolean;
 };
 
 export type AppointmentListItem = {

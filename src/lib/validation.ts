@@ -131,6 +131,22 @@ export const statusChangeSchema = z.object({
   note: optionalText(1000),
 });
 
+/** Outcomes a technician can record for a visit; every outcome except "started" needs a report. */
+export const VISIT_OUTCOMES = ["IN_PROGRESS", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"] as const;
+export type VisitOutcome = (typeof VISIT_OUTCOMES)[number];
+
+export const outcomeSchema = z
+  .object({
+    outcome: z.enum(VISIT_OUTCOMES, { error: "Choose the outcome of the visit" }),
+    report: optionalText(4000),
+    version: z.number().int().positive().optional(),
+  })
+  .superRefine((o, ctx) => {
+    if (o.outcome !== "IN_PROGRESS" && !o.report) {
+      ctx.addIssue({ code: "custom", path: ["report"], message: "Write what was done (or why not) - the visit report is required" });
+    }
+  });
+
 export const confirmationSchema = z.object({
   confirmation: z.enum(CONFIRMATIONS as [string, ...string[]], { error: "Choose a confirmation status" }),
   version: z.number().int().positive().optional(),

@@ -1,7 +1,8 @@
 import Link from "next/link";
-import { CalendarClock, ExternalLink, History, MapPin, MapPinOff, Navigation, Package, Phone, User } from "lucide-react";
+import { CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, MapPinOff, Navigation, Package, Phone, User } from "lucide-react";
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
+import { OutcomePanel } from "@/components/appointments/outcome-panel";
 import { HistoryList } from "@/components/appointments/history-list";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -37,6 +38,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const loc = a.location;
   const cancelled = a.status.kind === "CANCELLED";
   const salesColor = colorOrFallback(a.createdBy.color);
+  const reportable = a.canReport && ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"].includes(a.status.kind);
 
   return (
     <>
@@ -158,6 +160,24 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               />
             </CardBody>
           </Card>
+
+          {reportable ? (
+            <OutcomePanel id={a.id} version={a.version} statusKind={a.status.kind} report={a.visitReport} />
+          ) : (
+            a.visitReport && (
+              <Card>
+                <CardHeader title="Visit report" icon={<ClipboardCheck className="h-4 w-4" />} />
+                <CardBody>
+                  <p className="whitespace-pre-line text-sm text-fg">{a.visitReport}</p>
+                </CardBody>
+              </Card>
+            )
+          )}
+          {a.reportedBy && a.reportedAt && (
+            <p className="-mt-4 text-xs text-fg-subtle">
+              Report by {a.reportedBy.name} · {dateTime(a.reportedAt, tz)}
+            </p>
+          )}
 
           {history && (
             <Card>
