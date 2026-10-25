@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CalendarOff,
   CheckCircle2,
+  Banknote,
   Crosshair,
   ExternalLink,
   Loader2,
@@ -18,7 +19,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { CustomerConfirmation, LeaveType, ProductCategory, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, LeaveType, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -30,12 +31,15 @@ import {
   CONFIRMATION_LABELS,
   DURATION_PRESETS,
   LEAVE_TYPE_LABELS,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
   PRODUCT_CATEGORIES,
   PRODUCT_CATEGORY_LABELS,
   VISIT_TYPES,
   VISIT_TYPE_LABELS,
   WEEKDAY_NAMES,
   minutesLabel,
+  money,
 } from "@/lib/constants";
 import { dayRangeLabel, weekdayOfKey } from "@/lib/time";
 import { timeRange } from "@/lib/format";
@@ -182,6 +186,13 @@ export function AppointmentForm({
   }, [v.date, v.startTime, v.durationMinutes, appointmentId]);
 
   const closedDay = /^\d{4}-\d{2}-\d{2}$/.test(v.date) && closedWeekdays.includes(weekdayOfKey(v.date));
+  const toCollect = useMemo(() => {
+    const n = (s: string) => (s.trim() === "" ? null : Number(s.replace(/[,\s]/g, "")));
+    const [total, deposit, fee] = [n(v.totalPrice), n(v.depositAmount), n(v.extraFee)];
+    if ([total, deposit, fee].some((x) => x !== null && !Number.isFinite(x))) return null;
+    if (total === null && fee === null) return null;
+    return Math.round((Math.max(0, (total ?? 0) - (deposit ?? 0)) + (fee ?? 0)) * 100) / 100;
+  }, [v.totalPrice, v.depositAmount, v.extraFee]);
   const selectedStatus = statuses.find((st) => st.id === v.statusId);
   const statusBlocks = selectedStatus ? selectedStatus.blocksSchedule : true;
   const end = addMinutesToTime(v.startTime, v.durationMinutes);
@@ -220,6 +231,10 @@ export function AppointmentForm({
       durationMinutes: v.durationMinutes,
       technicianIds: v.technicianIds,
       statusId: v.statusId || null,
+      totalPrice: v.totalPrice,
+      depositAmount: v.depositAmount,
+      depositMethod: v.depositAmount.trim() ? v.depositMethod : null,
+      extraFee: v.extraFee,
     };
   }
 
@@ -535,6 +550,49 @@ export function AppointmentForm({
                   {(p) => <Textarea {...p} rows={2} value={v.internalNotes} onChange={(e) => set("internalNotes", e.target.value)} />}
                 </Field>
               </div>
+            )}
+          </div>
+        </Card>
+
+        <Card>
+          <CardHeader
+            title="Price & payment"
+            description="Optional. Technicians only see the amount to collect, not the price."
+            icon={<Banknote className="h-4 w-4" />}
+          />
+          <div className="grid gap-4 p-5 sm:grid-cols-2">
+            <div data-field="totalPrice">
+              <Field label="Total price (EGP)" error={err("totalPrice")}>
+                {(p) => <Input {...p} inputMode="decimal" value={v.totalPrice} onChange={(e) => set("totalPrice", e.target.value)} placeholder="e.g. 4500" />}
+              </Field>
+            </div>
+            <div data-field="extraFee">
+              <Field label="Extra fee (EGP)" error={err("extraFee")} hint="e.g. a repeat visit the customer caused">
+                {(p) => <Input {...p} inputMode="decimal" value={v.extraFee} onChange={(e) => set("extraFee", e.target.value)} />}
+              </Field>
+            </div>
+            <div data-field="depositAmount">
+              <Field label="Deposit paid (EGP)" error={err("depositAmount")}>
+                {(p) => <Input {...p} inputMode="decimal" value={v.depositAmount} onChange={(e) => set("depositAmount", e.target.value)} />}
+              </Field>
+            </div>
+            <div data-field="depositMethod">
+              <Field label="Deposit paid by" error={err("depositMethod")}>
+                {(p) => (
+                  <Select {...p} value={v.depositMethod} disabled={!v.depositAmount.trim()} onChange={(e) => set("depositMethod", e.target.value as PaymentMethod)}>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {PAYMENT_METHOD_LABELS[m]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            {toCollect !== null && (
+              <p className="text-sm text-fg-muted sm:col-span-2">
+                To collect at the visit: <strong className="text-fg">{money(toCollect)}</strong>
+              </p>
             )}
           </div>
         </Card>

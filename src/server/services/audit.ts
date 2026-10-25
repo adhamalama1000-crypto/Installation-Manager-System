@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import type { Db } from "../db";
 
 export type AuditInput = {
-  entityType: "APPOINTMENT" | "USER" | "STATUS" | "SETTINGS" | "CUSTOMER" | "LEAVE";
+  entityType: "APPOINTMENT" | "USER" | "STATUS" | "SETTINGS" | "CUSTOMER" | "LEAVE" | "CASH";
   entityId: string;
   action: string;
   summary: string;

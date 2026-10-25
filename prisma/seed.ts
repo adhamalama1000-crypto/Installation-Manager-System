@@ -1,13 +1,14 @@
 /**
- * Development seed data. Creates statuses, demo users (Admin, Sales, Technicians, Viewer),
- * customers and ~2 months of non-overlapping appointments around today.
+ * Development seed data. Creates statuses, demo users (Admin, Sales, Technicians, Accountant,
+ * Viewer), customers and ~2 months of non-overlapping appointments around today, with prices,
+ * deposits and collections.
  *
  *   npm run db:seed                 # only runs on an empty database
  *   SEED_FORCE=1 npm run db:seed    # wipes existing data first (never in production)
  *
  * All demo accounts use the password in SEED_PASSWORD (default "ChangeMe123!").
  */
-import { PrismaClient, type ProductCategory, type Role, type StatusKind, type VisitType } from "@prisma/client";
+import { PrismaClient, type PaymentMethod, type ProductCategory, type Role, type StatusKind, type VisitType } from "@prisma/client";
 import bcrypt from "bcryptjs";
 import { fromZonedTime, formatInTimeZone } from "date-fns-tz";
 
@@ -42,8 +43,12 @@ const USERS: { name: string; email: string; role: Role; color?: string; isActive
   { name: "Ahmed Samir", email: "ahmed.tech@example.com", role: "TECHNICIAN", phone: "+20 111 000 3333" },
   { name: "Mostafa Ali", email: "mostafa.tech@example.com", role: "TECHNICIAN", phone: "+20 111 000 4444" },
   { name: "Hany Saeed", email: "hany.tech@example.com", role: "TECHNICIAN", isActive: false },
+  { name: "Nadia Fawzy", email: "nadia.accounts@example.com", role: "ACCOUNTANT", phone: "+20 100 444 5566" },
   { name: "Laila Viewer", email: "viewer@example.com", role: "VIEWER", viewerPermissions: ["appointments.view", "location.view", "reports.view"] },
 ];
+
+// Prices follow the appointment counter (not rand()) so adding them did not change the rest of the data.
+const PRICES = [3500, 4200, 5800, 2900, 7500, 1200, 6400, 4800];
 
 const FIRST = ["Ahmed", "Mohamed", "Nour", "Hana", "Tarek", "Dina", "Khaled", "Rania", "Sherif", "Yasmin", "Amr", "Salma", "Hossam", "Mariam", "Walid", "Farida"];
 const LAST = ["El-Sayed", "Abdelrahman", "Fouad", "Zaki", "Mansour", "Ibrahim", "Gamal", "Shawky", "Lotfy", "Hamdy"];
@@ -93,7 +98,7 @@ async function main() {
     console.log("SEED_FORCE=1: wiping existing data...");
     // TRUNCATE does not fire the row-level trigger that protects audit_logs.
     await prisma.$executeRawUnsafe(
-      `TRUNCATE TABLE notifications, audit_logs, appointment_technicians, appointments, customer_locations, customers,
+      `TRUNCATE TABLE notifications, audit_logs, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
         password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
     );
   }
@@ -128,6 +133,7 @@ async function main() {
   const sales = [...users.values()].filter((u) => u.role === "SALES").map((u) => u.id);
   const techs = [...users.values()].filter((u) => u.role === "TECHNICIAN" && u.isActive).map((u) => u.id);
   const inactiveTech = users.get("hany.tech@example.com")!.id;
+  const accountant = users.get("nadia.accounts@example.com")!.id;
 
   await prisma.setting.create({
     data: {
@@ -217,6 +223,13 @@ async function main() {
       // A seed appointment in the past may keep a now-inactive technician (historical reference).
       const team = offset < -7 && rand() < 0.15 ? [inactiveTech] : crew;
       const creator = rand() < 0.08 ? admin : pick(sales);
+      const totalPrice = PRICES[created % PRICES.length]!;
+      const depositAmount = created % 3 === 0 ? null : Math.round((totalPrice * 0.3) / 100) * 100;
+      const done = kind === "COMPLETED";
+      // Most customers pay the rest at the visit; every fifth one still owes 500.
+      const collectedAmount = done ? totalPrice - (depositAmount ?? 0) - (created % 5 === 0 ? 500 : 0) : null;
+      const collectedMethod: PaymentMethod | null = collectedAmount ? (created % 4 === 0 ? "INSTAPAY" : "CASH") : null;
+      const collectedAt = done ? endsAt : null;
       const appt = await prisma.appointment.create({
         data: {
           customerId: customer.id,
@@ -234,6 +247,13 @@ async function main() {
           startsAt,
           endsAt,
           durationMinutes: slot.minutes,
+          totalPrice,
+          depositAmount,
+          depositMethod: depositAmount ? (created % 2 ? "CASH" : "BANK_TRANSFER") : null,
+          collectedAmount,
+          collectedMethod,
+          collectedAt,
+          collectedById: done ? team[0]! : null,
           statusId: statuses.get(kind)!,
           createdById: creator,
           updatedById: creator,
@@ -242,6 +262,21 @@ async function main() {
           },
         },
       });
+      if (collectedMethod === "CASH" && collectedAmount && collectedAt) {
+        // Cash from the last week is still with the technician; older cash was handed over.
+        const handedOver = offset < -7;
+        await prisma.cashCustody.create({
+          data: {
+            appointmentId: appt.id,
+            technicianId: team[0]!,
+            amount: collectedAmount,
+            collectedAt,
+            status: handedOver ? "RECEIVED" : "HELD",
+            receivedById: handedOver ? accountant : null,
+            receivedAt: handedOver ? new Date(collectedAt.getTime() + 2 * 86_400_000) : null,
+          },
+        });
+      }
       await prisma.auditLog.create({
         data: {
           entityType: "APPOINTMENT",

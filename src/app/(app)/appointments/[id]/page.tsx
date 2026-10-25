@@ -3,6 +3,7 @@ import { CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, MapPinOff
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
 import { OutcomePanel } from "@/components/appointments/outcome-panel";
+import { PaymentCard } from "@/components/appointments/payment-card";
 import { HistoryList } from "@/components/appointments/history-list";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -162,7 +163,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           </Card>
 
           {reportable ? (
-            <OutcomePanel id={a.id} version={a.version} statusKind={a.status.kind} report={a.visitReport} />
+            <OutcomePanel id={a.id} version={a.version} statusKind={a.status.kind} report={a.visitReport} payment={a.payment} />
           ) : (
             a.visitReport && (
               <Card>
@@ -215,6 +216,8 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               )}
             </CardBody>
           </Card>
+
+          {a.payment && <PaymentCard payment={a.payment} tz={tz} />}
 
           <Card id="schedule">
             <CardHeader title="Schedule" icon={<CalendarClock className="h-4 w-4" />} />

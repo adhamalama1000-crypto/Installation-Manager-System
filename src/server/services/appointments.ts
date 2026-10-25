@@ -1,5 +1,5 @@
 import "server-only";
-import { Prisma, type AppointmentStatus, type CustomerConfirmation, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
+import { Prisma, type AppointmentStatus, type CustomerConfirmation, type PaymentMethod, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
 import { z } from "zod";
 import {
   CONFIRMATION_LABELS,
@@ -38,6 +38,7 @@ import { diffValues, recordAudit } from "./audit";
 import { notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
 import { assertTechniciansNotOnLeave } from "./leaves";
+import { canSeePrices, loadCustody, paymentDTO, prepareCollection, type CustodyView } from "./payments";
 import {
   appointmentFilterSql,
   appointmentListRows,
@@ -68,6 +69,8 @@ type AppointmentView = Omit<AppointmentFull, "technicians"> & {
   technicians: Pick<AppointmentFull["technicians"][number], "technician">[];
   links: Pick<AppointmentDTO, "followUpOf" | "followUps">;
   reportedBy: { id: string; name: string } | null;
+  collectedBy: { id: string; name: string } | null;
+  custody: CustodyView | null;
 };
 
 /** Statuses from which the outcome of a visit can be recorded (not cancelled or postponed). */
@@ -160,6 +163,7 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     version: a.version,
     canManage: canManageAppointment(user, a),
     canReport: canReportVisit(user, a),
+    payment: paymentDTO(user, a, a.collectedBy, a.custody),
   };
 }
 
@@ -305,12 +309,12 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
   const appt = await prisma.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] } });
   if (!appt) throw new NotFoundError("Appointment not found.");
   const scope = appointmentScope(user);
-  const [customer, location, status, people, technicians, followUpOf, followUps] = await Promise.all([
+  const [customer, location, status, people, technicians, followUpOf, followUps, custody] = await Promise.all([
     prisma.customer.findUniqueOrThrow({ where: { id: appt.customerId } }),
     prisma.customerLocation.findUniqueOrThrow({ where: { id: appt.locationId } }),
     prisma.appointmentStatus.findUniqueOrThrow({ where: { id: appt.statusId } }),
     prisma.user.findMany({
-      where: { id: { in: [appt.createdById, appt.updatedById ?? appt.createdById, appt.reportedById ?? appt.createdById] } },
+      where: { id: { in: [appt.createdById, appt.updatedById ?? appt.createdById, appt.reportedById ?? appt.createdById, appt.collectedById ?? appt.createdById] } },
       select: userRefSelect,
     }),
     prisma.user.findMany({
@@ -327,6 +331,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
       orderBy: { startsAt: "asc" },
       take: 20,
     }),
+    canSeePrices(user) ? loadCustody(appt.id) : Promise.resolve(null),
   ]);
   const person = (pid: string) => people.find((p) => p.id === pid)!;
   return {
@@ -337,6 +342,8 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
     createdBy: person(appt.createdById),
     updatedBy: appt.updatedById ? { id: appt.updatedById, name: person(appt.updatedById).name } : null,
     reportedBy: appt.reportedById ? { id: appt.reportedById, name: person(appt.reportedById).name } : null,
+    collectedBy: appt.collectedById ? { id: appt.collectedById, name: person(appt.collectedById).name } : null,
+    custody,
     technicians: technicians.map((technician) => ({ technician })),
     links: {
       followUpOf: followUpOf ? { id: followUpOf.id, code: appointmentCode(followUpOf.number) } : null,
@@ -355,13 +362,14 @@ const FIELD_PERMISSIONS: Array<[RegExp, Permission]> = [
   [/^customer\.(phone|secondaryPhone)$/, "customers.contact"],
   [/^location\./, "location.view"],
 ];
+const MONEY_FIELD = /^(totalPrice|depositAmount|depositMethod|extraFee|collectedAmount|collectedMethod)$/;
 
 export function redactChanges(user: CurrentUser, changes: unknown): AuditEntryDTO["changes"] {
   if (!changes || typeof changes !== "object") return null;
   const out: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(changes as Record<string, unknown>)) {
     const rule = FIELD_PERMISSIONS.find(([re]) => re.test(key));
-    if (rule && !hasPermission(user, rule[1])) {
+    if ((rule && !hasPermission(user, rule[1])) || (MONEY_FIELD.test(key) && !canSeePrices(user))) {
       out[key] = { from: "(hidden)", to: "(hidden)" };
     } else {
       out[key] = value;
@@ -493,7 +501,28 @@ function snapshot(a: AppointmentFull | null) {
     requiredEquipment: a.requiredEquipment,
     additionalNotes: a.additionalNotes,
     internalNotes: a.internalNotes,
+    totalPrice: a.totalPrice,
+    depositAmount: a.depositAmount,
+    depositMethod: a.depositMethod,
+    extraFee: a.extraFee,
   };
+}
+
+type MoneyBefore = { totalPrice: Prisma.Decimal | null; depositAmount: Prisma.Decimal | null; depositMethod: PaymentMethod | null; extraFee: Prisma.Decimal | null };
+
+/** Price fields to write; fields left out of an edit keep their value. */
+function moneyData(input: AppointmentInput, before?: MoneyBefore) {
+  const pick = (v: number | null | undefined, old: Prisma.Decimal | null | undefined) => (v === undefined ? (old?.toNumber() ?? null) : v);
+  const totalPrice = pick(input.totalPrice, before?.totalPrice);
+  const depositAmount = pick(input.depositAmount, before?.depositAmount) || null;
+  const extraFee = pick(input.extraFee, before?.extraFee);
+  const depositMethod = depositAmount ? ((input.depositMethod as PaymentMethod | null | undefined) ?? before?.depositMethod ?? null) : null;
+  if (depositAmount && (totalPrice === null || depositAmount > totalPrice)) {
+    const msg = totalPrice === null ? "Enter the total price so the deposit can be deducted." : "The deposit cannot be more than the total price.";
+    throw new ValidationError(totalPrice === null ? { totalPrice: msg } : { depositAmount: msg }, msg);
+  }
+  if (depositAmount && !depositMethod) throw new ValidationError({ depositMethod: "Choose how the deposit was paid." });
+  return { totalPrice, depositAmount, depositMethod, extraFee };
 }
 
 /** Closed weekdays (Settings) cannot be booked; only an Admin may book one, and only explicitly. */
@@ -604,6 +633,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
           visitType: (input.visitType as VisitType | null | undefined) ?? null,
           customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? "PENDING",
           followUpOfId: input.followUpOfId ?? null,
+          ...moneyData(input),
           brand: input.brand,
           model: input.model,
           description: input.description,
@@ -740,6 +770,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           visitType: input.visitType === undefined ? existing.visitType : ((input.visitType as VisitType | null) ?? null),
           customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? existing.customerConfirmation,
           // followUpOfId is set at creation only.
+          ...moneyData(input, existing),
           brand: input.brand,
           model: input.model,
           description: input.description,
@@ -986,7 +1017,9 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
         throw new ValidationError({ outcome: msg }, msg);
       }
       const report = input.report ?? existing.visitReport;
-      if (status.id === existing.statusId && report === existing.visitReport) return;
+      const now = new Date();
+      const collection = await prepareCollection(tx, user, existing, input.collectedAmount, input.collectedMethod, now);
+      if (status.id === existing.statusId && report === existing.visitReport && !collection) return;
       const techIds = existing.technicians.map((t) => t.technicianId);
       Object.assign(ctx, { techIds, startsAt: existing.startsAt, endsAt: existing.endsAt });
       if (status.blocksSchedule && !existing.status.blocksSchedule && techIds.length) {
@@ -1006,11 +1039,13 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
         data: {
           statusId: status.id,
           visitReport: report,
-          ...(reportChanged ? { reportedAt: new Date(), reportedById: user.id } : {}),
+          ...(reportChanged ? { reportedAt: now, reportedById: user.id } : {}),
+          ...(collection?.data ?? {}),
           updatedById: user.id,
           version: { increment: 1 },
         },
       });
+      await collection?.syncCustody();
       if (status.blocksSchedule !== existing.status.blocksSchedule) {
         await tx.appointmentTechnician.updateMany({ where: { appointmentId: id }, data: { blocksSchedule: status.blocksSchedule } });
       }
@@ -1020,10 +1055,12 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
         entityId: id,
         appointmentId: id,
         action: "VISIT_OUTCOME",
+        // Amounts stay out of the summary: it is shown unredacted, the changes are redacted per field.
         summary: `${user.name} recorded "${status.name}" for ${code}${report ? `: ${report}` : ""}`,
         changes: {
           ...(status.id !== existing.statusId ? { status: { from: existing.status.name, to: status.name } } : {}),
           ...(reportChanged ? { visitReport: { from: existing.visitReport, to: report } } : {}),
+          ...(collection?.changes ?? {}),
         },
         actorId: user.id,
       });
@@ -1031,7 +1068,11 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
       await notifyUsers(
         tx,
         [existing.createdById, ...techIds],
-        { appointmentId: id, type: "VISIT_OUTCOME", message: `${user.name}: ${code} (${existing.customer.name}) is now "${status.name}"` },
+        {
+          appointmentId: id,
+          type: "VISIT_OUTCOME",
+          message: `${user.name}: ${code} (${existing.customer.name}) is now "${status.name}"${collection?.summary ? `, ${collection.summary}` : ""}`,
+        },
         user.id,
       );
     }, TX_OPTIONS);

@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 import { HEX_COLOR_RE } from "./colors";
-import { CONFIRMATIONS, LEAVE_TYPES, PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, VISIT_TYPES, phoneDigits } from "./constants";
+import { CONFIRMATIONS, LEAVE_TYPES, PAYMENT_METHODS, PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, VISIT_TYPES, phoneDigits } from "./constants";
 import { checkMapUrl, isValidLatitude, isValidLongitude } from "./maps";
 import { VIEWER_GRANTABLE } from "./permissions";
 import { TIME_RE, isValidDateString, isValidTimeZone } from "./time";
@@ -48,6 +48,26 @@ const optionalNumber = z.preprocess((v) => {
 }, z.number({ error: "Must be a number" }).nullable());
 
 const idField = z.string().min(1).max(64);
+
+/** An amount in EGP: blank = not recorded (null); commas and spaces are ignored. */
+const moneyField = z.preprocess(
+  (v) => {
+    if (v === "" || v === null || v === undefined) return v === undefined ? undefined : null;
+    return typeof v === "string" ? Number(v.replace(/[,\s]/g, "")) : v;
+  },
+  z
+    .number({ error: "Enter an amount" })
+    .min(0, "Cannot be negative")
+    .max(10_000_000, "Too large")
+    .refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, "At most two decimals")
+    .nullable()
+    .optional(),
+);
+
+const paymentMethodField = z.preprocess(
+  (v) => (v === "" ? null : v),
+  z.enum(PAYMENT_METHODS as [string, ...string[]], { error: "Choose how it was paid" }).nullable().optional(),
+);
 
 export const customerInputSchema = z.object({
   id: idField.optional().nullable(),
@@ -115,10 +135,20 @@ export const appointmentInputSchema = z
       .max(10, "At most 10 technicians per appointment")
       .refine((ids) => new Set(ids).size === ids.length, "A technician was selected twice"),
     statusId: idField.optional().nullable(),
+    /** Money (left out = unchanged on edit, blank = not recorded). */
+    totalPrice: moneyField,
+    depositAmount: moneyField,
+    depositMethod: paymentMethodField,
+    extraFee: moneyField,
   })
   .superRefine((a, ctx) => {
     if (a.productCategory === "OTHER" && !a.categoryOther) {
       ctx.addIssue({ code: "custom", path: ["categoryOther"], message: "Describe the product category" });
+    }
+    if (a.depositAmount) {
+      if (a.totalPrice === null || a.totalPrice === undefined) ctx.addIssue({ code: "custom", path: ["totalPrice"], message: "Enter the total price so the deposit can be deducted" });
+      else if (a.depositAmount > a.totalPrice) ctx.addIssue({ code: "custom", path: ["depositAmount"], message: "The deposit cannot be more than the total price" });
+      if (!a.depositMethod) ctx.addIssue({ code: "custom", path: ["depositMethod"], message: "Choose how the deposit was paid" });
     }
   });
 
@@ -139,13 +169,28 @@ export const outcomeSchema = z
   .object({
     outcome: z.enum(VISIT_OUTCOMES, { error: "Choose the outcome of the visit" }),
     report: optionalText(4000),
+    /** Paid by the customer at this visit (left out = unchanged). */
+    collectedAmount: moneyField,
+    collectedMethod: paymentMethodField,
     version: z.number().int().positive().optional(),
   })
   .superRefine((o, ctx) => {
     if (o.outcome !== "IN_PROGRESS" && !o.report) {
       ctx.addIssue({ code: "custom", path: ["report"], message: "Write what was done (or why not) - the visit report is required" });
     }
+    if (o.outcome === "IN_PROGRESS" && o.collectedAmount) {
+      ctx.addIssue({ code: "custom", path: ["collectedAmount"], message: "Record the payment when you finish the visit" });
+    }
+    if (o.collectedAmount && !o.collectedMethod) {
+      ctx.addIssue({ code: "custom", path: ["collectedMethod"], message: "Choose how the customer paid" });
+    }
   });
+
+export const cashReceiveSchema = z.object({
+  technicianId: idField,
+  /** Specific custody entries; all cash the technician holds when left out. */
+  entryIds: z.array(idField).min(1).max(500).optional(),
+});
 
 export const confirmationSchema = z.object({
   confirmation: z.enum(CONFIRMATIONS as [string, ...string[]], { error: "Choose a confirmation status" }),

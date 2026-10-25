@@ -54,9 +54,9 @@ porting (reason given).
 
 | Aura feature | This app | Status | Plan |
 |---|---|:-:|---|
-| Total, deposit (+ method, proof), remaining, collected at the visit (+ method), extra fee for a repeat visit caused by the client | — | ✗ | **Now** (amounts, methods, collected by technician; proofs need file storage → later) |
-| Cash custody: cash with each technician until the accountant receives it | — | ✗ | **Now** |
-| Monthly statement: sales, deposits and collections by method, balances owed per client, cash held | Reports (counts only) | ✗ | **Now** (finance report + CSV) |
+| Total, deposit (+ method, proof), remaining, collected at the visit (+ method), extra fee for a repeat visit caused by the client | Price, deposit + method, extra fee on the booking; the technician records what was collected (+ method) with the outcome and only sees the amount to collect | ◐ | Done except transfer proofs/photos (need file storage → Later); the repeat-visit fee is entered by Sales, not set automatically |
+| Cash custody: cash with each technician until the accountant receives it | Cash collections are held by the technician until the Accountant/Admin confirms receipt (all, or chosen visits); corrections allowed only before hand-over; audited and notified | ✅ | Done |
+| Monthly statement: sales, deposits and collections by method, balances owed per client, cash held | Finance page per month (booked value, deposits and collections by method, extra fees, customers who still owe, cash held) + per-visit finance CSV | ✅ | Done (transport expenses and attendance are not part of it yet) |
 | Technician transport expenses with receipts, paid by the accountant | — | ✗ | Later |
 | Quotation link from the company website parsed into items and prices (prices hidden from technicians) | — | ✗ | Later: fetching arbitrary URLs from the server needs an allow-list |
 
@@ -75,7 +75,7 @@ porting (reason given).
 | Aura feature | This app | Status | Plan |
 |---|---|:-:|---|
 | 6-digit PIN login, sessions in the script cache | E-mail + password (bcrypt), server sessions, rate limiting, invitation links | ⚠ | No: PINs are weaker; keep the current login |
-| 10 roles (admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant) | Admin, Sales, Technician, Viewer (+ per-viewer permissions) | ◐ | **Now**: Store keeper and Accountant roles for the new screens; heads = Admin for now |
+| 10 roles (admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant) | Admin, Sales, Technician, Accountant, Viewer (+ per-viewer permissions) | ◐ | Accountant added; Store keeper comes with inventory; heads = Admin for now |
 | Editable lists (engineers, sales, areas, order types, doors, devices, models) | Users and statuses are managed; categories fixed | ◐ | **Now**: product models with warranty months for stock |
 | In-app notifications | Notifications for technicians, Sales (visit outcome, leave clashes) and Admins (leave requests) | ✅ | Done |
 | Monthly statistics (by sales, engineer, type, area; ratings; visit durations) | Reports by status, Sales, category, technician workload, per day | ◐ | Later: by area |

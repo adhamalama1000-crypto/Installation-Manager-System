@@ -103,6 +103,8 @@ describe("permissions", () => {
     const tech = permissionsFor({ role: "TECHNICIAN" }, settings);
     expect([...tech].sort()).toEqual(["appointments.view", "customers.contact", "leaves.request", "location.view", "visits.report"]);
     expect(tech.has("appointments.manage")).toBe(false);
+    const accountant = permissionsFor({ role: "ACCOUNTANT" }, settings);
+    expect([...accountant].sort()).toEqual(["appointments.view", "cash.receive", "customers.contact", "customers.view", "finance.view"]);
   });
 
   it("viewers only get grantable permissions, and inactive users get none", () => {

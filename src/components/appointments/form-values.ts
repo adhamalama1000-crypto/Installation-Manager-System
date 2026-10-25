@@ -1,4 +1,4 @@
-import type { CustomerConfirmation, ProductCategory, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
 import type { AppointmentDTO } from "@/lib/types";
 import { dateKey, timeKey } from "@/lib/time";
 
@@ -34,7 +34,14 @@ export type FormValues = {
   technicianIds: string[];
   statusId: string;
   salesUserId: string;
+  /** Amounts as typed (EGP); blank = not recorded. */
+  totalPrice: string;
+  depositAmount: string;
+  depositMethod: PaymentMethod;
+  extraFee: string;
 };
+
+const amount = (n: number | null | undefined) => (n === null || n === undefined ? "" : String(n));
 
 const s = (v: string | null | undefined) => v ?? "";
 
@@ -70,6 +77,10 @@ export function valuesFromAppointment(a: AppointmentDTO, tz: string): FormValues
     technicianIds: a.technicians.map((t) => t.id),
     statusId: a.status.id,
     salesUserId: a.createdBy.id,
+    totalPrice: amount(a.payment?.totalPrice),
+    depositAmount: amount(a.payment?.depositAmount),
+    depositMethod: a.payment?.depositMethod ?? "CASH",
+    extraFee: amount(a.payment?.extraFee),
   };
 }
 
@@ -95,5 +106,9 @@ export function emptyValues(opts: { date: string; durationMinutes: number; statu
     technicianIds: [],
     statusId: opts.statusId,
     salesUserId: opts.salesUserId,
+    totalPrice: "",
+    depositAmount: "",
+    depositMethod: "CASH",
+    extraFee: "",
   };
 }

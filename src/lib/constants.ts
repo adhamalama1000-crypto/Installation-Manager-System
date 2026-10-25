@@ -1,4 +1,4 @@
-import type { CustomerConfirmation, LeaveStatus, LeaveType, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
 
 export const APP_NAME = "Installation Manager System";
 
@@ -9,9 +9,25 @@ export const ROLE_LABELS: Record<Role, string> = {
   SALES: "Sales",
   TECHNICIAN: "Technician",
   VIEWER: "Viewer",
+  ACCOUNTANT: "Accountant",
 };
 
-export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "VIEWER"];
+export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "ACCOUNTANT", "VIEWER"];
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  CASH: "Cash",
+  INSTAPAY: "InstaPay",
+  VODAFONE_CASH: "Vodafone Cash",
+  BANK_TRANSFER: "Bank transfer",
+};
+
+export const PAYMENT_METHODS: PaymentMethod[] = ["CASH", "INSTAPAY", "VODAFONE_CASH", "BANK_TRANSFER"];
+
+/** Amounts are Egyptian pounds with up to two decimals. */
+export function money(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  return `${n.toLocaleString("en-GB", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })} EGP`;
+}
 
 export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = {
   SMART_LOCK: "Smart Lock",

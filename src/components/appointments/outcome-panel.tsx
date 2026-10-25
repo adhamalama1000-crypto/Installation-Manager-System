@@ -4,12 +4,14 @@ import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { CheckCircle2, ClipboardCheck, PlayCircle, RotateCcw, XCircle } from "lucide-react";
-import type { StatusKind } from "@prisma/client";
+import type { PaymentMethod, StatusKind } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { Field, Textarea } from "@/components/ui/field";
+import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/misc";
 import { api, ApiError } from "@/lib/api-client";
+import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, money } from "@/lib/constants";
+import type { PaymentDTO } from "@/lib/types";
 import { outcomeSchema, fieldErrorsFromZod, type VisitOutcome } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
@@ -20,15 +22,30 @@ const CHOICES: { value: Exclude<VisitOutcome, "IN_PROGRESS">; label: string; ico
 ];
 
 /** How the visit went, recorded by the assigned technician (or a manager) with a visit report. */
-export function OutcomePanel({ id, version, statusKind, report }: { id: string; version: number; statusKind: StatusKind; report: string | null }) {
+export function OutcomePanel({
+  id,
+  version,
+  statusKind,
+  report,
+  payment,
+}: {
+  id: string;
+  version: number;
+  statusKind: StatusKind;
+  report: string | null;
+  payment: PaymentDTO | null;
+}) {
   const router = useRouter();
   const current = CHOICES.some((c) => c.value === statusKind) ? (statusKind as (typeof CHOICES)[number]["value"]) : null;
   const [outcome, setOutcome] = useState<(typeof CHOICES)[number]["value"] | null>(current);
   const [text, setText] = useState(report ?? "");
+  const recorded = payment?.collectedAmount ?? null;
+  const [collected, setCollected] = useState(recorded === null ? "" : String(recorded));
+  const [method, setMethod] = useState<PaymentMethod>(payment?.collectedMethod ?? "CASH");
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function send(body: { outcome: VisitOutcome; report?: string }) {
+  async function send(body: { outcome: VisitOutcome; report?: string; collectedAmount?: string | null; collectedMethod?: PaymentMethod | null }) {
     const check = outcomeSchema.safeParse({ ...body, version });
     if (!check.success) {
       setErrors(fieldErrorsFromZod(check.error));
@@ -80,7 +97,43 @@ export function OutcomePanel({ id, version, statusKind, report }: { id: string; 
         <Field label="Visit report" required error={errors.report} hint="What was installed or done, what is missing, anything the next visit needs to know.">
           {(p) => <Textarea {...p} rows={4} value={text} onChange={(e) => setText(e.target.value)} />}
         </Field>
-        <Button className="w-full sm:w-auto" disabled={!outcome} loading={busy !== null && busy !== "IN_PROGRESS"} onClick={() => outcome && send({ outcome, report: text })}>
+        {payment && (
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field
+              label="Collected from the customer (EGP)"
+              error={errors.collectedAmount}
+              hint={payment.due !== null ? `To collect: ${money(payment.due)}. Enter 0 if nothing was paid.` : "Leave empty if no payment was taken."}
+            >
+              {(p) => <Input {...p} inputMode="decimal" value={collected} onChange={(e) => setCollected(e.target.value)} />}
+            </Field>
+            <Field label="Paid by" error={errors.collectedMethod}>
+              {(p) => (
+                <Select {...p} value={method} disabled={!Number(collected.replace(/[,\s]/g, ""))} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
+                  {PAYMENT_METHODS.map((m) => (
+                    <option key={m} value={m}>
+                      {PAYMENT_METHOD_LABELS[m]}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          </div>
+        )}
+        <Button
+          className="w-full sm:w-auto"
+          disabled={!outcome}
+          loading={busy !== null && busy !== "IN_PROGRESS"}
+          onClick={() => {
+            if (!outcome) return;
+            // Left empty and never recorded: leave the payment untouched.
+            const untouched = collected.trim() === "" && recorded === null;
+            send({
+              outcome,
+              report: text,
+              ...(payment && !untouched ? { collectedAmount: collected, collectedMethod: Number(collected.replace(/[,\s]/g, "")) ? method : null } : {}),
+            });
+          }}
+        >
           Save outcome
         </Button>
       </div>

@@ -1,4 +1,4 @@
-import type { CustomerConfirmation, LeaveStatus, LeaveType, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
+import type { CustodyStatus, CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
 
 export type StatusDTO = {
   id: string;
@@ -72,6 +72,28 @@ export type AppointmentDTO = {
   canManage: boolean;
   /** Whether the current user may record the outcome of the visit (assigned technician or manager). */
   canReport: boolean;
+  /** Money for this visit; null for roles that may not see it. */
+  payment: PaymentDTO | null;
+};
+
+/**
+ * Prices are shown to people who manage bookings or the finances. Technicians only get what to
+ * collect (`due`) and what they recorded; the price fields are then left out.
+ */
+export type PaymentDTO = {
+  totalPrice?: number | null;
+  depositAmount?: number | null;
+  depositMethod?: PaymentMethod | null;
+  extraFee?: number | null;
+  /** Price minus deposit plus extra fee; null when no price or fee is recorded. */
+  due: number | null;
+  collectedAmount: number | null;
+  collectedMethod: PaymentMethod | null;
+  collectedAt: string | null;
+  collectedBy: { id: string; name: string } | null;
+  /** Still owed after the collection (due minus collected). */
+  balance: number | null;
+  custody?: { status: CustodyStatus; holder: { id: string; name: string }; receivedAt: string | null; receivedBy: { id: string; name: string } | null } | null;
 };
 
 export type AppointmentListItem = {

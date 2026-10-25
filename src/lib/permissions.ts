@@ -26,6 +26,10 @@ export const PERMISSIONS = [
   "leaves.request",
   /** Approve, reject, add and cancel leave for any technician. */
   "leaves.manage",
+  /** Monthly finance statement: sales, deposits, collections, balances owed, cash held. */
+  "finance.view",
+  /** Confirm that cash a technician collected was handed over. */
+  "cash.receive",
   "reports.view",
   "users.manage",
   "settings.manage",
@@ -93,6 +97,8 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }
+    case "ACCOUNTANT":
+      return new Set<Permission>(["appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive"]);
     case "VIEWER": {
       const granted = (user.viewerPermissions ?? []).filter((p): p is Permission =>
         (VIEWER_GRANTABLE as string[]).includes(p),
