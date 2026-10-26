@@ -6,21 +6,25 @@ import { gzip as gzipCallback } from "node:zlib";
 import type { ApiErrorBody } from "@/lib/types";
 import { getUserFromRequest, type CurrentUser } from "./auth/session";
 import { AppError, ForbiddenError, UnauthorizedError, ValidationError } from "./errors";
+import { DEFAULT_LOCALE, type Locale } from "@/i18n/config";
+import { localeFromRequest } from "@/i18n/server";
+import { msg, translate, translateFieldErrors, translateMessage } from "@/i18n/translate";
+import { DEFAULT_TIMEZONE } from "@/lib/constants";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const MAX_BODY_BYTES = 1_000_000;
 
 type RouteContext = { params: Promise<Record<string, string>> };
 
-export function errorResponse(error: unknown): NextResponse<ApiErrorBody> {
+export function errorResponse(error: unknown, locale: Locale = DEFAULT_LOCALE, tz = DEFAULT_TIMEZONE): NextResponse<ApiErrorBody> {
   if (error instanceof AppError) {
     const details = (error.details ?? {}) as { fieldErrors?: Record<string, string>; conflicts?: ApiErrorBody["error"]["conflicts"] };
     return NextResponse.json(
       {
         error: {
           code: error.code,
-          message: error.message,
-          ...(details.fieldErrors ? { fieldErrors: details.fieldErrors } : {}),
+          message: translateMessage(error.descriptor, locale, tz),
+          ...(details.fieldErrors ? { fieldErrors: translateFieldErrors(details.fieldErrors, locale, tz) } : {}),
           ...(details.conflicts ? { conflicts: details.conflicts } : {}),
         },
       },
@@ -31,7 +35,7 @@ export function errorResponse(error: unknown): NextResponse<ApiErrorBody> {
   const ref = randomUUID().slice(0, 8);
   console.error(`[api-error ${ref}]`, error);
   return NextResponse.json(
-    { error: { code: "INTERNAL_ERROR", message: `Something went wrong on the server (ref ${ref}). Please try again.` } },
+    { error: { code: "INTERNAL_ERROR", message: translate(locale, "e.internal", { ref }) } },
     { status: 500 },
   );
 }
@@ -49,23 +53,23 @@ export function assertSameOrigin(req: Request) {
   try {
     originHost = new URL(origin).host;
   } catch {
-    throw new ForbiddenError("Invalid request origin.");
+    throw new ForbiddenError(msg("e.invalidOrigin"));
   }
-  if (!host || originHost !== host) throw new ForbiddenError("Cross-site requests are not allowed.");
+  if (!host || originHost !== host) throw new ForbiddenError(msg("e.crossSite"));
 }
 
 export async function readJson(req: Request): Promise<unknown> {
   const type = req.headers.get("content-type") ?? "";
   if (!type.includes("application/json")) {
-    throw new ValidationError({ _form: "Expected a JSON request body." }, "Expected a JSON request body.");
+    throw new ValidationError({ _form: msg("e.expectedJson") }, msg("e.expectedJson"));
   }
   const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) throw new ValidationError({ _form: "Request body too large." }, "Request body too large.");
+  if (text.length > MAX_BODY_BYTES) throw new ValidationError({ _form: msg("e.bodyTooLarge") }, msg("e.bodyTooLarge"));
   if (!text) return {};
   try {
     return JSON.parse(text);
   } catch {
-    throw new ValidationError({ _form: "Malformed JSON." }, "Malformed JSON.");
+    throw new ValidationError({ _form: msg("e.malformedJson") }, msg("e.malformedJson"));
   }
 }
 
@@ -108,9 +112,10 @@ type Handler = (args: { req: Request; user: CurrentUser; params: Record<string, 
 /** Wraps an authenticated API route: session check, origin check, JSON + error handling. */
 export function apiRoute(handler: Handler) {
   return async (req: Request, ctx: RouteContext): Promise<Response> => {
+    let user: CurrentUser | null = null;
     try {
       assertSameOrigin(req);
-      const user = await getUserFromRequest(req);
+      user = await getUserFromRequest(req);
       if (!user) throw new UnauthorizedError();
       const params = ctx?.params ? await ctx.params : {};
       const result = await handler({ req, user, params });
@@ -118,7 +123,7 @@ export function apiRoute(handler: Handler) {
       if (req.method === "GET") return await compressed(req, jsonWithEtag(req, result ?? { ok: true }));
       return await compressed(req, NextResponse.json(result ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }));
     } catch (error) {
-      return errorResponse(error);
+      return errorResponse(error, localeFromRequest(req, user?.locale), user?.settings.timezone);
     }
   };
 }
@@ -132,7 +137,7 @@ export function publicRoute(handler: (args: { req: Request }) => Promise<unknown
       if (result instanceof Response) return result;
       return NextResponse.json(result ?? { ok: true }, { headers: { "Cache-Control": "no-store" } });
     } catch (error) {
-      return errorResponse(error);
+      return errorResponse(error, localeFromRequest(req));
     }
   };
 }

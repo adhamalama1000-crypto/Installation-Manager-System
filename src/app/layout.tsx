@@ -1,7 +1,8 @@
 import type { Metadata, Viewport } from "next";
-import { Poppins } from "next/font/google";
+import { IBM_Plex_Sans_Arabic, Poppins } from "next/font/google";
 import { Toaster } from "sonner";
-import { APP_NAME } from "@/lib/constants";
+import { I18nProvider } from "@/i18n/client";
+import { getI18n } from "@/i18n/server";
 import "./globals.css";
 
 const poppins = Poppins({
@@ -11,11 +12,23 @@ const poppins = Poppins({
   display: "swap",
 });
 
-export const metadata: Metadata = {
-  title: { default: APP_NAME, template: `%s · ${APP_NAME}` },
-  description: "Installation appointments, technicians, customers and schedules in one place.",
-  robots: { index: false, follow: false },
-};
+/** Arabic text; Latin characters inside Arabic text still use Poppins (listed first). */
+const plexArabic = IBM_Plex_Sans_Arabic({
+  subsets: ["arabic"],
+  weight: ["300", "400", "500", "600", "700"],
+  variable: "--font-arabic",
+  display: "swap",
+});
+
+export async function generateMetadata(): Promise<Metadata> {
+  const { t } = await getI18n();
+  const name = t("app.name");
+  return {
+    title: { default: name, template: `%s · ${name}` },
+    description: t("app.tagline"),
+    robots: { index: false, follow: false },
+  };
+}
 
 export const viewport: Viewport = {
   themeColor: [
@@ -33,15 +46,18 @@ const themeScript = `(() => {
   } catch {}
 })();`;
 
-export default function RootLayout({ children }: { children: React.ReactNode }) {
+export default async function RootLayout({ children }: { children: React.ReactNode }) {
+  const { locale, dir, tz } = await getI18n();
   return (
-    <html lang="en" className={poppins.variable} suppressHydrationWarning>
+    <html lang={locale} dir={dir} className={`${poppins.variable} ${plexArabic.variable}`} suppressHydrationWarning>
       <head>
         <script dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
       <body className="min-h-dvh bg-bg text-fg antialiased">
-        {children}
-        <Toaster position="top-right" richColors closeButton toastOptions={{ className: "font-sans" }} />
+        <I18nProvider locale={locale} tz={tz}>
+          {children}
+        </I18nProvider>
+        <Toaster position={dir === "rtl" ? "top-left" : "top-right"} dir={dir} richColors closeButton toastOptions={{ className: "font-sans" }} />
       </body>
     </html>
   );

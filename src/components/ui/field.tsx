@@ -1,6 +1,7 @@
 "use client";
 
 import { forwardRef, useId } from "react";
+import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 
 const control =
@@ -24,7 +25,7 @@ export const Select = forwardRef<HTMLSelectElement, React.SelectHTMLAttributes<H
   ref,
 ) {
   return (
-    <select ref={ref} className={cn(control, "h-10 cursor-pointer pr-8", className)} {...props}>
+    <select ref={ref} className={cn(control, "h-10 cursor-pointer pe-8", className)} {...props}>
       {children}
     </select>
   );
@@ -47,13 +48,14 @@ export function Field({
   children: (props: { id: string; "aria-invalid"?: boolean; "aria-describedby"?: string }) => React.ReactNode;
 }) {
   const id = useId();
+  const { tm } = useI18n();
   const describedBy = error ? `${id}-error` : hint ? `${id}-hint` : undefined;
   return (
     <div className={cn("flex flex-col gap-1.5", className)}>
       <label htmlFor={id} className="text-sm font-medium text-fg">
         {label}
         {required && (
-          <span className="ml-0.5 text-brand-text" aria-hidden>
+          <span className="ms-0.5 text-brand-text" aria-hidden>
             *
           </span>
         )}
@@ -61,7 +63,7 @@ export function Field({
       {children({ id, "aria-invalid": error ? true : undefined, "aria-describedby": describedBy })}
       {error ? (
         <p id={`${id}-error`} className="text-xs font-medium text-danger" role="alert">
-          {error}
+          {tm(error)}
         </p>
       ) : hint ? (
         <p id={`${id}-hint`} className="text-xs text-fg-subtle">
