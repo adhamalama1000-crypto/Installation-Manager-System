@@ -48,16 +48,7 @@ export function StatusBadge({ name, color, className }: { name: string; color: s
   );
 }
 
-/** Sales employee colour marker + name. */
-export function SalesTag({ name, color, inactive, className }: { name: string; color: string | null; inactive?: boolean; className?: string }) {
-  return (
-    <span className={cn("inline-flex items-center gap-1.5 text-sm text-fg", className)}>
-      <span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/20" style={{ backgroundColor: colorOrFallback(color) }} aria-hidden />
-      <span className="truncate">{name}</span>
-      {inactive && <span className="text-xs text-fg-subtle">(inactive)</span>}
-    </span>
-  );
-}
+export { SalesTag } from "./sales-tag";
 
 export function ColorChip({ color, children, className }: { color: string | null; children: React.ReactNode; className?: string }) {
   return (

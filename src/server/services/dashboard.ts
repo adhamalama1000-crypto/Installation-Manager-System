@@ -1,5 +1,6 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
+import type { MessageKey } from "@/i18n/translate";
 import { addDaysToKey, dayRangeUtc, startOfMonthKey, addMonthsToKey, todayKey } from "@/lib/time";
 import { prisma } from "../db";
 import { appointmentScopeSql, assertCan, hasPermission } from "../access";
@@ -12,7 +13,8 @@ export type AttentionItem = {
   code: string;
   customerName: string;
   startsAt: string;
-  reason: string;
+  /** Message key of the reason (translated by the page). */
+  reason: MessageKey;
 };
 
 export async function dashboardSummary(user: CurrentUser, now: Date = new Date()) {
@@ -31,7 +33,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   // Everything is independent, so it all runs in one wave. The six counters are a single statement:
   // with six separate ones the page needed more statements than the connection pool (9 by default)
   // has connections, which costs an extra round trip to the database.
-  const [[counts], overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, todays] = await Promise.all([
+  const [[counts], overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, siteNotReady, todays] = await Promise.all([
     prisma.$queryRaw<{ today: number; upcoming: number; scheduled: number; completed: number; postponed: number; cancelled: number }[]>`
       SELECT
         count(*) FILTER (WHERE x.kind <> 'CANCELLED' AND x."startsAt" >= ${todayRange.start} AND x."startsAt" < ${todayRange.end})::int AS today,
@@ -93,24 +95,35 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
       soonest,
       20,
     ),
+    // Smart-home installations of the coming week whose wiring or internet is not confirmed
+    // (Aura: «راجع جاهزية الموقع»). Inspections are where this gets checked, so they are left out.
+    appointmentListRows(
+      user,
+      Prisma.sql`${upcomingWeek} AND a."productCategory" = 'SMART_HOME' AND a."visitType" IS DISTINCT FROM 'INSPECTION'
+        AND (a."siteReadiness" IS NULL OR a."siteReadiness" IN ('UNKNOWN', 'NOT_READY')
+             OR a."internetStatus" IS NULL OR a."internetStatus" IN ('UNKNOWN', 'NOT_WORKING'))`,
+      soonest,
+      20,
+    ),
     calendarAppointments(user, { from: today, to: today }),
   ]);
 
   const attention: AttentionItem[] = [];
   const seen = new Set<string>();
-  const push = (rows: typeof overdue, reason: string) => {
+  const push = (rows: typeof overdue, reason: MessageKey) => {
     for (const a of rows) {
       if (seen.has(a.id)) continue;
       seen.add(a.id);
       attention.push({ id: a.id, code: a.code, customerName: a.customerName, startsAt: a.startsAt, reason });
     }
   };
-  push(overdue, "Past end time - status not updated");
-  push(unassigned, "No technician assigned");
-  push(onLeave, "Technician on approved leave - assign someone else");
-  push(noLocation, "No map location saved");
-  push(unconfirmed, "Customer has not confirmed - call before the visit");
-  push(revisit, "Needs another visit - no follow-up booked");
+  push(overdue, "dash.reason.overdue");
+  push(unassigned, "dash.reason.unassigned");
+  push(onLeave, "dash.reason.onLeave");
+  push(noLocation, "dash.reason.noLocation");
+  push(unconfirmed, "dash.reason.unconfirmed");
+  push(revisit, "dash.reason.revisit");
+  push(siteNotReady, "dash.reason.siteNotReady");
 
   return {
     today,

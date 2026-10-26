@@ -10,10 +10,24 @@ export async function login(page: Page, email: string) {
   await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 }
 
-/** Unique 2031 date per run so tests never collide with each other or the seed data. */
+const DAY_MS = 86_400_000;
+const isFriday = (t: number) => new Date(t).getUTCDay() === 5;
+
+/** Picked once per run, from ~8 years from 2031 on, so reruns against the same database rarely meet. */
+const RUN_DAY = Math.floor(Math.random() * 3000);
+
+/**
+ * A date from 2031 on that is the same for the whole run, so tests never collide with each other
+ * or the seed data. Counts only open days: the seed closes Fridays, and a booking on one is refused.
+ */
 export function futureDate(offsetDays = 0) {
-  const base = Date.UTC(2031, 0, 1) + ((Date.now() / 1000) % 300) * 86_400_000;
-  return new Date(base + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  let t = Date.UTC(2031, 0, 1) + RUN_DAY * DAY_MS;
+  if (isFriday(t)) t += DAY_MS;
+  for (let i = 0; i < offsetDays; i++) {
+    t += DAY_MS;
+    if (isFriday(t)) t += DAY_MS;
+  }
+  return new Date(t).toISOString().slice(0, 10);
 }
 
 export async function technicianIds(request: APIRequestContext) {

@@ -96,7 +96,7 @@
   --color-info-soft: var(--info-soft);
   --shadow-card: var(--shadow-sm);
   --shadow-pop: var(--shadow-md);
-  --font-sans: var(--font-poppins), ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-sans: var(--font-poppins), var(--font-arabic), ui-sans-serif, system-ui, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
 }
 
 html,
@@ -108,6 +108,22 @@ body {
 body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
+}
+
+/* Arabic reads best a little taller; letter-spacing breaks the joined Arabic script. */
+:lang(ar) body {
+  line-height: 1.6;
+}
+:lang(ar) .tracking-tight,
+:lang(ar) .tracking-wide,
+:lang(ar) [class*="tracking-["] {
+  letter-spacing: normal;
+}
+
+/* Latin values (phones, codes, serials, e-mails) keep their own direction inside Arabic text. */
+.ltr-value {
+  direction: ltr;
+  unicode-bidi: isolate;
 }
 
 :focus-visible {
@@ -149,6 +165,9 @@ dialog::backdrop {
 .nav-progress {
   transform-origin: left;
   animation: nav-progress 8s cubic-bezier(0.1, 0.7, 0.3, 1) forwards;
+}
+[dir="rtl"] .nav-progress {
+  transform-origin: right;
 }
 
 @media (prefers-reduced-motion: reduce) {

@@ -1,6 +1,9 @@
 import "server-only";
+import type { Locale } from "@/i18n/config";
+import type { MessageKey } from "@/i18n/messages";
+import { enumLabel, localName, msg, ref, translate, type Param } from "@/i18n/translate";
 import { Prisma, type CustodyStatus, type PaymentMethod } from "@prisma/client";
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, STATUS_KIND_LABELS, appointmentCode, money } from "@/lib/constants";
+import { PAYMENT_METHODS, STATUS_KIND_LABELS, appointmentCode } from "@/lib/constants";
 import { addDaysToKey, addMonthsToKey, dateKey, dayRangeUtc, fmt, todayKey } from "@/lib/time";
 import type { PaymentDTO } from "@/lib/types";
 import { cashReceiveSchema, fieldErrorsFromZod } from "@/lib/validation";
@@ -31,12 +34,20 @@ type Person = { id: string; name: string };
 export type CustodyView = { status: CustodyStatus; holder: Person; receivedAt: Date | null; receivedBy: Person | null };
 
 const num = (d: Prisma.Decimal | null) => (d === null ? null : d.toNumber());
-const round2 = (n: number) => Math.round(n * 100) / 100;
+/**
+ * Arithmetic on amounts runs in whole piastres (1/100 EGP) so sums and differences are exact;
+ * NUMERIC(12,2) values convert without loss. Totals over many rows are summed in SQL.
+ */
+const cents = (n: number | null) => (n === null ? 0 : Math.round(n * 100));
+const fromCents = (c: number) => c / 100;
+const sumAmounts = (values: number[]) => fromCents(values.reduce((s, v) => s + cents(v), 0));
+/** What is still owed after `collected`; never negative. */
+const balanceOf = (due: number, collected: number | null) => fromCents(Math.max(0, cents(due) - cents(collected)));
 
 /** Price minus deposit plus extra fee; null when neither a price nor a fee is recorded. */
 export function amountDue(a: Pick<MoneyRow, "totalPrice" | "depositAmount" | "extraFee">): number | null {
   if (a.totalPrice === null && a.extraFee === null) return null;
-  return round2(Math.max(0, (num(a.totalPrice) ?? 0) - (num(a.depositAmount) ?? 0)) + (num(a.extraFee) ?? 0));
+  return fromCents(Math.max(0, cents(num(a.totalPrice)) - cents(num(a.depositAmount))) + cents(num(a.extraFee)));
 }
 
 export function canSeePrices(user: CurrentUser) {
@@ -55,7 +66,7 @@ export function paymentDTO(user: CurrentUser, a: MoneyRow, collectedBy: Person |
     collectedMethod: a.collectedMethod,
     collectedAt: a.collectedAt?.toISOString() ?? null,
     collectedBy,
-    balance: due === null ? null : round2(Math.max(0, due - (collected ?? 0))),
+    balance: due === null ? null : balanceOf(due, collected),
   };
   if (!full) return base;
   return {
@@ -98,14 +109,14 @@ export async function prepareCollection(
   const prevAmount = num(existing.collectedAmount);
   if (prevAmount === amount && existing.collectedMethod === nextMethod) return null;
   const due = amountDue(existing);
-  if (amount && due !== null && amount > due + 1e-9) {
-    const msg = `That is more than the amount due (${money(due)}).`;
-    throw new ValidationError({ collectedAmount: msg }, msg);
+  if (amount && due !== null && cents(amount) > cents(due)) {
+    const text = msg("e.collectedOverDue", { amount: { money: due } });
+    throw new ValidationError({ collectedAmount: text }, text);
   }
   const custody = await tx.cashCustody.findUnique({ where: { appointmentId: existing.id } });
   if (custody?.status === "RECEIVED") {
-    const msg = "This cash was already handed over to the accountant, so it can no longer be changed here.";
-    throw new ValidationError({ collectedAmount: msg }, msg);
+    const text = msg("e.cashAlreadyHanded");
+    throw new ValidationError({ collectedAmount: text }, text);
   }
   const changes: Record<string, { from: unknown; to: unknown }> = {};
   if (prevAmount !== amount) changes.collectedAmount = { from: prevAmount, to: amount };
@@ -138,7 +149,12 @@ export async function prepareCollection(
     }
   }
 
-  const summary = amount ? `collected ${money(amount)} (${PAYMENT_METHOD_LABELS[nextMethod!]})` : amount === 0 ? "collected nothing" : null;
+  // Part of the visit-outcome notification.
+  const summary: Param | null = amount
+    ? ref("s.collected", { amount: { money: amount }, method: ref(`enum.paymentMethod.${nextMethod!}`) })
+    : amount === 0
+      ? ref("s.collectedNothing")
+      : null;
   return { data, changes, syncCustody, summary };
 }
 
@@ -160,26 +176,26 @@ export async function receiveCash(user: CurrentUser, raw: unknown, now: Date = n
       ORDER BY "collectedAt", id
       FOR UPDATE`;
     if (entryIds && rows.length !== new Set(entryIds).size) {
-      const msg = "Some of these amounts were already received. Refresh the page.";
-      throw new ValidationError({ _form: msg }, msg);
+      const text = msg("e.someAlreadyReceived");
+      throw new ValidationError({ _form: text }, text);
     }
     const holder = await tx.user.findUnique({ where: { id: technicianId }, select: { name: true } });
     if (!rows.length || !holder) {
-      const msg = `${holder?.name ?? "This technician"} is not holding any cash.`;
-      throw new ValidationError({ _form: msg }, msg);
+      const text = msg("e.noCashHeld", { name: holder?.name ?? ref("e.thisTechnician") });
+      throw new ValidationError({ _form: text }, text);
     }
     await tx.cashCustody.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { status: "RECEIVED", receivedById: user.id, receivedAt: now } });
-    const total = round2(rows.reduce((s, r) => s + r.amount.toNumber(), 0));
-    const what = `${money(total)} cash from ${holder.name} (${rows.length} visit${rows.length === 1 ? "" : "s"})`;
+    const total = sumAmounts(rows.map((r) => r.amount.toNumber()));
+    const visits = ref("common.visitsCount", { count: rows.length });
     await recordAudit(tx, {
       entityType: "CASH",
       entityId: technicianId,
       action: "CASH_RECEIVED",
-      summary: `Received ${what}`,
+      summary: msg("s.cashReceived", { amount: { money: total }, name: holder.name, visits }),
       changes: { amount: total, visits: rows.length, entries: rows.map((r) => r.id) },
       actorId: user.id,
     });
-    await notifyUsers(tx, [technicianId], { type: "CASH_RECEIVED", message: `${user.name} received ${money(total)} cash from you (${rows.length} visit${rows.length === 1 ? "" : "s"})` }, user.id);
+    await notifyUsers(tx, [technicianId], { type: "CASH_RECEIVED", message: msg("n.cashReceived", { user: user.name, amount: { money: total }, visits }) }, user.id);
     return { amount: total, count: rows.length };
   });
 }
@@ -304,7 +320,7 @@ export async function financeStatement(user: CurrentUser, month: string) {
     ),
     owedCount: Number(owed[0]?.total ?? 0),
     owedTotal: D(owed[0]?.owedTotal ?? null),
-    cashHeld: round2(holdings.reduce((s, h) => s + D(h.amount), 0)),
+    cashHeld: sumAmounts(holdings.map((h) => D(h.amount))),
     holdings: holdings.map((h) => ({ technicianId: h.technicianId, name: h.name, amount: D(h.amount), visits: h.visits, oldest: h.oldest.toISOString() })),
     heldEntries: held.map((e) => ({
       id: e.id,
@@ -322,7 +338,8 @@ export async function financeStatement(user: CurrentUser, month: string) {
 const FINANCE_EXPORT_LIMIT = 20_000;
 
 /** One line per visit of the month with every amount (opens in Excel). */
-export async function financeCsv(user: CurrentUser, month: string): Promise<string> {
+export async function financeCsv(user: CurrentUser, month: string, locale: Locale = "en"): Promise<string> {
+  const t = (key: MessageKey) => translate(locale, key);
   assertCan(user, "finance.view");
   const tz = user.settings.timezone;
   const range = monthRange(month, tz);
@@ -335,6 +352,7 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
       phone: string;
       salesName: string;
       status: string;
+      statusAr: string | null;
       kind: keyof typeof STATUS_KIND_LABELS;
       totalPrice: Prisma.Decimal | null;
       depositAmount: Prisma.Decimal | null;
@@ -346,7 +364,7 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
       custody: CustodyStatus | null;
     }[]
   >`
-    SELECT a.number, a."startsAt", c.name AS "customerName", c.phone, u.name AS "salesName", s.name AS status, s.kind,
+    SELECT a.number, a."startsAt", c.name AS "customerName", c.phone, u.name AS "salesName", s.name AS status, s."nameAr" AS "statusAr", s.kind,
            a."totalPrice", a."depositAmount", a."depositMethod", a."extraFee", a."collectedAmount", a."collectedMethod",
            cb.name AS "collectedBy", k.status AS custody
     FROM appointments a
@@ -358,24 +376,25 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
     WHERE a."startsAt" >= ${range.start} AND a."startsAt" < ${range.end} AND s.kind <> 'CANCELLED'
     ORDER BY a."startsAt", a.number
     LIMIT ${FINANCE_EXPORT_LIMIT}`;
-  const custodyLabel: Record<CustodyStatus, string> = { HELD: "With technician", RECEIVED: "Received", VOID: "" };
+  const custodyLabel = (c: CustodyStatus) => (c === "VOID" ? "" : t(`csv.custody.${c}`));
+  const method = (m: PaymentMethod | null) => (m ? enumLabel(locale, "paymentMethod", m) : "");
   const header = [
-    "Appointment",
-    "Date",
-    "Customer",
-    ...(canContact ? ["Phone"] : []),
-    "Sales",
-    "Status",
-    "Total price",
-    "Deposit",
-    "Deposit method",
-    "Extra fee",
-    "Due at visit",
-    "Collected",
-    "Collected method",
-    "Balance",
-    "Collected by",
-    "Cash",
+    t("csv.appointment"),
+    t("csv.date"),
+    t("csv.customer"),
+    ...(canContact ? [t("csv.phone")] : []),
+    t("csv.sales"),
+    t("csv.status"),
+    t("csv.totalPrice"),
+    t("csv.deposit"),
+    t("csv.depositMethod"),
+    t("csv.extraFee"),
+    t("csv.dueAtVisit"),
+    t("csv.collected"),
+    t("csv.collectedMethod"),
+    t("csv.balance"),
+    t("csv.collectedBy"),
+    t("csv.cash"),
   ];
   const lines = rows.map((r) => {
     const due = amountDue(r);
@@ -386,17 +405,17 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
       r.customerName,
       ...(canContact ? [r.phone] : []),
       r.salesName,
-      r.status,
+      localName(locale, { name: r.status, nameAr: r.statusAr }),
       num(r.totalPrice),
       num(r.depositAmount),
-      r.depositMethod ? PAYMENT_METHOD_LABELS[r.depositMethod] : "",
+      method(r.depositMethod),
       num(r.extraFee),
       due,
       collected,
-      r.collectedMethod ? PAYMENT_METHOD_LABELS[r.collectedMethod] : "",
-      due === null || r.kind !== "COMPLETED" ? null : round2(Math.max(0, due - (collected ?? 0))),
+      method(r.collectedMethod),
+      due === null || r.kind !== "COMPLETED" ? null : balanceOf(due, collected),
       r.collectedBy ?? "",
-      r.custody ? custodyLabel[r.custody] : "",
+      r.custody ? custodyLabel(r.custody) : "",
     ];
   });
   return toCsv([header, ...lines]);

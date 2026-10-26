@@ -1,72 +1,47 @@
-import { History as HistoryIcon } from "lucide-react";
-import type { AuditEntryDTO } from "@/lib/types";
-import { CONFIRMATION_LABELS, PAYMENT_METHOD_LABELS, PRODUCT_CATEGORY_LABELS, VISIT_TYPE_LABELS, money } from "@/lib/constants";
-import { dateTime } from "@/lib/format";
+"use client";
 
-const FIELD_LABELS: Record<string, string> = {
-  "customer.name": "Customer name",
-  "customer.phone": "Primary phone",
-  "customer.secondaryPhone": "Secondary phone",
-  "location.area": "Area",
-  "location.streetAddress": "Address",
-  "location.building": "Compound / building",
-  "location.apartment": "Apartment",
-  "location.floor": "Floor",
-  "location.accessInstructions": "Access instructions",
-  "location.mapUrl": "Map link",
-  "location.latitude": "Latitude",
-  "location.longitude": "Longitude",
-  productCategory: "Category",
-  visitType: "Visit type",
-  customerConfirmation: "Customer confirmation",
-  categoryOther: "Category (other)",
-  brand: "Brand",
-  model: "Model",
-  description: "Description",
-  requiredEquipment: "Required equipment",
-  additionalNotes: "Additional notes",
-  internalNotes: "Internal notes",
-  visitReport: "Visit report",
-  totalPrice: "Total price",
-  depositAmount: "Deposit",
-  depositMethod: "Deposit paid by",
-  extraFee: "Extra fee",
-  collectedAmount: "Collected at visit",
-  collectedMethod: "Collected by method",
-  installedSerials: "Installed serial numbers",
-  startsAt: "Start",
-  endsAt: "End",
-  durationMinutes: "Duration (min)",
-  technicians: "Technicians",
-  status: "Status",
-  note: "Note",
-  createdBy: "Sales creator",
-  name: "Name",
-  email: "Email",
-  phone: "Phone",
-  role: "Role",
-  isActive: "Active",
-  color: "Colour",
-  viewerPermissions: "Viewer permissions",
-};
+import { History as HistoryIcon } from "lucide-react";
+import { useI18n, type ClientI18n } from "@/i18n/client";
+import { isMessageKey } from "@/i18n/translate";
+import type { AuditEntryDTO } from "@/lib/types";
 
 const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
 
-export function formatAuditValue(v: unknown, tz: string, key?: string): string {
-  if (v === null || v === undefined || v === "") return "—";
-  if (typeof v === "string" && ISO_RE.test(v)) return dateTime(v, tz);
-  if (key === "productCategory" && typeof v === "string") return PRODUCT_CATEGORY_LABELS[v as keyof typeof PRODUCT_CATEGORY_LABELS] ?? v;
-  if (key === "visitType" && typeof v === "string") return VISIT_TYPE_LABELS[v as keyof typeof VISIT_TYPE_LABELS] ?? v;
-  if (key === "customerConfirmation" && typeof v === "string") return CONFIRMATION_LABELS[v as keyof typeof CONFIRMATION_LABELS] ?? v;
-  if ((key === "depositMethod" || key === "collectedMethod") && typeof v === "string") return PAYMENT_METHOD_LABELS[v as keyof typeof PAYMENT_METHOD_LABELS] ?? v;
-  if ((key === "totalPrice" || key === "depositAmount" || key === "extraFee" || key === "collectedAmount") && typeof v === "number") return money(v);
-  if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
-  if (typeof v === "boolean") return v ? "Yes" : "No";
-  if (typeof v === "object") return JSON.stringify(v);
-  return String(v);
+const ENUM_FIELDS = {
+  productCategory: "category",
+  visitType: "visitType",
+  customerConfirmation: "confirmation",
+  depositMethod: "paymentMethod",
+  collectedMethod: "paymentMethod",
+  role: "role",
+  siteReadiness: "siteReadiness",
+  internetStatus: "internet",
+  equipmentAt: "equipmentAt",
+  specialty: "specialty",
+} as const;
+const MONEY_FIELDS = new Set(["totalPrice", "depositAmount", "extraFee", "collectedAmount", "amount"]);
+
+/** Label of a changed field in the reader's language (unknown fields keep their key). */
+export function fieldLabel(key: string, t: ClientI18n["t"]): string {
+  const k = `field.${key}`;
+  return isMessageKey(k) ? t(k) : key;
 }
 
-export function ChangeTable({ changes, tz }: { changes: AuditEntryDTO["changes"]; tz: string }) {
+export function formatAuditValue(v: unknown, i18n: ClientI18n, key?: string): string {
+  const { t, f, label, tm } = i18n;
+  if (v === null || v === undefined || v === "") return "—";
+  if (v === "(hidden)") return t("common.hidden");
+  if (typeof v === "string" && ISO_RE.test(v)) return f.dateTime(v);
+  if (key && key in ENUM_FIELDS && typeof v === "string") return label(ENUM_FIELDS[key as keyof typeof ENUM_FIELDS], v);
+  if (key && MONEY_FIELDS.has(key) && typeof v === "number") return f.money(v);
+  if (Array.isArray(v)) return v.length ? f.join(v.map(String)) : t("hist.none");
+  if (typeof v === "boolean") return v ? t("common.yes") : t("common.no");
+  if (typeof v === "object") return JSON.stringify(v);
+  return tm(String(v));
+}
+
+export function ChangeTable({ changes }: { changes: AuditEntryDTO["changes"] }) {
+  const i18n = useI18n();
   if (!changes || typeof changes !== "object") return null;
   const rows = Object.entries(changes as Record<string, unknown>);
   if (!rows.length) return null;
@@ -79,15 +54,15 @@ export function ChangeTable({ changes, tz }: { changes: AuditEntryDTO["changes"]
             const d = val as { from: unknown; to: unknown };
             return (
               <tr key={key} className="align-top">
-                <th className="w-40 bg-surface-muted/60 px-3 py-1.5 text-left font-medium text-fg-muted">{FIELD_LABELS[key] ?? key}</th>
+                <th className="w-40 bg-surface-muted/60 px-3 py-1.5 text-start font-medium text-fg-muted">{fieldLabel(key, i18n.t)}</th>
                 {isDiff ? (
                   <td className="px-3 py-1.5 text-fg">
-                    <span className="text-fg-subtle line-through decoration-fg-subtle/60">{formatAuditValue(d.from, tz, key)}</span>
-                    <span className="mx-1.5 text-fg-subtle">→</span>
-                    <span>{formatAuditValue(d.to, tz, key)}</span>
+                    <span className="text-fg-subtle line-through decoration-fg-subtle/60">{formatAuditValue(d.from, i18n, key)}</span>
+                    <span className="mx-1.5 inline-block text-fg-subtle rtl:-scale-x-100">{"→"}</span>
+                    <span>{formatAuditValue(d.to, i18n, key)}</span>
                   </td>
                 ) : (
-                  <td className="px-3 py-1.5 text-fg">{formatAuditValue(val, tz, key)}</td>
+                  <td className="px-3 py-1.5 text-fg">{formatAuditValue(val, i18n, key)}</td>
                 )}
               </tr>
             );
@@ -98,18 +73,19 @@ export function ChangeTable({ changes, tz }: { changes: AuditEntryDTO["changes"]
   );
 }
 
-export function HistoryList({ entries, tz }: { entries: AuditEntryDTO[]; tz: string }) {
-  if (!entries.length) return <p className="text-sm text-fg-muted">No history recorded.</p>;
+export function HistoryList({ entries }: { entries: AuditEntryDTO[] }) {
+  const { t, tm, f } = useI18n();
+  if (!entries.length) return <p className="text-sm text-fg-muted">{t("hist.empty")}</p>;
   return (
-    <ol className="relative space-y-5 border-l border-line pl-5">
+    <ol className="relative space-y-5 border-s border-line ps-5">
       {entries.map((e) => (
         <li key={e.id} className="relative">
-          <span className="absolute -left-[27px] top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-surface bg-brand" aria-hidden />
-          <p className="text-sm text-fg">{e.summary}</p>
+          <span className="absolute -start-[27px] top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-surface bg-brand" aria-hidden />
+          <p className="text-sm text-fg">{tm(e.display ?? e.summary)}</p>
           <p className="mt-0.5 text-xs text-fg-subtle">
-            {e.actor?.name ?? "System"} · {dateTime(e.createdAt, tz)}
+            {e.actor?.name ?? t("hist.system")} · {f.dateTime(e.createdAt)}
           </p>
-          {e.action !== "APPOINTMENT_CREATED" && <ChangeTable changes={e.changes} tz={tz} />}
+          {e.action !== "APPOINTMENT_CREATED" && <ChangeTable changes={e.changes} />}
         </li>
       ))}
     </ol>

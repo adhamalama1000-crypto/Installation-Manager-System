@@ -1,8 +1,24 @@
-import type { CustodyStatus, CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
+import type {
+  CustodyStatus,
+  CustomerConfirmation,
+  EquipmentLocation,
+  InternetStatus,
+  LeaveStatus,
+  LeaveType,
+  PaymentMethod,
+  ProductCategory,
+  Role,
+  SiteReadiness,
+  Specialty,
+  StatusKind,
+  VisitType,
+} from "@prisma/client";
 
 export type StatusDTO = {
   id: string;
   name: string;
+  /** Arabic name (shown in the Arabic interface when set). */
+  nameAr: string | null;
   kind: StatusKind;
   color: string;
   blocksSchedule: boolean;
@@ -36,9 +52,13 @@ export type AppointmentDTO = {
   categoryOther: string | null;
   visitType: VisitType | null;
   customerConfirmation: CustomerConfirmation;
+  /** Site preparation (null = not recorded). */
+  siteReadiness: SiteReadiness | null;
+  internetStatus: InternetStatus | null;
+  equipmentAt: EquipmentLocation | null;
   /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
   followUpOf: { id: string; code: string } | null;
-  followUps: { id: string; code: string; startsAt: string; status: { name: string; color: string; kind: StatusKind } }[];
+  followUps: { id: string; code: string; startsAt: string; status: { name: string; nameAr: string | null; color: string; kind: StatusKind } }[];
   brand: string | null;
   model: string | null;
   description: string | null;
@@ -52,7 +72,7 @@ export type AppointmentDTO = {
   startsAt: string;
   endsAt: string;
   durationMinutes: number;
-  status: Pick<StatusDTO, "id" | "name" | "kind" | "color" | "blocksSchedule">;
+  status: Pick<StatusDTO, "id" | "name" | "nameAr" | "kind" | "color" | "blocksSchedule">;
   createdBy: UserRef;
   updatedBy: { id: string; name: string } | null;
   technicians: UserRef[];
@@ -114,7 +134,7 @@ export type AppointmentListItem = {
   customerConfirmation: CustomerConfirmation;
   brand: string | null;
   model: string | null;
-  status: Pick<StatusDTO, "id" | "name" | "kind" | "color">;
+  status: Pick<StatusDTO, "id" | "name" | "nameAr" | "kind" | "color">;
   createdBy: UserRef;
   technicians: { id: string; name: string }[];
   hasLocation?: boolean;
@@ -123,7 +143,10 @@ export type AppointmentListItem = {
 export type AuditEntryDTO = {
   id: string;
   action: string;
+  /** English text as recorded. */
   summary: string;
+  /** What to show (message descriptor when the entry has one, translated by the reader). */
+  display?: string;
   changes: Record<string, { from: unknown; to: unknown }> | Record<string, unknown> | null;
   actor: { id: string; name: string } | null;
   createdAt: string;
@@ -141,6 +164,8 @@ export type UserDTO = {
   isActive: boolean;
   color: string | null;
   viewerPermissions: string[];
+  /** Technicians only (null = locks and smart home). */
+  specialty: Specialty | null;
   hasPassword: boolean;
   createdAt: string;
   updatedAt: string;

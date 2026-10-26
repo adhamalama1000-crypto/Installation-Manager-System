@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { usePathname, useSearchParams } from "next/navigation";
+import { useI18n } from "@/i18n/client";
 
 /** The in-app page a click on this element would navigate to, or null. */
 function internalTarget(e: MouseEvent): string | null {
@@ -20,6 +21,7 @@ function internalTarget(e: MouseEvent): string | null {
  * current page stays visible meanwhile, and the new one appears as soon as it is ready.
  */
 export function NavigationProgress() {
+  const { t } = useI18n();
   const pathname = usePathname();
   const search = useSearchParams().toString();
   const [active, setActive] = useState(false);
@@ -48,7 +50,7 @@ export function NavigationProgress() {
     <div className="pointer-events-none fixed inset-x-0 top-0 z-[60] h-0.5" data-nav-progress="active">
       <div className="nav-progress h-full bg-brand" />
       <span className="sr-only" role="status">
-        Loading page…
+        {t("nav.loadingPage")}
       </span>
     </div>
   );

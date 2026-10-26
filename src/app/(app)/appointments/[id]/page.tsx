@@ -7,11 +7,12 @@ import { PaymentCard } from "@/components/appointments/payment-card";
 import { HistoryList } from "@/components/appointments/history-list";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
+import { Ltr } from "@/components/ui/ltr";
 import { Alert, Badge, DefinitionList, PageHeader, SalesTag, StatusBadge } from "@/components/ui/misc";
+import { getI18n } from "@/i18n/server";
 import { colorOrFallback } from "@/lib/colors";
-import { VISIT_TYPE_LABELS, minutesLabel } from "@/lib/constants";
-import { formatKey, todayKey } from "@/lib/time";
-import { categoryText, dateTime, longDate, shortDate, timeRange } from "@/lib/format";
+import { todayKey } from "@/lib/time";
+import { categoryText } from "@/lib/format";
 import { requirePagePermission } from "@/server/auth/session";
 import { getAppointment, getAppointmentHistory } from "@/server/services/appointments";
 import { listStatuses } from "@/server/services/statuses";
@@ -20,7 +21,7 @@ import { loadOr404 } from "./load";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   void params;
-  return { title: "Appointment" };
+  return { title: (await getI18n()).t("appt.pageTitle") };
 }
 
 function telHref(phone: string) {
@@ -31,6 +32,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const user = await requirePagePermission("appointments.view");
   const { id } = await params;
   const tz = user.settings.timezone;
+  const { t, f, label, sn } = await getI18n();
   const canHistory = user.permissions.includes("history.view");
   const [a, history, allStatuses, myStock] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
@@ -53,21 +55,25 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
       <PageHeader
         breadcrumb={
           <Link href="/appointments" className="hover:text-fg">
-            ← Appointments
+            {t("appt.back")}
           </Link>
         }
         title={
           <span className="flex flex-wrap items-center gap-3">
             {a.customer.name}
-            <StatusBadge name={a.status.name} color={a.status.color} className="text-sm" />
+            <StatusBadge name={sn(a.status)} color={a.status.color} className="text-sm" />
           </span>
         }
-        description={`${a.code} · ${longDate(a.startsAt, tz)} · ${timeRange(a.startsAt, a.endsAt, tz)}`}
+        description={
+          <>
+            <Ltr>{a.code}</Ltr> · {f.longDate(a.startsAt)} · <Ltr>{f.timeRange(a.startsAt, a.endsAt)}</Ltr>
+          </>
+        }
         actions={
           a.canManage ? (
-            <AppointmentActions id={a.id} version={a.version} statusId={a.status.id} statusKind={a.status.kind} statuses={statuses} tz={tz} />
+            <AppointmentActions id={a.id} version={a.version} statusId={a.status.id} statusKind={a.status.kind} statuses={statuses} />
           ) : (
-            <Badge>Read-only</Badge>
+            <Badge>{t("appt.readOnly")}</Badge>
           )
         }
       />
@@ -77,7 +83,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
         <div className="mb-6 grid grid-cols-2 gap-2 xl:hidden">
           {a.customer.phone && (
             <a href={telHref(a.customer.phone)} className="flex items-center justify-center gap-2 rounded-xl border border-line bg-surface px-3 py-3 text-sm font-semibold text-fg shadow-card">
-              <Phone className="h-4 w-4 text-brand-text" /> Call customer
+              <Phone className="h-4 w-4 text-brand-text" /> {t("appt.callCustomer")}
             </a>
           )}
           {loc?.link && (
@@ -87,15 +93,15 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               rel="noopener noreferrer"
               className="col-start-2 flex items-center justify-center gap-2 rounded-xl bg-brand-strong px-3 py-3 text-sm font-semibold text-white shadow-card"
             >
-              <Navigation className="h-4 w-4" /> Open Location
+              <Navigation className="h-4 w-4" /> {t("appt.openLocation")}
             </a>
           )}
         </div>
       )}
 
       {cancelled && (
-        <Alert tone="warning" className="mb-6" title="This appointment is cancelled">
-          It no longer blocks the technicians&apos; schedules.
+        <Alert tone="warning" className="mb-6" title={t("appt.cancelledTitle")}>
+          {t("appt.cancelledText")}
         </Alert>
       )}
 
@@ -103,7 +109,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
         <div className="space-y-6">
           {/* Location first: it is what technicians need most on site. */}
           <Card>
-            <CardHeader title="Location" icon={<MapPin className="h-4 w-4" />} />
+            <CardHeader title={t("appt.location")} icon={<MapPin className="h-4 w-4" />} />
             <CardBody>
               {loc ? (
                 <div className="space-y-5">
@@ -114,49 +120,52 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
                       rel="noopener noreferrer"
                       className="hidden w-auto items-center gap-2 rounded-xl bg-brand-strong px-5 py-3.5 text-base font-semibold text-white shadow-card hover:bg-brand-stronger xl:inline-flex"
                     >
-                      <Navigation className="h-5 w-5" /> Open Location
+                      <Navigation className="h-5 w-5" /> {t("appt.openLocation")}
                       <ExternalLink className="h-4 w-4 opacity-80" />
                     </a>
                   ) : (
-                    <Alert tone="warning" title="Location has not been added">
-                      No map link or coordinates are saved for this appointment{a.canManage ? " - edit it to add one." : "."}
+                    <Alert tone="warning" title={t("appt.noLocationTitle")}>
+                      {a.canManage ? t("appt.noLocationManage") : t("appt.noLocation")}
                     </Alert>
                   )}
                   <DefinitionList
                     items={[
-                      { label: "Full address", value: loc.streetAddress, full: true },
-                      { label: "Area / neighbourhood", value: loc.area },
-                      { label: "Compound / building", value: loc.building },
-                      { label: "Apartment / unit", value: loc.apartment },
-                      { label: "Floor", value: loc.floor },
-                      { label: "Access instructions", value: loc.accessInstructions && <span className="whitespace-pre-line">{loc.accessInstructions}</span>, full: true },
-                      ...(loc.latitude != null ? [{ label: "Coordinates", value: `${loc.latitude}, ${loc.longitude}` }] : []),
+                      { label: t("appt.fullAddress"), value: loc.streetAddress, full: true },
+                      { label: t("appt.area"), value: loc.area },
+                      { label: t("appt.building"), value: loc.building },
+                      { label: t("appt.apartment"), value: loc.apartment },
+                      { label: t("appt.floor"), value: loc.floor },
+                      { label: t("appt.access"), value: loc.accessInstructions && <span className="whitespace-pre-line">{loc.accessInstructions}</span>, full: true },
+                      ...(loc.latitude != null ? [{ label: t("appt.coordinates"), value: <Ltr>{`${loc.latitude}, ${loc.longitude}`}</Ltr> }] : []),
                     ]}
                   />
                 </div>
               ) : (
                 <p className="flex items-center gap-2 text-sm text-fg-muted">
-                  <MapPinOff className="h-4 w-4" /> You do not have permission to view the installation address.
+                  <MapPinOff className="h-4 w-4" /> {t("appt.noAddressPermission")}
                 </p>
               )}
             </CardBody>
           </Card>
 
           <Card>
-            <CardHeader title="Installation" icon={<Package className="h-4 w-4" />} />
+            <CardHeader title={t("appt.installation")} icon={<Package className="h-4 w-4" />} />
             <CardBody>
               <DefinitionList
                 items={[
-                  { label: "Visit type", value: a.visitType ? VISIT_TYPE_LABELS[a.visitType] : null },
-                  { label: "Category", value: categoryText(a) },
-                  { label: "Brand / model", value: [a.brand, a.model].filter(Boolean).join(" ") || null },
-                  { label: "Description", value: a.description && <span className="whitespace-pre-line">{a.description}</span>, full: true },
-                  { label: "Required equipment", value: a.requiredEquipment && <span className="whitespace-pre-line">{a.requiredEquipment}</span>, full: true },
-                  { label: "Additional notes", value: a.additionalNotes && <span className="whitespace-pre-line">{a.additionalNotes}</span>, full: true },
+                  { label: t("appt.visitType"), value: a.visitType ? label("visitType", a.visitType) : null },
+                  { label: t("appt.category"), value: categoryText(a, label) },
+                  { label: t("appt.brandModel"), value: [a.brand, a.model].filter(Boolean).join(" ") || null },
+                  { label: t("appt.siteReadiness"), value: a.siteReadiness ? label("siteReadiness", a.siteReadiness) : null },
+                  { label: t("appt.internet"), value: a.internetStatus ? label("internet", a.internetStatus) : null },
+                  { label: t("appt.equipmentAt"), value: a.equipmentAt ? label("equipmentAt", a.equipmentAt) : null },
+                  { label: t("appt.description"), value: a.description && <span className="whitespace-pre-line">{a.description}</span>, full: true },
+                  { label: t("appt.requiredEquipment"), value: a.requiredEquipment && <span className="whitespace-pre-line">{a.requiredEquipment}</span>, full: true },
+                  { label: t("appt.additionalNotes"), value: a.additionalNotes && <span className="whitespace-pre-line">{a.additionalNotes}</span>, full: true },
                   ...("internalNotes" in a
                     ? [
                         {
-                          label: "Internal notes",
+                          label: t("appt.internalNotes"),
                           value: a.internalNotes && <span className="whitespace-pre-line rounded-md bg-warning-soft px-2 py-1">{a.internalNotes}</span>,
                           full: true,
                         },
@@ -172,7 +181,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           ) : (
             a.visitReport && (
               <Card>
-                <CardHeader title="Visit report" icon={<ClipboardCheck className="h-4 w-4" />} />
+                <CardHeader title={t("appt.visitReport")} icon={<ClipboardCheck className="h-4 w-4" />} />
                 <CardBody>
                   <p className="whitespace-pre-line text-sm text-fg">{a.visitReport}</p>
                 </CardBody>
@@ -181,15 +190,15 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           )}
           {a.reportedBy && a.reportedAt && (
             <p className="-mt-4 text-xs text-fg-subtle">
-              Report by {a.reportedBy.name} · {dateTime(a.reportedAt, tz)}
+              {t("appt.reportBy", { name: a.reportedBy.name })} · {f.dateTime(a.reportedAt)}
             </p>
           )}
 
           {history && (
             <Card>
-              <CardHeader title="History" description="Every change with who made it and when" icon={<History className="h-4 w-4" />} />
+              <CardHeader title={t("appt.history")} description={t("appt.historyDesc")} icon={<History className="h-4 w-4" />} />
               <CardBody>
-                <HistoryList entries={history} tz={tz} />
+                <HistoryList entries={history} />
               </CardBody>
             </Card>
           )}
@@ -197,44 +206,44 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
 
         <div className="space-y-6">
           <Card>
-            <CardHeader title="Customer" icon={<User className="h-4 w-4" />} />
+            <CardHeader title={t("appt.customer")} icon={<User className="h-4 w-4" />} />
             <CardBody className="space-y-3">
               <p className="font-medium text-fg">{a.customer.name}</p>
               {a.customer.phone !== undefined ? (
                 <div className="space-y-2">
                   <a href={telHref(a.customer.phone)} className="flex items-center gap-2 text-sm font-medium text-brand-text hover:underline">
-                    <Phone className="h-4 w-4" /> {a.customer.phone}
+                    <Phone className="h-4 w-4" /> <Ltr>{a.customer.phone}</Ltr>
                   </a>
                   {a.customer.secondaryPhone && (
                     <a href={telHref(a.customer.secondaryPhone)} className="flex items-center gap-2 text-sm text-fg-muted hover:underline">
-                      <Phone className="h-4 w-4" /> {a.customer.secondaryPhone} <span className="text-xs">(secondary)</span>
+                      <Phone className="h-4 w-4" /> <Ltr>{a.customer.secondaryPhone}</Ltr> <span className="text-xs">{t("appt.secondary")}</span>
                     </a>
                   )}
                 </div>
               ) : (
-                <p className="text-sm text-fg-subtle">Contact details hidden.</p>
+                <p className="text-sm text-fg-subtle">{t("appt.contactHidden")}</p>
               )}
               {user.permissions.includes("customers.view") && (
                 <Link href={`/customers/${a.customer.id}`} className="inline-block text-sm font-medium text-brand-text hover:underline">
-                  Customer record →
+                  {t("appt.customerRecord")}
                 </Link>
               )}
             </CardBody>
           </Card>
 
-          {a.payment && <PaymentCard payment={a.payment} tz={tz} />}
+          {a.payment && <PaymentCard payment={a.payment} />}
 
           {a.installed.length > 0 && (
             <Card>
-              <CardHeader title="Installed items" description="Serial numbers and warranty" icon={<Boxes className="h-4 w-4" />} />
+              <CardHeader title={t("appt.installedItems")} description={t("appt.installedDesc")} icon={<Boxes className="h-4 w-4" />} />
               <ul className="divide-y divide-line">
                 {a.installed.map((i) => (
                   <li key={i.serial} className="px-5 py-3 text-sm">
-                    <span className="font-mono font-medium text-fg">{i.serial}</span>
-                    <span className="ml-2 text-fg-muted">{i.model}</span>
+                    <Ltr className="font-mono font-medium text-fg">{i.serial}</Ltr>
+                    <span className="ms-2 text-fg-muted">{i.model}</span>
                     {i.warrantyUntil && (
                       <span className={`block text-xs ${i.warrantyUntil >= today ? "text-success" : "text-fg-subtle"}`}>
-                        {i.warrantyUntil >= today ? "Under warranty until" : "Warranty ended"} {formatKey(i.warrantyUntil, { day: "numeric", month: "short", year: "numeric" })}
+                        {t(i.warrantyUntil >= today ? "appt.underWarranty" : "appt.warrantyEnded", { date: f.day(i.warrantyUntil, { day: "numeric", month: "short", year: "numeric" }) })}
                       </span>
                     )}
                   </li>
@@ -244,34 +253,36 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           )}
 
           <Card id="schedule">
-            <CardHeader title="Schedule" icon={<CalendarClock className="h-4 w-4" />} />
+            <CardHeader title={t("appt.schedule")} icon={<CalendarClock className="h-4 w-4" />} />
             <CardBody>
               <DefinitionList
                 className="sm:grid-cols-1"
                 items={[
-                  { label: "Appointment ID", value: <span className="font-mono">{a.code}</span> },
-                  { label: "Date", value: longDate(a.startsAt, tz) },
-                  { label: "Time", value: <span className="tabular-nums">{timeRange(a.startsAt, a.endsAt, tz)}</span> },
-                  { label: "Duration", value: minutesLabel(a.durationMinutes) },
-                  { label: "Status", value: <StatusBadge name={a.status.name} color={a.status.color} /> },
+                  { label: t("appt.id"), value: <Ltr className="font-mono">{a.code}</Ltr> },
+                  { label: t("appt.date"), value: f.longDate(a.startsAt) },
+                  { label: t("appt.time"), value: <Ltr className="tabular-nums">{f.timeRange(a.startsAt, a.endsAt)}</Ltr> },
+                  { label: t("appt.duration"), value: f.minutes(a.durationMinutes) },
+                  { label: t("appt.status"), value: <StatusBadge name={sn(a.status)} color={a.status.color} /> },
                   {
-                    label: "Customer confirmation",
+                    label: t("appt.confirmation"),
                     value: <ConfirmationControl id={a.id} version={a.version} value={a.customerConfirmation} canManage={a.canManage && !cancelled} />,
                   },
                   ...(a.followUpOf
-                    ? [{ label: "Follow-up of", value: <Link href={`/appointments/${a.followUpOf.id}`} className="font-mono text-brand-text hover:underline">{a.followUpOf.code}</Link> }]
+                    ? [{ label: t("appt.followUpOf"), value: <Link href={`/appointments/${a.followUpOf.id}`} className="font-mono text-brand-text hover:underline"><Ltr>{a.followUpOf.code}</Ltr></Link> }]
                     : []),
                   ...(a.followUps.length
                     ? [
                         {
-                          label: "Follow-up visits",
+                          label: t("appt.followUps"),
                           value: (
                             <ul className="space-y-1">
-                              {a.followUps.map((f) => (
-                                <li key={f.id} className="flex flex-wrap items-center gap-2">
-                                  <Link href={`/appointments/${f.id}`} className="font-mono text-brand-text hover:underline">{f.code}</Link>
-                                  <span className="text-fg-muted">{shortDate(f.startsAt, tz)}</span>
-                                  <StatusBadge name={f.status.name} color={f.status.color} />
+                              {a.followUps.map((fu) => (
+                                <li key={fu.id} className="flex flex-wrap items-center gap-2">
+                                  <Link href={`/appointments/${fu.id}`} className="font-mono text-brand-text hover:underline">
+                                    <Ltr>{fu.code}</Ltr>
+                                  </Link>
+                                  <span className="text-fg-muted">{f.shortDate(fu.startsAt)}</span>
+                                  <StatusBadge name={sn(fu.status)} color={fu.status.color} />
                                 </li>
                               ))}
                             </ul>
@@ -279,24 +290,24 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
                         },
                       ]
                     : []),
-                  { label: "Original Sales creator", value: <SalesTag name={a.createdBy.name} color={a.createdBy.color} inactive={!a.createdBy.isActive} /> },
+                  { label: t("appt.creator"), value: <SalesTag name={a.createdBy.name} color={a.createdBy.color} inactive={!a.createdBy.isActive} /> },
                   {
-                    label: "Assigned technicians",
+                    label: t("appt.technicians"),
                     value: a.technicians.length ? (
                       <ul className="space-y-1">
-                        {a.technicians.map((t) => (
-                          <li key={t.id}>
-                            {t.name}
-                            {!t.isActive && <span className="text-xs text-fg-subtle"> (inactive)</span>}
+                        {a.technicians.map((tech) => (
+                          <li key={tech.id}>
+                            {tech.name}
+                            {!tech.isActive && <span className="text-xs text-fg-subtle"> {t("common.inactiveParen")}</span>}
                           </li>
                         ))}
                       </ul>
                     ) : (
-                      <span className="text-warning">No technician assigned</span>
+                      <span className="text-warning">{t("list.noTechnician")}</span>
                     ),
                   },
-                  { label: "Created", value: dateTime(a.createdAt, tz) },
-                  { label: "Last updated", value: `${dateTime(a.updatedAt, tz)}${a.updatedBy ? ` by ${a.updatedBy.name}` : ""}` },
+                  { label: t("appt.created"), value: f.dateTime(a.createdAt) },
+                  { label: t("appt.lastUpdated"), value: a.updatedBy ? t("appt.updatedBy", { when: f.dateTime(a.updatedAt), name: a.updatedBy.name }) : f.dateTime(a.updatedAt) },
                 ]}
               />
             </CardBody>

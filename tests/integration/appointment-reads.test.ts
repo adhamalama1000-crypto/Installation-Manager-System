@@ -1,4 +1,5 @@
 import { beforeAll, describe, expect, it } from "vitest";
+import { translate } from "@/i18n/translate";
 import { Prisma, type ProductCategory, type User } from "@prisma/client";
 import { buildAppointmentWhere, calendarAppointments, listAppointments, parseAppointmentFilters, type AppointmentFilters } from "@/server/services/appointments";
 import { appointmentFilterSql } from "@/server/services/appointment-reads";
@@ -186,7 +187,7 @@ describe("appointment list SQL", () => {
       customerConfirmation: a.customerConfirmation,
       brand: a.brand,
       model: a.model,
-      status: { id: a.status.id, name: a.status.name, kind: a.status.kind, color: a.status.color },
+      status: { id: a.status.id, name: a.status.name, nameAr: a.status.nameAr, kind: a.status.kind, color: a.status.color },
       createdBy: { id: a.createdBy.id, name: a.createdBy.name, color: a.createdBy.color, isActive: a.createdBy.isActive },
       technicians: a.technicians.map((t) => ({ id: t.technician.id, name: t.technician.name })).sort((x, y) => x.name.localeCompare(y.name)),
     });
@@ -238,7 +239,7 @@ describe("dashboard summary", () => {
     const all = await dashboardSummary(asCurrent(boss), now);
     expect(all.today).toBe("2030-03-10");
     expect(all.counts).toEqual({ today: 2, upcoming: 3, scheduled: 3, completed: 1, postponed: 1, cancelled: 1, attention: 4 });
-    expect(all.attention.map((x) => [x.id, x.reason])).toEqual([
+    expect(all.attention.map((x) => [x.id, translate("en", x.reason)])).toEqual([
       [a1, "Past end time - status not updated"],
       [a8, "Past end time - status not updated"],
       [a2, "No technician assigned"],

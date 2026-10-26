@@ -54,16 +54,7 @@ export const VIEWER_GRANTABLE: Permission[] = [
   "reports.view",
 ];
 
-export const VIEWER_PERMISSION_LABELS: Record<string, { label: string; description: string }> = {
-  "appointments.view": { label: "Appointments & calendar", description: "Dashboard, calendar and appointment list (read-only)." },
-  "customers.view": { label: "Customer directory", description: "Customer list and customer pages." },
-  "customers.contact": { label: "Customer phone numbers", description: "Primary and secondary phone numbers." },
-  "location.view": { label: "Installation address & map", description: "Address, apartment, floor, access instructions and map link." },
-  "notes.internal": { label: "Internal notes", description: "Internal company notes on appointments." },
-  "history.view": { label: "Appointment history", description: "Who changed what and when." },
-  "reports.view": { label: "Reports", description: "Reports and CSV exports." },
-};
-
+/** Labels: "perm.<permission>.label" / ".desc" in the dictionaries. */
 export const DEFAULT_VIEWER_PERMISSIONS: Permission[] = ["appointments.view"];
 
 /** Settings that adjust role permissions (managed by Admin in Settings). */

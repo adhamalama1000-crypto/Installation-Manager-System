@@ -1,12 +1,16 @@
+import type { Metadata } from "next";
 import { CalendarView, type CalendarViewMode } from "@/components/calendar/calendar-view";
 import { PageHeader } from "@/components/ui/misc";
+import { getI18n } from "@/i18n/server";
 import { isValidDateString, todayKey } from "@/lib/time";
 import { prisma } from "@/server/db";
 import { requirePagePermission } from "@/server/auth/session";
 import { listStatuses } from "@/server/services/statuses";
 import { salesPeople } from "@/server/services/users";
 
-export const metadata = { title: "Calendar" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getI18n()).t("cal.title") };
+}
 
 const VIEWS: CalendarViewMode[] = ["month", "week", "day", "agenda"];
 
@@ -24,11 +28,12 @@ export default async function CalendarPage({
     listStatuses(),
   ]);
   const s = user.settings;
+  const { t } = await getI18n();
   return (
     <>
       <PageHeader
-        title={tech ? "My schedule" : "Calendar"}
-        description={tech ? "All installations assigned to you." : "All company appointments, coloured by the Sales employee who booked them."}
+        title={tech ? t("cal.titleTech") : t("cal.title")}
+        description={tech ? t("cal.descTech") : t("cal.desc")}
       />
       <CalendarView
         tz={s.timezone}

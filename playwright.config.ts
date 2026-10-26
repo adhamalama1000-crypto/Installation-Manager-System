@@ -16,6 +16,10 @@ export default defineConfig({
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
     trace: "retain-on-failure",
     ...devices["Desktop Chrome"],
+    // The specs read English text. Without a locale the browser sends no Accept-Language and the
+    // app uses its default language (Arabic); Arabic pages are covered by their own spec.
+    locale: "en-US",
+    extraHTTPHeaders: { "Accept-Language": "en-US,en;q=0.9" },
     launchOptions: process.env.PLAYWRIGHT_CHROMIUM_PATH ? { executablePath: process.env.PLAYWRIGHT_CHROMIUM_PATH } : {},
   },
   webServer: process.env.E2E_BASE_URL

@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 import type { AppointmentStatus, StatusKind } from "@prisma/client";
 import type { StatusDTO } from "@/lib/types";
 import { fieldErrorsFromZod, statusInputSchema } from "@/lib/validation";
@@ -13,6 +14,7 @@ export function toStatusDTO(s: AppointmentStatus): StatusDTO {
   return {
     id: s.id,
     name: s.name,
+    nameAr: s.nameAr,
     kind: s.kind,
     color: s.color,
     blocksSchedule: s.blocksSchedule,
@@ -49,14 +51,14 @@ export async function createStatus(actor: CurrentUser, raw: unknown) {
         entityType: "STATUS",
         entityId: s.id,
         action: "STATUS_CREATED",
-        summary: `Created appointment status "${s.name}"`,
+        summary: msg("s.statusCreated", { name: { name: s.name, nameAr: s.nameAr } }),
         changes: { ...input },
         actorId: actor.id,
       });
       return toStatusDTO(s);
     });
   } catch (e) {
-    if (isUniqueViolation(e, "name")) throw new ValidationError({ name: "A status with this name already exists." });
+    if (isUniqueViolation(e, "name")) throw new ValidationError({ name: msg("e.statusNameTaken") });
     throw e;
   }
 }
@@ -67,9 +69,9 @@ export async function updateStatus(actor: CurrentUser, id: string, raw: unknown)
   try {
     return await prisma.$transaction(async (tx) => {
       const before = await tx.appointmentStatus.findUnique({ where: { id } });
-      if (!before) throw new NotFoundError("Status not found.");
+      if (!before) throw new NotFoundError(msg("e.statusNotFound"));
       if (before.isDefault && input.isActive === false) {
-        throw new ValidationError({ isActive: "Choose another default status before deactivating this one." });
+        throw new ValidationError({ isActive: msg("e.defaultStatusActive") });
       }
       if (input.isDefault) await tx.appointmentStatus.updateMany({ where: { id: { not: id } }, data: { isDefault: false } });
       const after = await tx.appointmentStatus.update({
@@ -98,7 +100,7 @@ export async function updateStatus(actor: CurrentUser, id: string, raw: unknown)
           entityType: "STATUS",
           entityId: id,
           action: "STATUS_UPDATED",
-          summary: `Updated appointment status "${after.name}"`,
+          summary: msg("s.statusUpdated", { name: { name: after.name, nameAr: after.nameAr } }),
           changes,
           actorId: actor.id,
         });
@@ -106,10 +108,10 @@ export async function updateStatus(actor: CurrentUser, id: string, raw: unknown)
       return toStatusDTO(after);
     });
   } catch (e) {
-    if (isUniqueViolation(e, "name")) throw new ValidationError({ name: "A status with this name already exists." });
+    if (isUniqueViolation(e, "name")) throw new ValidationError({ name: msg("e.statusNameTaken") });
     if (isOverlapViolation(e)) {
       throw new ValidationError({
-        blocksSchedule: "Some appointments in this status overlap for the same technician, so it cannot block schedules.",
+        blocksSchedule: msg("e.statusOverlap"),
       });
     }
     throw e;

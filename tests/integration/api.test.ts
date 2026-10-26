@@ -79,10 +79,20 @@ describe("authentication", () => {
       ["nobody@test.local", PASSWORD],
       ["viewer@test.local", PASSWORD],
     ]) {
-      const res = await login(req("/api/auth/login", { method: "POST", body: { email, password } }));
+      const res = await login(req("/api/auth/login", { method: "POST", body: { email, password }, headers: { "accept-language": "en-US,en;q=0.9" } }));
       expect(res.status).toBe(401);
       expect((await res.json()).error.message).toBe("Invalid email or password.");
     }
+  });
+
+  it("answers errors in the reader's language (cookie, then browser, then Arabic)", async () => {
+    const body = { email: "nobody@test.local", password: PASSWORD };
+    const ar = await login(req("/api/auth/login", { method: "POST", body }));
+    expect((await ar.json()).error.message).toBe("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
+    const en = await login(req("/api/auth/login", { method: "POST", body, headers: { "accept-language": "en" } }));
+    expect((await en.json()).error.message).toBe("Invalid email or password.");
+    const cookie = await login(req("/api/auth/login", { method: "POST", body, cookie: "aura_locale=ar", headers: { "accept-language": "en" } }));
+    expect((await cookie.json()).error.message).toBe("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
   });
 
   it("rate-limits repeated failed logins", async () => {

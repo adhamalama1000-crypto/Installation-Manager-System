@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translate";
 import { Prisma } from "@prisma/client";
 import { phoneDigits } from "@/lib/constants";
 import { resolveLocationLink } from "@/lib/maps";
@@ -118,13 +119,13 @@ export async function listCustomers(user: CurrentUser, opts: { q?: string; page?
 
 export async function getCustomer(user: CurrentUser, id: string) {
   assertCan(user, "customers.view");
-  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Customer not found.");
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError(msg("e.customerNotFound"));
   const [c, appts] = await Promise.all([
     prisma.customer.findUnique({ where: { id }, include: { locations: { orderBy: { updatedAt: "desc" } } } }),
     // Only appointments this user may see.
     appointmentListRows(user, Prisma.sql`${appointmentScopeSql(user)} AND a."customerId" = ${id}`, Prisma.sql`a."startsAt" DESC, a.number ASC`, 100),
   ]);
-  if (!c) throw new NotFoundError("Customer not found.");
+  if (!c) throw new NotFoundError(msg("e.customerNotFound"));
   const contact = hasPermission(user, "customers.contact");
   return {
     id: c.id,
@@ -138,7 +139,7 @@ export async function getCustomer(user: CurrentUser, id: string) {
       code: a.code,
       startsAt: a.startsAt,
       endsAt: a.endsAt,
-      status: { name: a.status.name, color: a.status.color, kind: a.status.kind },
+      status: { name: a.status.name, nameAr: a.status.nameAr, color: a.status.color, kind: a.status.kind },
       productCategory: a.productCategory,
       categoryOther: a.categoryOther,
       brand: a.brand,

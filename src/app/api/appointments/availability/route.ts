@@ -1,3 +1,4 @@
+import type { ProductCategory } from "@prisma/client";
 import { availabilitySchema, fieldErrorsFromZod } from "@/lib/validation";
 import { computeEnd, zonedToUtc } from "@/lib/time";
 import { prisma } from "@/server/db";
@@ -20,6 +21,8 @@ export const POST = apiRoute(async ({ req, user }) => {
     excludeAppointmentId: parsed.data.excludeAppointmentId,
     bufferMinutes: settings.travelBufferMinutes,
     timezone: settings.timezone,
+    userId: user.id,
+    category: (parsed.data.productCategory as ProductCategory | null | undefined) ?? null,
   });
   return { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), technicians };
 });

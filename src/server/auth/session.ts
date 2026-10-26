@@ -7,6 +7,7 @@ import { permissionsFor, type Permission } from "@/lib/permissions";
 import type { SettingsValues } from "@/lib/validation";
 import { prisma } from "../db";
 import { parseSettings } from "../services/settings";
+import { isLocale, type Locale } from "@/i18n/config";
 import { randomToken, sha256 } from "./crypto";
 
 export const SESSION_COOKIE = "ims_session";
@@ -22,6 +23,8 @@ export type CurrentUser = {
   permissions: Permission[];
   settings: SettingsValues;
   sessionId: string;
+  /** Saved interface language, null when the user never chose one. */
+  locale?: Locale | null;
 };
 
 function sessionTtlMs(): number {
@@ -79,6 +82,7 @@ type SessionRow = {
   color: string | null;
   isActive: boolean;
   viewerPermissions: string[];
+  locale: string | null;
   settings: unknown;
 };
 
@@ -88,7 +92,7 @@ export async function userFromToken(token: string | undefined | null): Promise<C
   const id = sha256(token);
   // Runs on every request, so session, user and settings come back in ONE round trip.
   const rows = await prisma.$queryRaw<SessionRow[]>`
-    SELECT s."expiresAt", s."lastSeenAt", u.id, u.name, u.email, u.role, u.color, u."isActive", u."viewerPermissions",
+    SELECT s."expiresAt", s."lastSeenAt", u.id, u.name, u.email, u.role, u.color, u."isActive", u."viewerPermissions", u.locale,
            (SELECT value FROM settings WHERE key = 'general') AS settings
     FROM sessions s JOIN users u ON u.id = s."userId"
     WHERE s.id = ${id}`;
@@ -114,6 +118,7 @@ export async function userFromToken(token: string | undefined | null): Promise<C
     permissions: [...permissionsFor(u, settings)],
     settings,
     sessionId: id,
+    locale: isLocale(u.locale) ? u.locale : null,
   };
 }
 

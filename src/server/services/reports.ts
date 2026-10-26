@@ -1,4 +1,7 @@
 import "server-only";
+import type { Locale } from "@/i18n/config";
+import type { MessageKey } from "@/i18n/messages";
+import { enumLabel, localName, msg, translate } from "@/i18n/translate";
 import { Prisma, type ProductCategory, type StatusKind } from "@prisma/client";
 import { PRODUCT_CATEGORY_LABELS, appointmentCode } from "@/lib/constants";
 import { dayRangeUtc, fmt, isValidDateString } from "@/lib/time";
@@ -6,14 +9,13 @@ import { prisma } from "../db";
 import { appointmentScope, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
-import { categoryLabel } from "./appointments";
 import { appointmentExportRows, appointmentFilterSql } from "./appointment-reads";
 
 export type ReportRange = { from: string; to: string };
 
 function checkRange(r: ReportRange) {
   if (!isValidDateString(r.from) || !isValidDateString(r.to) || r.from > r.to) {
-    throw new ValidationError({ from: "Choose a valid date range." });
+    throw new ValidationError({ from: msg("e.invalidRange") });
   }
 }
 
@@ -25,7 +27,7 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
   const where: Prisma.AppointmentWhereInput = { AND: [appointmentScope(user), { startsAt: { gte: start, lt: end } }] };
   // The two raw SQL aggregates below are company-wide. That is correct because reports.view is
   // never granted to assignment-scoped roles (technicians); guard against that changing.
-  if (user.role === "TECHNICIAN") throw new ValidationError({ _form: "Reports are not available for technicians." });
+  if (user.role === "TECHNICIAN") throw new ValidationError({ _form: msg("e.reportsNotForTechnicians") });
 
   const [total, byStatusRaw, bySalesRaw, byCategoryRaw, statuses, users, workloadRaw, dailyRaw] = await Promise.all([
     prisma.appointment.count({ where }),
@@ -54,7 +56,7 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
   const byStatus = byStatusRaw
     .map((r) => {
       const s = statusById.get(r.statusId)!;
-      return { id: s.id, name: s.name, kind: s.kind, color: s.color, count: r._count._all, sortOrder: s.sortOrder };
+      return { id: s.id, name: s.name, nameAr: s.nameAr, kind: s.kind, color: s.color, count: r._count._all, sortOrder: s.sortOrder };
     })
     .sort((a, b) => a.sortOrder - b.sortOrder);
 
@@ -115,49 +117,59 @@ export function toCsv(rows: unknown[][]): string {
 export const REPORT_TYPES = ["appointments", "status", "sales", "technicians", "categories", "daily"] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 
-export async function reportCsv(user: CurrentUser, type: ReportType, range: ReportRange): Promise<string> {
+export async function reportCsv(user: CurrentUser, type: ReportType, range: ReportRange, locale: Locale = "en"): Promise<string> {
   assertCan(user, "reports.view");
   checkRange(range);
-  if (type === "appointments") return appointmentsCsv(user, range);
+  const t = (key: MessageKey) => translate(locale, key);
+  const yesNo = (v: boolean) => t(v ? "common.yes" : "common.no");
+  if (type === "appointments") return appointmentsCsv(user, range, locale);
   const r = await buildReport(user, range);
   switch (type) {
     case "status":
-      return toCsv([["Status", "Appointments"], ...r.byStatus.map((s) => [s.name, s.count])]);
+      return toCsv([[t("csv.status"), t("csv.appointments")], ...r.byStatus.map((s) => [localName(locale, s), s.count])]);
     case "sales":
-      return toCsv([["Sales employee", "Active", "Appointments"], ...r.bySales.map((s) => [s.name, s.isActive ? "Yes" : "No", s.count])]);
+      return toCsv([[t("csv.salesEmployee"), t("csv.active"), t("csv.appointments")], ...r.bySales.map((s) => [s.name, yesNo(s.isActive), s.count])]);
     case "technicians":
       return toCsv([
-        ["Technician", "Active", "Jobs (not cancelled)", "Hours", "Completed", "Cancelled"],
-        ...r.byTechnician.map((t) => [t.name, t.isActive ? "Yes" : "No", t.jobs, (t.minutes / 60).toFixed(1), t.completed, t.cancelled]),
+        [t("csv.technician"), t("csv.active"), t("csv.jobs"), t("csv.hours"), t("csv.completed"), t("csv.cancelled")],
+        ...r.byTechnician.map((x) => [x.name, yesNo(x.isActive), x.jobs, (x.minutes / 60).toFixed(1), x.completed, x.cancelled]),
       ]);
     case "categories":
-      return toCsv([["Category", "Appointments"], ...r.byCategory.map((c) => [c.label, c.count])]);
+      return toCsv([[t("csv.category"), t("csv.appointments")], ...r.byCategory.map((c) => [enumLabel(locale, "category", c.category), c.count])]);
     case "daily":
-      return toCsv([["Date", "Appointments"], ...r.daily.map((d) => [d.day, d.count])]);
+      return toCsv([[t("csv.date"), t("csv.appointments")], ...r.daily.map((d) => [d.day, d.count])]);
   }
 }
 
-async function appointmentsCsv(user: CurrentUser, range: ReportRange) {
-  const tz = user.settings.timezone;
-  const rows = await appointmentExportRows(appointmentFilterSql(user, { from: range.from, to: range.to }), "asc");
-  const contact = hasPermission(user, "customers.contact");
-  const loc = hasPermission(user, "location.view");
+type ExportRow = Awaited<ReturnType<typeof appointmentExportRows>>[number];
+
+/**
+ * Appointment rows as CSV in the reader's language. Dates stay ISO (yyyy-MM-dd, HH:mm) and numbers
+ * unformatted so spreadsheets read them; codes, phones and names are written as stored.
+ */
+export function appointmentRowsCsv(
+  rows: ExportRow[],
+  opts: { contact: boolean; location: boolean; secondaryPhone?: boolean; duration?: boolean },
+  locale: Locale,
+  tz: string,
+): string {
+  const t = (key: MessageKey) => translate(locale, key);
   // Internal notes are never exported.
   const header = [
-    "Appointment ID",
-    "Date",
-    "Start",
-    "End",
-    "Duration (min)",
-    "Status",
-    "Customer",
-    ...(contact ? ["Phone", "Secondary phone"] : []),
-    ...(loc ? ["Area", "Address", "Compound/Building", "Apartment", "Floor", "Map link"] : []),
-    "Category",
-    "Brand",
-    "Model",
-    "Sales employee",
-    "Technicians",
+    t("csv.appointmentId"),
+    t("csv.date"),
+    t("csv.start"),
+    t("csv.end"),
+    ...(opts.duration ? [t("csv.duration")] : []),
+    t("csv.status"),
+    t("csv.customer"),
+    ...(opts.contact ? [t("csv.phone"), ...(opts.secondaryPhone ? [t("csv.secondaryPhone")] : [])] : []),
+    ...(opts.location ? [t("csv.area"), t("csv.address"), t("csv.building"), t("csv.apartment"), t("csv.floor"), t("csv.mapLink")] : []),
+    t("csv.category"),
+    t("csv.brand"),
+    t("csv.model"),
+    t("csv.salesEmployee"),
+    t("csv.technicians"),
   ];
   return toCsv([
     header,
@@ -166,16 +178,26 @@ async function appointmentsCsv(user: CurrentUser, range: ReportRange) {
       fmt(a.startsAt, tz, "yyyy-MM-dd"),
       fmt(a.startsAt, tz, "HH:mm"),
       fmt(a.endsAt, tz, "HH:mm"),
-      a.durationMinutes,
-      a.statusName,
+      ...(opts.duration ? [a.durationMinutes] : []),
+      localName(locale, { name: a.statusName, nameAr: a.statusNameAr }),
       a.customerName,
-      ...(contact ? [a.phone, a.secondaryPhone] : []),
-      ...(loc ? [a.area, a.streetAddress, a.building, a.apartment, a.floor, a.mapUrl] : []),
-      categoryLabel(a),
+      ...(opts.contact ? [a.phone, ...(opts.secondaryPhone ? [a.secondaryPhone] : [])] : []),
+      ...(opts.location ? [a.area, a.streetAddress, a.building, a.apartment, a.floor, a.mapUrl] : []),
+      a.productCategory === "OTHER" && a.categoryOther ? a.categoryOther : enumLabel(locale, "category", a.productCategory),
       a.brand,
       a.model,
       a.creatorName,
       a.technicianNames ?? "",
     ]),
   ]);
+}
+
+async function appointmentsCsv(user: CurrentUser, range: ReportRange, locale: Locale) {
+  const rows = await appointmentExportRows(appointmentFilterSql(user, { from: range.from, to: range.to }), "asc");
+  return appointmentRowsCsv(
+    rows,
+    { contact: hasPermission(user, "customers.contact"), location: hasPermission(user, "location.view"), secondaryPhone: true, duration: true },
+    locale,
+    user.settings.timezone,
+  );
 }

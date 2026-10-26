@@ -1,4 +1,18 @@
-import type { CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, StockStatus, VisitType } from "@prisma/client";
+import type {
+  CustomerConfirmation,
+  EquipmentLocation,
+  InternetStatus,
+  LeaveStatus,
+  LeaveType,
+  PaymentMethod,
+  ProductCategory,
+  Role,
+  SiteReadiness,
+  Specialty,
+  StatusKind,
+  StockStatus,
+  VisitType,
+} from "@prisma/client";
 
 export const APP_NAME = "Installation Manager System";
 
@@ -91,6 +105,23 @@ export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
 };
 
 export const LEAVE_TYPES: LeaveType[] = ["LEAVE", "SICK", "ABSENCE"];
+
+/** Site preparation answers (labels: "enum.siteReadiness.*", "enum.internet.*", "enum.equipmentAt.*"). */
+export const SITE_READINESS: SiteReadiness[] = ["UNKNOWN", "NOT_READY", "PARTIAL", "READY", "NOT_NEEDED"];
+export const INTERNET_STATUSES: InternetStatus[] = ["UNKNOWN", "WORKING", "NOT_WORKING", "NOT_AVAILABLE", "NOT_NEEDED"];
+export const EQUIPMENT_LOCATIONS: EquipmentLocation[] = ["OFFICE", "CUSTOMER", "UNDECIDED"];
+export const SPECIALTIES: Specialty[] = ["BOTH", "LOCK", "SMART_HOME"];
+
+/** Whether a technician with this specialty fits a booking of this category (null = both). */
+export function specialtyFits(specialty: Specialty | null | undefined, category: ProductCategory | null | undefined): boolean {
+  if (!specialty || specialty === "BOTH" || !category) return true;
+  if (category === "SMART_LOCK") return specialty === "LOCK";
+  if (category === "SMART_HOME") return specialty === "SMART_HOME";
+  return true;
+}
+
+/** Minutes a slot hold lasts (legacy: 10). */
+export const SLOT_HOLD_MINUTES = 10;
 
 export const LEAVE_STATUS_LABELS: Record<LeaveStatus, string> = {
   REQUESTED: "Awaiting approval",

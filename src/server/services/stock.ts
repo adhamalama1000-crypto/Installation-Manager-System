@@ -1,4 +1,5 @@
 import "server-only";
+import { msg, ref, withParenNote, type Param } from "@/i18n/translate";
 import { Prisma, type ProductCategory, type StockStatus } from "@prisma/client";
 import { STOCK_STATUSES, STOCK_STATUS_LABELS, appointmentCode, normalizeSerial, parseAppointmentCode } from "@/lib/constants";
 import { addMonthsKeepDay, dateKey } from "@/lib/time";
@@ -90,16 +91,16 @@ export async function saveModel(user: CurrentUser, id: string | null, raw: unkno
     // Names are unique regardless of case; the lock makes the check safe against a double submit.
     await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('stock:models', 0))`;
     const clash = await tx.productModel.findFirst({ where: { name: { equals: input.name, mode: "insensitive" }, ...(id ? { id: { not: id } } : {}) } });
-    if (clash) throw new ValidationError({ name: `A model called "${clash.name}" already exists.` });
+    if (clash) throw new ValidationError({ name: msg("e.modelTaken", { name: clash.name }) });
     const data = { name: input.name, category: input.category as ProductCategory, warrantyMonths: input.warrantyMonths, ...(input.isActive !== undefined ? { isActive: input.isActive } : {}) };
     const before = id ? await tx.productModel.findUnique({ where: { id } }) : null;
-    if (id && !before) throw new NotFoundError("Model not found.");
+    if (id && !before) throw new NotFoundError(msg("e.modelNotFound"));
     const model = id ? await tx.productModel.update({ where: { id }, data }) : await tx.productModel.create({ data });
     await recordAudit(tx, {
       entityType: "STOCK",
       entityId: model.id,
       action: id ? "MODEL_UPDATED" : "MODEL_CREATED",
-      summary: `${id ? "Updated" : "Added"} product model ${model.name} (${model.warrantyMonths} months warranty)`,
+      summary: msg(id ? "s.modelUpdated" : "s.modelAdded", { name: model.name, months: model.warrantyMonths }),
       changes: before
         ? { name: { from: before.name, to: model.name }, warrantyMonths: { from: before.warrantyMonths, to: model.warrantyMonths }, isActive: { from: before.isActive, to: model.isActive } }
         : { name: model.name, category: model.category, warrantyMonths: model.warrantyMonths },
@@ -162,7 +163,7 @@ export async function stockOverview(user: CurrentUser, f: StockFilters) {
 export async function itemHistory(user: CurrentUser, serial: string) {
   assertCan(user, "stock.view");
   const item = await prisma.stockItem.findUnique({ where: { serial: normalizeSerial(serial) }, select: { ...itemSelect, holderId: true } });
-  if (!item || (ownStockOnly(user) && item.holderId !== user.id)) throw new NotFoundError("Serial number not found.");
+  if (!item || (ownStockOnly(user) && item.holderId !== user.id)) throw new NotFoundError(msg("e.serialNotFound"));
   const moves = await prisma.stockMovement.findMany({
     where: { itemId: item.id },
     select: {
@@ -205,20 +206,20 @@ export async function stockIn(user: CurrentUser, raw: unknown) {
   try {
     return await prisma.$transaction(async (tx) => {
       const model = await tx.productModel.findUnique({ where: { id: modelId } });
-      if (!model || !model.isActive) throw new ValidationError({ modelId: "Choose an active model." });
+      if (!model || !model.isActive) throw new ValidationError({ modelId: msg("e.chooseActiveModel") });
       const existing = await tx.stockItem.findMany({ where: { serial: { in: serials } }, select: { serial: true } });
       if (existing.length) {
-        const msg = `Already registered: ${existing.map((e) => e.serial).join(", ")}`;
-        throw new ValidationError({ serials: msg }, msg);
+        const text = msg("e.alreadyRegistered", { list: { join: existing.map((e) => e.serial) } });
+        throw new ValidationError({ serials: text }, text);
       }
       await tx.stockItem.createMany({ data: serials.map((serial) => ({ serial, modelId, note, createdById: user.id })) });
       const created = await tx.stockItem.findMany({ where: { serial: { in: serials } }, select: { id: true } });
-      await tx.stockMovement.createMany({ data: created.map((c) => ({ itemId: c.id, toStatus: "IN_STORE" as const, note: note ?? "Goods in", actorId: user.id })) });
+      await tx.stockMovement.createMany({ data: created.map((c) => ({ itemId: c.id, toStatus: "IN_STORE" as const, note: note ?? msg("s.goodsInNote"), actorId: user.id })) });
       await recordAudit(tx, {
         entityType: "STOCK",
         entityId: model.id,
         action: "STOCK_IN",
-        summary: `Goods in: ${serials.length} × ${model.name}`,
+        summary: msg("s.goodsIn", { count: serials.length, model: model.name }),
         changes: { model: model.name, serials },
         actorId: user.id,
       });
@@ -226,17 +227,16 @@ export async function stockIn(user: CurrentUser, raw: unknown) {
     }, TX_OPTIONS);
   } catch (e) {
     // Two people registering the same serial at the same moment.
-    if (isUniqueViolation(e, "serial")) throw new ValidationError({ serials: "One of these serial numbers was just registered by someone else." });
+    if (isUniqueViolation(e, "serial")) throw new ValidationError({ serials: msg("e.justRegistered") });
     throw e;
   }
 }
 
-const MOVE_VERB: Record<"IN_STORE" | "WITH_TECHNICIAN" | "RETURNED" | "FAULTY", string> = {
-  IN_STORE: "Back in store",
-  WITH_TECHNICIAN: "Handed to",
-  RETURNED: "Marked returned",
-  FAULTY: "Marked faulty",
-};
+/** Up to ten serials for a notification, "…" when there are more. */
+function serialList(serials: string[]): Param {
+  const list: Param = { join: serials.slice(0, 10) };
+  return serials.length > 10 ? ref("s.moreSerials", { list }) : list;
+}
 
 /** Hands items to a technician, takes them back, or marks them returned / faulty. */
 export async function moveStock(user: CurrentUser, raw: unknown) {
@@ -248,18 +248,18 @@ export async function moveStock(user: CurrentUser, raw: unknown) {
     let holder: { id: string; name: string } | null = null;
     if (to === "WITH_TECHNICIAN") {
       const t = await tx.user.findUnique({ where: { id: technicianId! }, select: { id: true, name: true, role: true, isActive: true } });
-      if (!t || t.role !== "TECHNICIAN" || !t.isActive) throw new ValidationError({ technicianId: "Choose an active technician." });
+      if (!t || t.role !== "TECHNICIAN" || !t.isActive) throw new ValidationError({ technicianId: msg("e.chooseActiveTechnician") });
       holder = { id: t.id, name: t.name };
     }
     const ids = [...new Set(itemIds)];
     const rows = await tx.$queryRaw<{ id: string; serial: string; status: StockStatus; holderId: string | null; appointmentId: string | null }[]>`
       SELECT id, serial, status, "holderId", "appointmentId" FROM stock_items WHERE id IN (${Prisma.join(ids)}) ORDER BY id FOR UPDATE`;
-    if (rows.length !== ids.length) throw new NotFoundError("Some of these items no longer exist. Refresh the page.");
+    if (rows.length !== ids.length) throw new NotFoundError(msg("e.itemsGone"));
     // An installed item only leaves its installation as returned or faulty (e.g. a warranty swap).
     const stuck = rows.filter((r) => r.status === "INSTALLED" && to !== "RETURNED" && to !== "FAULTY");
     if (stuck.length) {
-      const msg = `${stuck.map((r) => r.serial).join(", ")} ${stuck.length === 1 ? "is" : "are"} installed; mark ${stuck.length === 1 ? "it" : "them"} returned or faulty instead.`;
-      throw new ValidationError({ _form: msg }, msg);
+      const text = msg("e.itemsInstalled", { list: { join: stuck.map((r) => r.serial) }, count: stuck.length });
+      throw new ValidationError({ _form: text }, text);
     }
     const moving = rows.filter((r) => !(r.status === to && r.holderId === (holder?.id ?? null)));
     if (!moving.length) return { count: 0 };
@@ -284,17 +284,17 @@ export async function moveStock(user: CurrentUser, raw: unknown) {
       entityType: "STOCK",
       entityId: holder?.id ?? moving[0]!.id,
       action: "STOCK_MOVED",
-      summary: `${MOVE_VERB[to]}${holder ? ` ${holder.name}` : ""}: ${serials.length} item${serials.length === 1 ? "" : "s"}${note ? ` (${note})` : ""}`,
+      summary: withParenNote(msg(`s.stock.${to}`, { name: holder?.name, items: ref("common.itemsCount", { count: serials.length }) }), note),
       changes: { to: STOCK_STATUS_LABELS[to], ...(holder ? { technician: holder.name } : {}), serials },
       actorId: user.id,
     });
     if (holder) {
-      await notifyUsers(tx, [holder.id], { type: "STOCK_HANDED", message: `${user.name} handed you ${serials.length} item${serials.length === 1 ? "" : "s"}: ${serials.slice(0, 10).join(", ")}${serials.length > 10 ? " …" : ""}` }, user.id);
+      await notifyUsers(tx, [holder.id], { type: "STOCK_HANDED", message: msg("n.stockHanded", { user: user.name, items: ref("common.itemsCount", { count: serials.length }), serials: serialList(serials) }) }, user.id);
     }
     const back = moving.filter((r) => r.holderId && r.holderId !== holder?.id);
     for (const prev of [...new Set(back.map((r) => r.holderId!))]) {
       const theirs = back.filter((r) => r.holderId === prev).map((r) => r.serial);
-      await notifyUsers(tx, [prev], { type: "STOCK_TAKEN", message: `${user.name} took back ${theirs.length} item${theirs.length === 1 ? "" : "s"} from your custody: ${theirs.slice(0, 10).join(", ")}` }, user.id);
+      await notifyUsers(tx, [prev], { type: "STOCK_TAKEN", message: msg("n.stockTaken", { user: user.name, items: ref("common.itemsCount", { count: theirs.length }), serials: serialList(theirs) }) }, user.id);
     }
     return { count: moving.length };
   }, TX_OPTIONS);
@@ -320,28 +320,28 @@ export async function installSerials(tx: Tx, user: CurrentUser, appt: { id: stri
     WHERE i.serial IN (${Prisma.join(serials)})
     ORDER BY i.id
     FOR UPDATE OF i`;
-  const problems: string[] = [];
+  const problems: Param[] = [];
   const missing = serials.filter((s) => !rows.some((r) => r.serial === s));
-  if (missing.length) problems.push(`Not in stock: ${missing.join(", ")} - the store has to register ${missing.length === 1 ? "it" : "them"} first.`);
+  if (missing.length) problems.push(ref("e.notInStock", { list: { join: missing }, count: missing.length }));
   const fromStore = hasPermission(user, "appointments.manage") || hasPermission(user, "stock.manage");
   const todo = [];
   for (const r of rows) {
     if (r.status === "INSTALLED") {
-      if (r.appointmentId !== appt.id) problems.push(`${r.serial} is already installed on ${appointmentCode(r.number!)}.`);
+      if (r.appointmentId !== appt.id) problems.push(ref("e.installedElsewhere", { serial: r.serial, code: appointmentCode(r.number!) }));
       continue;
     }
     if (r.status === "FAULTY" || r.status === "RETURNED") {
-      problems.push(`${r.serial} is marked ${STOCK_STATUS_LABELS[r.status].toLowerCase()} - talk to the store.`);
+      problems.push(ref("e.serialMarked", { serial: r.serial, status: ref(`e.stock.${r.status}`) }));
       continue;
     }
     const mine = r.status === "WITH_TECHNICIAN" && r.holderId === user.id;
     if (!mine && !fromStore) {
-      problems.push(`${r.serial} is not in your custody (${r.holderName ? `with ${r.holderName}` : "in the store"}).`);
+      problems.push(ref("e.notYourCustody", { serial: r.serial, where: r.holderName ? ref("e.withHolder", { name: r.holderName }) : ref("e.inStore") }));
       continue;
     }
     todo.push(r);
   }
-  if (problems.length) throw new ValidationError({ serials: problems.join(" ") }, problems[0]);
+  if (problems.length) throw new ValidationError({ serials: msg("s.parts", { parts: { lines: problems } }) }, msg("s.parts", { parts: problems[0] }));
   const visitDay = dateKey(appt.startsAt, tz);
   for (const r of todo) {
     await tx.stockItem.update({

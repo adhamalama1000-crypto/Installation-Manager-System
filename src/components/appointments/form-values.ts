@@ -1,4 +1,4 @@
-import type { CustomerConfirmation, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, EquipmentLocation, InternetStatus, PaymentMethod, ProductCategory, SiteReadiness, VisitType } from "@prisma/client";
 import type { AppointmentDTO } from "@/lib/types";
 import { dateKey, timeKey } from "@/lib/time";
 
@@ -19,6 +19,10 @@ export type FormValues = {
   productCategory: ProductCategory | "";
   visitType: VisitType | "";
   customerConfirmation: CustomerConfirmation;
+  /** Site preparation; "" = not recorded. */
+  siteReadiness: SiteReadiness | "";
+  internetStatus: InternetStatus | "";
+  equipmentAt: EquipmentLocation | "";
   /** Create only: the visit this one follows up. */
   followUpOfId: string | null;
   categoryOther: string;
@@ -63,6 +67,9 @@ export function valuesFromAppointment(a: AppointmentDTO, tz: string): FormValues
     productCategory: a.productCategory,
     visitType: a.visitType ?? "",
     customerConfirmation: a.customerConfirmation,
+    siteReadiness: a.siteReadiness ?? "",
+    internetStatus: a.internetStatus ?? "",
+    equipmentAt: a.equipmentAt ?? "",
     followUpOfId: null,
     categoryOther: s(a.categoryOther),
     brand: s(a.brand),
@@ -92,6 +99,9 @@ export function emptyValues(opts: { date: string; durationMinutes: number; statu
     productCategory: "",
     visitType: "INSTALLATION",
     customerConfirmation: "PENDING",
+    siteReadiness: "",
+    internetStatus: "",
+    equipmentAt: "",
     followUpOfId: null,
     categoryOther: "",
     brand: "",

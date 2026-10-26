@@ -91,6 +91,38 @@ enum LeaveStatus {
   CANCELLED
 }
 
+/// Is the wiring / foundation ready for the installation (Aura: التأسيس)?
+enum SiteReadiness {
+  UNKNOWN
+  NOT_READY
+  PARTIAL
+  READY
+  NOT_NEEDED
+}
+
+/// Internet at the site (Aura: الإنترنت) - smart-home devices need it.
+enum InternetStatus {
+  UNKNOWN
+  WORKING
+  NOT_WORKING
+  NOT_AVAILABLE
+  NOT_NEEDED
+}
+
+/// Where the lock / devices are before the visit (Aura: مقر الشركة / عند العميل / لسه مش متحدد).
+enum EquipmentLocation {
+  OFFICE
+  CUSTOMER
+  UNDECIDED
+}
+
+/// What a technician installs (Aura: لوك / سمارت هوم / الاتنين). Null on a user means both.
+enum Specialty {
+  BOTH
+  LOCK
+  SMART_HOME
+}
+
 /// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
 /// reports so admins can rename or add statuses without breaking the statistics.
 enum StatusKind {
@@ -105,23 +137,27 @@ enum StatusKind {
 }
 
 model User {
-  id                String    @id @default(cuid())
+  id                String     @id @default(cuid())
   name              String
   /// Stored lower-cased; used as the login identifier.
-  email             String    @unique
+  email             String     @unique
   phone             String?
   role              Role
-  isActive          Boolean   @default(true)
+  isActive          Boolean    @default(true)
   /// bcrypt hash. Null until the user sets a password through an invitation link.
   passwordHash      String?
   /// Calendar colour (hex, e.g. #E55823). Used for Sales employees; kept if the role changes so
   /// historical appointments keep their colour.
   color             String?
   /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
-  viewerPermissions String[]  @default([])
-  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
-  passwordChangedAt DateTime? @db.Timestamptz(3)
+  viewerPermissions String[]   @default([])
+  /// Preferred interface language ("ar" | "en"); null until the user picks one.
+  locale            String?
+  /// Technicians: what they install; used to suggest the right person when booking.
+  specialty         Specialty?
+  createdAt         DateTime   @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime   @updatedAt @db.Timestamptz(3)
+  passwordChangedAt DateTime?  @db.Timestamptz(3)
 
   sessions              Session[]
   passwordTokens        PasswordToken[]         @relation("TokenUser")
@@ -141,6 +177,8 @@ model User {
   leavesDecided         TechnicianLeave[]       @relation("LeaveDecider")
   assignments           AppointmentTechnician[] @relation("AssignmentTechnician")
   assignedByMe          AppointmentTechnician[] @relation("AssignmentAssigner")
+  slotHolds             SlotHold[]              @relation("HoldTechnician")
+  slotHoldsMade         SlotHold[]              @relation("HoldOwner")
   auditLogs             AuditLog[]
   notifications         Notification[]
   settingsUpdated       Setting[]
@@ -255,6 +293,8 @@ model CustomerLocation {
 model AppointmentStatus {
   id             String     @id @default(cuid())
   name           String     @unique
+  /// Arabic name shown when the interface is in Arabic (falls back to `name`).
+  nameAr         String?
   kind           StatusKind
   /// Hex colour for status badges.
   color          String
@@ -291,6 +331,10 @@ model Appointment {
   followUps            Appointment[]        @relation("FollowUp")
   /// Free-text category when productCategory = OTHER.
   categoryOther        String?
+  /// Site preparation, checked with the customer before the visit (null on older bookings).
+  siteReadiness        SiteReadiness?
+  internetStatus       InternetStatus?
+  equipmentAt          EquipmentLocation?
   brand                String?
   model                String?
   description          String?
@@ -377,6 +421,25 @@ model AppointmentTechnician {
   @@map("appointment_technicians")
 }
 
+/// A short reservation of a technician's time while a booking is being made (Sales on the phone
+/// with the customer). Expired rows never block and are removed when new holds are taken.
+model SlotHold {
+  id           String   @id @default(cuid())
+  technicianId String
+  technician   User     @relation("HoldTechnician", fields: [technicianId], references: [id], onDelete: Cascade)
+  heldById     String
+  heldBy       User     @relation("HoldOwner", fields: [heldById], references: [id], onDelete: Cascade)
+  startsAt     DateTime @db.Timestamptz(3)
+  endsAt       DateTime @db.Timestamptz(3)
+  expiresAt    DateTime @db.Timestamptz(3)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([technicianId, startsAt])
+  @@index([heldById])
+  @@index([expiresAt])
+  @@map("slot_holds")
+}
+
 model AuditLog {
   id            String       @id @default(cuid())
   /// APPOINTMENT | USER | STATUS | SETTINGS | CUSTOMER
@@ -385,6 +448,8 @@ model AuditLog {
   /// e.g. APPOINTMENT_CREATED, APPOINTMENT_RESCHEDULED, USER_ROLE_CHANGED ...
   action        String
   summary       String
+  /// { key, params } of the summary, so it can be shown in the reader's language.
+  params        Json?
   /// { field: { from, to } } for updates, or a snapshot for creations.
   changes       Json?
   actorId       String?
@@ -408,7 +473,10 @@ model Notification {
   appointmentId String?
   appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
   type          String
+  /// English text (kept for older clients and search).
   message       String
+  /// { key, params } so the text can be shown in the reader's language.
+  params        Json?
   readAt        DateTime?    @db.Timestamptz(3)
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 
