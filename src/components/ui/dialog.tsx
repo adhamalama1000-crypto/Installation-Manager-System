@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from "react";
 import { X } from "lucide-react";
+import { useT } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 
 /** Accessible modal built on the native <dialog> element (focus trap + Esc handled by the browser). */
@@ -22,6 +23,7 @@ export function Dialog({
   footer?: React.ReactNode;
   size?: "sm" | "md" | "lg";
 }) {
+  const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
   useEffect(() => {
     const d = ref.current;
@@ -54,7 +56,7 @@ export function Dialog({
               <h2 className="text-base font-semibold">{title}</h2>
               {description && <p className="mt-0.5 text-sm text-fg-muted">{description}</p>}
             </div>
-            <button type="button" onClick={onClose} className="rounded-md p-1 text-fg-subtle hover:bg-surface-muted hover:text-fg" aria-label="Close">
+            <button type="button" onClick={onClose} className="rounded-md p-1 text-fg-subtle hover:bg-surface-muted hover:text-fg" aria-label={t("common.close")}>
               <X className="h-5 w-5" />
             </button>
           </div>

@@ -1,3 +1,4 @@
+import { msg } from "@/i18n/translator";
 import { changePasswordSchema, fieldErrorsFromZod } from "@/lib/validation";
 import { prisma } from "@/server/db";
 import { ValidationError } from "@/server/errors";
@@ -11,7 +12,7 @@ export const POST = apiRoute(async ({ req, user }) => {
   if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
   const row = await prisma.user.findUniqueOrThrow({ where: { id: user.id } });
   if (!(await verifyPassword(parsed.data.currentPassword, row.passwordHash))) {
-    throw new ValidationError({ currentPassword: "Current password is incorrect." });
+    throw new ValidationError({ currentPassword: msg("userErrors.wrongPassword") });
   }
   await prisma.user.update({
     where: { id: user.id },
@@ -21,7 +22,7 @@ export const POST = apiRoute(async ({ req, user }) => {
     entityType: "USER",
     entityId: user.id,
     action: "USER_PASSWORD_CHANGED",
-    summary: `${user.name} changed their password`,
+    summary: msg("audit.passwordChanged", { name: user.name }),
     actorId: user.id,
   });
   // Sign out every other device.

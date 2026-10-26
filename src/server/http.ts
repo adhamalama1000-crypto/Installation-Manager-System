@@ -4,6 +4,8 @@ import { createHash, randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { gzip as gzipCallback } from "node:zlib";
 import type { ApiErrorBody } from "@/lib/types";
+import { localeFromCookieHeader, type Locale } from "@/i18n/config";
+import { createT } from "@/i18n/translator";
 import { getUserFromRequest, type CurrentUser } from "./auth/session";
 import { AppError, ForbiddenError, UnauthorizedError, ValidationError } from "./errors";
 
@@ -12,15 +14,17 @@ const MAX_BODY_BYTES = 1_000_000;
 
 type RouteContext = { params: Promise<Record<string, string>> };
 
-export function errorResponse(error: unknown): NextResponse<ApiErrorBody> {
+/** The error as JSON in the requester's language (message keys are translated here). */
+export function errorResponse(error: unknown, locale: Locale = "ar"): NextResponse<ApiErrorBody> {
+  const t = createT(locale);
   if (error instanceof AppError) {
     const details = (error.details ?? {}) as { fieldErrors?: Record<string, string>; conflicts?: ApiErrorBody["error"]["conflicts"] };
     return NextResponse.json(
       {
         error: {
           code: error.code,
-          message: error.message,
-          ...(details.fieldErrors ? { fieldErrors: details.fieldErrors } : {}),
+          message: t.msg(error.raw),
+          ...(details.fieldErrors ? { fieldErrors: Object.fromEntries(Object.entries(details.fieldErrors).map(([k, v]) => [k, t.msg(v)])) } : {}),
           ...(details.conflicts ? { conflicts: details.conflicts } : {}),
         },
       },
@@ -30,10 +34,7 @@ export function errorResponse(error: unknown): NextResponse<ApiErrorBody> {
   // Unknown error: log the details server-side, return a generic message (no stack traces).
   const ref = randomUUID().slice(0, 8);
   console.error(`[api-error ${ref}]`, error);
-  return NextResponse.json(
-    { error: { code: "INTERNAL_ERROR", message: `Something went wrong on the server (ref ${ref}). Please try again.` } },
-    { status: 500 },
-  );
+  return NextResponse.json({ error: { code: "INTERNAL_ERROR", message: t("errors.serverError", { ref }) } }, { status: 500 });
 }
 
 /**
@@ -49,23 +50,23 @@ export function assertSameOrigin(req: Request) {
   try {
     originHost = new URL(origin).host;
   } catch {
-    throw new ForbiddenError("Invalid request origin.");
+    throw new ForbiddenError("errors.badOrigin");
   }
-  if (!host || originHost !== host) throw new ForbiddenError("Cross-site requests are not allowed.");
+  if (!host || originHost !== host) throw new ForbiddenError("errors.crossSite");
 }
 
 export async function readJson(req: Request): Promise<unknown> {
   const type = req.headers.get("content-type") ?? "";
   if (!type.includes("application/json")) {
-    throw new ValidationError({ _form: "Expected a JSON request body." }, "Expected a JSON request body.");
+    throw new ValidationError({ _form: "errors.expectedJson" }, "errors.expectedJson");
   }
   const text = await req.text();
-  if (text.length > MAX_BODY_BYTES) throw new ValidationError({ _form: "Request body too large." }, "Request body too large.");
+  if (text.length > MAX_BODY_BYTES) throw new ValidationError({ _form: "errors.bodyTooLarge" }, "errors.bodyTooLarge");
   if (!text) return {};
   try {
     return JSON.parse(text);
   } catch {
-    throw new ValidationError({ _form: "Malformed JSON." }, "Malformed JSON.");
+    throw new ValidationError({ _form: "errors.malformedJson" }, "errors.malformedJson");
   }
 }
 
@@ -108,6 +109,7 @@ type Handler = (args: { req: Request; user: CurrentUser; params: Record<string, 
 /** Wraps an authenticated API route: session check, origin check, JSON + error handling. */
 export function apiRoute(handler: Handler) {
   return async (req: Request, ctx: RouteContext): Promise<Response> => {
+    const locale = localeFromCookieHeader(req.headers.get("cookie"));
     try {
       assertSameOrigin(req);
       const user = await getUserFromRequest(req);
@@ -118,21 +120,22 @@ export function apiRoute(handler: Handler) {
       if (req.method === "GET") return await compressed(req, jsonWithEtag(req, result ?? { ok: true }));
       return await compressed(req, NextResponse.json(result ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }));
     } catch (error) {
-      return errorResponse(error);
+      return errorResponse(error, locale);
     }
   };
 }
 
 /** For unauthenticated endpoints (login, set password). */
-export function publicRoute(handler: (args: { req: Request }) => Promise<unknown>) {
+export function publicRoute(handler: (args: { req: Request; locale: Locale }) => Promise<unknown>) {
   return async (req: Request): Promise<Response> => {
+    const locale = localeFromCookieHeader(req.headers.get("cookie"));
     try {
       assertSameOrigin(req);
-      const result = await handler({ req });
+      const result = await handler({ req, locale });
       if (result instanceof Response) return result;
       return NextResponse.json(result ?? { ok: true }, { headers: { "Cache-Control": "no-store" } });
     } catch (error) {
-      return errorResponse(error);
+      return errorResponse(error, locale);
     }
   };
 }

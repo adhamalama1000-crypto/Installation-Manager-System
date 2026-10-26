@@ -48,7 +48,8 @@ export async function makeUser(role: Role, overrides: Partial<User> = {}): Promi
   });
 }
 
-export function asCurrent(user: User, settings: Partial<SettingsValues> = {}): CurrentUser {
+/** The user as the services see them; English by default so messages in assertions are stable. */
+export function asCurrent(user: User, settings: Partial<SettingsValues> = {}, locale: "ar" | "en" = "en"): CurrentUser {
   const s = { ...DEFAULT_SETTINGS, ...settings };
   return {
     id: user.id,
@@ -61,6 +62,7 @@ export function asCurrent(user: User, settings: Partial<SettingsValues> = {}): C
     permissions: [...permissionsFor(user, s)],
     settings: s,
     sessionId: "test",
+    locale,
   };
 }
 

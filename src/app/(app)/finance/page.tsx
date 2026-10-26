@@ -4,12 +4,18 @@ import { CashHoldings } from "@/components/finance/cash-holdings";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Alert, EmptyState, PageHeader } from "@/components/ui/misc";
-import { PAYMENT_METHOD_LABELS, money } from "@/lib/constants";
+import type { PaymentMethod } from "@prisma/client";
+import { getT } from "@/i18n/server";
+import type { T } from "@/i18n/translator";
+import type { Metadata } from "next";
+import { money } from "@/lib/constants";
 import { addMonthsToKey, formatKey } from "@/lib/time";
 import { requirePagePermission } from "@/server/auth/session";
 import { financeStatement, parseMonth } from "@/server/services/payments";
 
-export const metadata = { title: "Finance" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getT())("nav.finance") };
+}
 
 function Tile({ label, value, sub }: { label: string; value: string; sub?: string }) {
   return (
@@ -21,14 +27,14 @@ function Tile({ label, value, sub }: { label: string; value: string; sub?: strin
   );
 }
 
-function MethodList({ rows }: { rows: { method: keyof typeof PAYMENT_METHOD_LABELS; amount: number }[] }) {
-  if (!rows.length) return <p className="px-5 py-4 text-sm text-fg-subtle">Nothing recorded.</p>;
+function MethodList({ rows, t }: { rows: { method: PaymentMethod; amount: number }[]; t: T }) {
+  if (!rows.length) return <p className="px-5 py-4 text-sm text-fg-subtle">{t("finance.nothing")}</p>;
   return (
     <ul className="divide-y divide-line">
       {rows.map((r) => (
         <li key={r.method} className="flex items-center justify-between px-5 py-2.5 text-sm">
-          <span className="text-fg-muted">{PAYMENT_METHOD_LABELS[r.method]}</span>
-          <span className="font-medium tabular-nums text-fg">{money(r.amount)}</span>
+          <span className="text-fg-muted">{t.dyn(`enums.paymentMethod.${r.method}`)}</span>
+          <span className="font-medium tabular-nums text-fg">{money(r.amount, t.locale)}</span>
         </li>
       ))}
     </ul>
@@ -36,36 +42,37 @@ function MethodList({ rows }: { rows: { method: keyof typeof PAYMENT_METHOD_LABE
 }
 
 export default async function FinancePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
-  const user = await requirePagePermission("finance.view");
+  const [user, t] = await Promise.all([requirePagePermission("finance.view"), getT()]);
+  const egp = (n: number | null | undefined) => money(n, t.locale);
   const sp = await searchParams;
   const tz = user.settings.timezone;
   const month = parseMonth(sp.month, tz);
   const f = await financeStatement(user, month);
-  const label = formatKey(`${month}-01`, { month: "long", year: "numeric" });
+  const label = formatKey(`${month}-01`, { month: "long", year: "numeric" }, t.locale);
   const step = (n: number) => `/finance?month=${addMonthsToKey(`${month}-01`, n).slice(0, 7)}`;
 
   return (
     <>
       <PageHeader
-        title="Finance"
-        description="Visits of the month by visit date (cancelled visits excluded). Cash with technicians is the current total."
+        title={t("nav.finance")}
+        description={t("finance.text")}
         actions={
           <>
-            <Link href={step(-1)} className={buttonClasses("outline", "sm")} aria-label="Previous month">
-              <ChevronLeft className="h-4 w-4" />
+            <Link href={step(-1)} className={buttonClasses("outline", "sm")} aria-label={t("finance.prevMonth")}>
+              <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
             </Link>
             <form method="get" className="flex items-center gap-2">
               <input
                 type="month"
                 name="month"
                 defaultValue={month}
-                aria-label="Month"
+                aria-label={t("calendar.month")}
                 className="h-8 rounded-lg border border-line-strong bg-surface px-2 text-sm text-fg"
               />
-              <button className={buttonClasses("outline", "sm")}>Show</button>
+              <button className={buttonClasses("outline", "sm")}>{t("common.show")}</button>
             </form>
-            <Link href={step(1)} className={buttonClasses("outline", "sm")} aria-label="Next month">
-              <ChevronRight className="h-4 w-4" />
+            <Link href={step(1)} className={buttonClasses("outline", "sm")} aria-label={t("finance.nextMonth")}>
+              <ChevronRight className="h-4 w-4 rtl:rotate-180" />
             </Link>
             <a href={`/api/finance/export?month=${month}`} className={buttonClasses("primary", "sm")}>
               <Download className="h-3.5 w-3.5" /> CSV
@@ -75,27 +82,27 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       />
       <h2 className="mb-3 text-lg font-semibold text-fg">{label}</h2>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
-        <Tile label="Booked value" value={money(f.totalSales)} sub={`${f.visits} visit${f.visits === 1 ? "" : "s"}`} />
-        <Tile label="Deposits" value={money(f.deposits)} />
-        <Tile label="Collected at visits" value={money(f.collected)} />
-        <Tile label="Extra fees" value={money(f.fees)} sub="Included in what customers owe" />
-        <Tile label="Still owed by customers" value={money(f.owedTotal)} sub={`${f.owedCount} completed visit${f.owedCount === 1 ? "" : "s"}`} />
-        <Tile label="Cash with technicians" value={money(f.cashHeld)} sub="Right now, all months" />
+        <Tile label={t("finance.booked")} value={egp(f.totalSales)} sub={t("common.visits", { count: f.visits })} />
+        <Tile label={t("finance.deposits")} value={egp(f.deposits)} />
+        <Tile label={t("finance.collected")} value={egp(f.collected)} />
+        <Tile label={t("finance.fees")} value={egp(f.fees)} sub={t("finance.feesSub")} />
+        <Tile label={t("finance.owed")} value={egp(f.owedTotal)} sub={t("finance.completedVisits", { count: f.owedCount })} />
+        <Tile label={t("finance.cashHeld")} value={egp(f.cashHeld)} sub={t("finance.cashHeldSub")} />
       </div>
       {f.unpriced > 0 && (
         <Alert tone="info" className="mt-4">
-          {f.unpriced} completed visit{f.unpriced === 1 ? " has" : "s have"} no price recorded and {f.unpriced === 1 ? "is" : "are"} not counted.
+          {t("finance.unpriced", { count: f.unpriced })}
         </Alert>
       )}
 
       <div className="mt-6 grid gap-6 lg:grid-cols-2">
         <Card className="overflow-hidden">
-          <CardHeader title="Deposits by method" />
-          <MethodList rows={f.depositsByMethod} />
+          <CardHeader title={t("finance.depositsByMethod")} />
+          <MethodList rows={f.depositsByMethod} t={t} />
         </Card>
         <Card className="overflow-hidden">
-          <CardHeader title="Collected at visits by method" />
-          <MethodList rows={f.collectedByMethod} />
+          <CardHeader title={t("finance.collectedByMethod")} />
+          <MethodList rows={f.collectedByMethod} t={t} />
         </Card>
       </div>
 
@@ -104,44 +111,48 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       </div>
 
       <Card className="mt-6 overflow-hidden">
-        <CardHeader title="Customers who still owe" description="Completed visits of the month where less was collected than was due." />
+        <CardHeader title={t("finance.owedTitle")} description={t("finance.owedText")} />
         {f.owed.length === 0 ? (
-          <EmptyState title="Nothing owed for this month." />
+          <EmptyState title={t("finance.nothingOwed")} />
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full min-w-[640px] text-sm">
-              <thead className="bg-surface-muted/60 text-left text-xs uppercase tracking-wide text-fg-muted">
+              <thead className="bg-surface-muted/60 text-start text-xs uppercase tracking-wide text-fg-muted">
                 <tr>
-                  <th className="px-4 py-2 font-medium">Appointment</th>
-                  <th className="px-4 py-2 font-medium">Customer</th>
-                  <th className="px-4 py-2 font-medium">Sales</th>
-                  <th className="px-4 py-2 text-right font-medium">Due</th>
-                  <th className="px-4 py-2 text-right font-medium">Collected</th>
-                  <th className="px-4 py-2 text-right font-medium">Owed</th>
+                  <th className="px-4 py-2 text-start font-medium">{t("csv.appointment")}</th>
+                  <th className="px-4 py-2 text-start font-medium">{t("common.customer")}</th>
+                  <th className="px-4 py-2 text-start font-medium">{t("common.sales")}</th>
+                  <th className="px-4 py-2 text-end font-medium">{t("finance.due")}</th>
+                  <th className="px-4 py-2 text-end font-medium">{t("csv.collected")}</th>
+                  <th className="px-4 py-2 text-end font-medium">{t("finance.owedCol")}</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-line">
                 {f.owed.map((o) => (
                   <tr key={o.id}>
                     <td className="px-4 py-2">
-                      <Link href={`/appointments/${o.id}`} prefetch={false} className="font-mono text-brand-text hover:underline">
+                      <Link href={`/appointments/${o.id}`} prefetch={false} className="font-mono text-brand-text hover:underline" dir="ltr">
                         {o.code}
                       </Link>
-                      <span className="block text-xs text-fg-subtle">{formatKey(o.date, { day: "numeric", month: "short" })}</span>
+                      <span className="block text-xs text-fg-subtle">{formatKey(o.date, { day: "numeric", month: "short" }, t.locale)}</span>
                     </td>
                     <td className="px-4 py-2">
                       {o.customerName}
-                      {o.phone && <span className="block text-xs text-fg-subtle">{o.phone}</span>}
+                      {o.phone && (
+                        <span className="block text-xs text-fg-subtle" dir="ltr">
+                          {o.phone}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2 text-fg-muted">{o.salesName}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{money(o.due)}</td>
-                    <td className="px-4 py-2 text-right tabular-nums">{money(o.collected)}</td>
-                    <td className="px-4 py-2 text-right font-medium tabular-nums text-danger">{money(o.balance)}</td>
+                    <td className="px-4 py-2 text-end tabular-nums">{egp(o.due)}</td>
+                    <td className="px-4 py-2 text-end tabular-nums">{egp(o.collected)}</td>
+                    <td className="px-4 py-2 text-end font-medium tabular-nums text-danger">{egp(o.balance)}</td>
                   </tr>
                 ))}
               </tbody>
             </table>
-            {f.owedCount > f.owed.length && <p className="px-4 py-3 text-xs text-fg-subtle">Showing the {f.owed.length} largest of {f.owedCount}. The CSV has all of them.</p>}
+            {f.owedCount > f.owed.length && <p className="px-4 py-3 text-xs text-fg-subtle">{t("finance.showingLargest", { shown: f.owed.length, count: f.owedCount })}</p>}
           </div>
         )}
       </Card>

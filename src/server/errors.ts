@@ -1,39 +1,53 @@
-/** Errors with a safe, user-facing message and an HTTP status. Anything else becomes a 500. */
+import { createT } from "@/i18n/translator";
+
+const english = createT("en");
+
+/**
+ * Errors with a safe, user-facing message and an HTTP status. Anything else becomes a 500.
+ *
+ * Messages are message keys (see `msg` in src/i18n/translator.ts) or plain text. `message` is the
+ * English text (logs, tests); `raw` keeps the key so the API answers in the requester's language.
+ */
 export class AppError extends Error {
+  public readonly raw: string;
   constructor(
     message: string,
     public readonly status: number,
     public readonly code: string,
     public readonly details?: unknown,
   ) {
-    super(message);
+    super(english.msg(message));
+    this.raw = message;
     this.name = new.target.name;
   }
 }
 
 export class ValidationError extends AppError {
+  /** English texts per field; `rawFieldErrors` keeps the message keys. */
+  public readonly fieldErrors: Record<string, string>;
   constructor(
-    public readonly fieldErrors: Record<string, string>,
-    message = "Please correct the highlighted fields.",
+    public readonly rawFieldErrors: Record<string, string>,
+    message = "errors.validation",
   ) {
-    super(message, 422, "VALIDATION_ERROR", { fieldErrors });
+    super(message, 422, "VALIDATION_ERROR", { fieldErrors: rawFieldErrors });
+    this.fieldErrors = Object.fromEntries(Object.entries(rawFieldErrors).map(([k, v]) => [k, english.msg(v)]));
   }
 }
 
 export class UnauthorizedError extends AppError {
-  constructor(message = "Please sign in to continue.") {
+  constructor(message = "errors.signInRequired") {
     super(message, 401, "UNAUTHORIZED");
   }
 }
 
 export class ForbiddenError extends AppError {
-  constructor(message = "You do not have permission to perform this action.") {
+  constructor(message = "errors.forbidden") {
     super(message, 403, "FORBIDDEN");
   }
 }
 
 export class NotFoundError extends AppError {
-  constructor(message = "The requested record was not found.") {
+  constructor(message = "errors.notFound") {
     super(message, 404, "NOT_FOUND");
   }
 }
@@ -51,20 +65,20 @@ export type ConflictDetail = {
 export class SchedulingConflictError extends AppError {
   constructor(
     public readonly conflicts: ConflictDetail[],
-    message = "One or more technicians are already booked at this time.",
+    message = "errors.conflict",
   ) {
     super(message, 409, "SCHEDULING_CONFLICT", { conflicts });
   }
 }
 
 export class StaleRecordError extends AppError {
-  constructor(message = "This appointment was changed by someone else. Reload it to see the latest version.") {
+  constructor(message = "errors.stale") {
     super(message, 409, "STALE_RECORD");
   }
 }
 
 export class RateLimitError extends AppError {
-  constructor(message = "Too many attempts. Please wait a few minutes and try again.") {
+  constructor(message = "errors.rateLimited") {
     super(message, 429, "RATE_LIMITED");
   }
 }

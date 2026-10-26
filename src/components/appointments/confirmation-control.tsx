@@ -5,7 +5,8 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import type { CustomerConfirmation } from "@prisma/client";
 import { api, ApiError } from "@/lib/api-client";
-import { CONFIRMATIONS, CONFIRMATION_LABELS } from "@/lib/constants";
+import { useT } from "@/i18n/client";
+import { CONFIRMATIONS } from "@/lib/constants";
 import { cn } from "@/lib/utils";
 
 const TONE: Record<CustomerConfirmation, string> = {
@@ -17,24 +18,26 @@ const TONE: Record<CustomerConfirmation, string> = {
 
 /** Customer confirmation of the booked time; a select for users who may manage the appointment. */
 export function ConfirmationControl({ id, version, value, canManage }: { id: string; version: number; value: CustomerConfirmation; canManage: boolean }) {
+  const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState(false);
-  if (!canManage) return <span className={cn("font-medium", TONE[value])}>{CONFIRMATION_LABELS[value]}</span>;
+  const label = (c: CustomerConfirmation) => t.dyn(`enums.confirmation.${c}`);
+  if (!canManage) return <span className={cn("font-medium", TONE[value])}>{label(value)}</span>;
   async function change(next: CustomerConfirmation) {
     setBusy(true);
     try {
       await api(`/api/appointments/${id}/confirmation`, { method: "POST", body: { confirmation: next, version } });
-      toast.success(CONFIRMATION_LABELS[next]);
+      toast.success(label(next));
       router.refresh();
     } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : "Could not save");
+      toast.error(e instanceof ApiError ? e.message : t("common.couldNotSave"));
     } finally {
       setBusy(false);
     }
   }
   return (
     <select
-      aria-label="Customer confirmation"
+      aria-label={t("appointment.confirmation")}
       value={value}
       disabled={busy}
       onChange={(e) => change(e.target.value as CustomerConfirmation)}
@@ -42,7 +45,7 @@ export function ConfirmationControl({ id, version, value, canManage }: { id: str
     >
       {CONFIRMATIONS.map((c) => (
         <option key={c} value={c}>
-          {CONFIRMATION_LABELS[c]}
+          {label(c)}
         </option>
       ))}
     </select>

@@ -5,6 +5,7 @@
  */
 import { addMinutes } from "date-fns";
 import { formatInTimeZone, fromZonedTime } from "date-fns-tz";
+import { intlLocale, type Locale } from "@/i18n/config";
 
 export const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
 export const TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
@@ -34,8 +35,19 @@ export function computeEnd(startsAt: Date, durationMinutes: number): Date {
   return addMinutes(startsAt, durationMinutes);
 }
 
-const MONTHS = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
-const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+const NAMES = {
+  en: {
+    months: ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"],
+    weekdays: ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"],
+    short: (name: string) => name.slice(0, 3),
+  },
+  // Egyptian month names (as in the Aura app); Arabic has no customary abbreviations.
+  ar: {
+    months: ["يناير", "فبراير", "مارس", "أبريل", "مايو", "يونيو", "يوليو", "أغسطس", "سبتمبر", "أكتوبر", "نوفمبر", "ديسمبر"],
+    weekdays: ["الأحد", "الاثنين", "الثلاثاء", "الأربعاء", "الخميس", "الجمعة", "السبت"],
+    short: (name: string) => name,
+  },
+} as const;
 const pad2 = (n: number) => (n < 10 ? `0${n}` : String(n));
 
 // One Intl formatter per timezone. Building a formatter is the expensive part of timezone
@@ -69,25 +81,29 @@ const TOKENS = "yyyy(?!y)|MMMM(?!M)|MMM(?!M)|MM(?!M)|EEEE(?!E)|EEE(?!E)|dd(?!d)|
 const TOKEN_RE = new RegExp(`${TOKENS}|[^A-Za-z]+`, "g");
 const FAST_PATTERN_RE = new RegExp(`^(?:${TOKENS}|[^A-Za-z'])+$`);
 
-/** Formats `date` as wall-clock time in `tz` with a date-fns pattern. */
-export function fmt(date: Date | string, tz: string, pattern: string): string {
+/**
+ * Formats `date` as wall-clock time in `tz` with a date-fns pattern. Month and weekday names follow
+ * `locale`; digits are always Western.
+ */
+export function fmt(date: Date | string, tz: string, pattern: string, locale: Locale = "en"): string {
   const d = typeof date === "string" ? new Date(date) : date;
   if (!FAST_PATTERN_RE.test(pattern) || Number.isNaN(d.getTime())) return formatInTimeZone(d, tz, pattern);
   const p = zonedParts(d, tz);
+  const names = NAMES[locale];
   return pattern.replace(TOKEN_RE, (t) => {
     switch (t) {
       case "yyyy":
         return String(p.year).padStart(4, "0");
       case "MMMM":
-        return MONTHS[p.month - 1]!;
+        return names.months[p.month - 1]!;
       case "MMM":
-        return MONTHS[p.month - 1]!.slice(0, 3);
+        return names.short(names.months[p.month - 1]!);
       case "MM":
         return pad2(p.month);
       case "EEEE":
-        return WEEKDAYS[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()]!;
+        return names.weekdays[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()]!;
       case "EEE":
-        return WEEKDAYS[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()]!.slice(0, 3);
+        return names.short(names.weekdays[new Date(Date.UTC(p.year, p.month - 1, p.day)).getUTCDay()]!);
       case "dd":
         return pad2(p.day);
       case "d":
@@ -172,14 +188,14 @@ export function dayRangeUtc(fromKey: string, toKey: string, tz: string): { start
 }
 
 /** Human readable day label for a key, rendered without timezone conversion. */
-export function formatKey(key: string, pattern: Intl.DateTimeFormatOptions): string {
+export function formatKey(key: string, pattern: Intl.DateTimeFormatOptions, locale: Locale = "en"): string {
   const [y, m, d] = key.split("-").map(Number);
-  return new Intl.DateTimeFormat("en-GB", { ...pattern, timeZone: "UTC" }).format(new Date(Date.UTC(y!, m! - 1, d!)));
+  return new Intl.DateTimeFormat(intlLocale(locale), { ...pattern, timeZone: "UTC" }).format(new Date(Date.UTC(y!, m! - 1, d!)));
 }
 
 /** "Sat 14 Mar" or "Sat 14 Mar – Mon 16 Mar" for an inclusive range of day keys. */
-export function dayRangeLabel(fromKey: string, toKey: string): string {
-  const day = (k: string) => formatKey(k, { weekday: "short", day: "numeric", month: "short" });
+export function dayRangeLabel(fromKey: string, toKey: string, locale: Locale = "en"): string {
+  const day = (k: string) => formatKey(k, { weekday: "short", day: "numeric", month: "short" }, locale);
   return fromKey === toKey ? day(fromKey) : `${day(fromKey)} – ${day(toKey)}`;
 }
 

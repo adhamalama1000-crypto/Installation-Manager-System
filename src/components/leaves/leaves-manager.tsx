@@ -10,8 +10,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert, Badge, EmptyState } from "@/components/ui/misc";
+import { useT } from "@/i18n/client";
+import { msg } from "@/i18n/translator";
 import { api, ApiError } from "@/lib/api-client";
-import { LEAVE_STATUS_LABELS, LEAVE_TYPES, LEAVE_TYPE_LABELS } from "@/lib/constants";
+import { LEAVE_TYPES } from "@/lib/constants";
 import { dayRangeLabel, fmt } from "@/lib/time";
 import type { LeaveClash, LeaveDTO } from "@/lib/types";
 import { fieldErrorsFromZod, leaveInputSchema } from "@/lib/validation";
@@ -37,6 +39,7 @@ export function LeavesManager({
   manage: boolean;
   timezone: string;
 }) {
+  const t = useT();
   const [clashes, setClashes] = useState<{ name: string; items: LeaveClash[] } | null>(null);
   return (
     <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
@@ -45,40 +48,40 @@ export function LeavesManager({
       </div>
       <div className="min-w-0 space-y-6 xl:col-start-1 xl:row-start-1">
         {clashes && clashes.items.length > 0 && (
-          <Alert tone="warning" title={`${clashes.name} has ${clashes.items.length} booking${clashes.items.length === 1 ? "" : "s"} during this leave`}>
-            <p>Their Sales creators were notified. Assign another technician:</p>
+          <Alert tone="warning" title={t("leaves.clashTitle", { name: clashes.name, count: clashes.items.length })}>
+            <p>{t("leaves.clashText")}</p>
             <ul className="mt-2 space-y-1">
               {clashes.items.map((c) => (
                 <li key={c.appointmentId}>
-                  <Link href={`/appointments/${c.appointmentId}/edit`} prefetch={false} className="font-medium text-brand-text hover:underline">
+                  <Link href={`/appointments/${c.appointmentId}/edit`} prefetch={false} className="font-medium text-brand-text hover:underline" dir="ltr">
                     {c.code}
                   </Link>{" "}
-                  · {c.customerName} · {fmt(c.startsAt, timezone, "EEE d MMM, HH:mm")}
+                  · {c.customerName} · {fmt(c.startsAt, timezone, "EEE d MMM, HH:mm", t.locale)}
                 </li>
               ))}
             </ul>
             <button type="button" className="mt-2 text-xs font-medium text-fg-muted hover:underline" onClick={() => setClashes(null)}>
-              Dismiss
+              {t("common.dismiss")}
             </button>
           </Alert>
         )}
         <LeaveList
-          title={manage ? "Waiting for approval" : "My requests"}
-          description={manage ? "Requests from technicians, oldest first." : "Requests an Admin has not decided yet."}
+          title={manage ? t("leaves.pending") : t("leaves.myRequests")}
+          description={manage ? t("leaves.pendingText") : t("leaves.myRequestsText")}
           items={overview.pending}
           manage={manage}
-          empty="No requests waiting."
+          empty={t("leaves.noPending")}
           onClashes={setClashes}
         />
         <LeaveList
-          title="Approved and upcoming"
-          description="Technicians cannot be booked on these days."
+          title={t("leaves.upcoming")}
+          description={t("leaves.upcomingText")}
           items={overview.upcoming}
           manage={manage}
-          empty="No approved leave coming up."
+          empty={t("leaves.noUpcoming")}
           onClashes={setClashes}
         />
-        <LeaveList title="History" description="Past, rejected and cancelled leave (latest 30)." items={overview.past} manage={manage} empty="Nothing yet." onClashes={setClashes} />
+        <LeaveList title={t("appointment.history")} description={t("leaves.historyText")} items={overview.past} manage={manage} empty={t("leaves.nothingYet")} onClashes={setClashes} />
       </div>
     </div>
   );
@@ -95,6 +98,7 @@ function LeaveForm({
   manage: boolean;
   onClashes: (c: { name: string; items: LeaveClash[] } | null) => void;
 }) {
+  const t = useT();
   const router = useRouter();
   const [values, setValues] = useState({ userId: "", type: "LEAVE", startDate: overview.today, endDate: overview.today, reason: "" });
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -106,7 +110,7 @@ function LeaveForm({
     const body = { ...values, userId: manage ? values.userId || null : null };
     const check = leaveInputSchema.safeParse(body);
     const fieldErrors = check.success ? {} : fieldErrorsFromZod(check.error);
-    if (manage && !values.userId) fieldErrors.userId = "Choose a technician.";
+    if (manage && !values.userId) fieldErrors.userId = msg("leaveErrors.chooseTechnician");
     if (Object.keys(fieldErrors).length) {
       setErrors(fieldErrors);
       return;
@@ -115,12 +119,12 @@ function LeaveForm({
     setErrors({});
     try {
       const res = await api<{ leave: LeaveDTO; clashes: LeaveClash[] }>("/api/leaves", { method: "POST", body });
-      toast.success(manage ? "Leave recorded" : "Leave request sent to the Admins");
+      toast.success(manage ? t("leaves.recorded") : t("leaves.requested"));
       onClashes(res.clashes.length ? { name: res.leave.user.name, items: res.clashes } : null);
       setValues((s) => ({ ...s, reason: "" }));
       router.refresh();
     } catch (err) {
-      const apiErr = err instanceof ApiError ? err : new ApiError("Could not save", 0, "UNKNOWN");
+      const apiErr = err instanceof ApiError ? err : new ApiError(t("common.couldNotSave"), 0, "UNKNOWN");
       setErrors(apiErr.fieldErrors);
       toast.error(apiErr.message);
     } finally {
@@ -131,50 +135,50 @@ function LeaveForm({
   return (
     <Card>
       <CardHeader
-        title={manage ? "Add leave" : "Ask for leave"}
-        description={manage ? "Recorded as approved straight away." : "An Admin approves or rejects it; you are notified either way."}
+        title={manage ? t("leaves.add") : t("leaves.ask")}
+        description={manage ? t("leaves.addText") : t("leaves.askText")}
         icon={<Plane className="h-4 w-4" />}
       />
       <form className="space-y-4 p-5" onSubmit={submit} noValidate>
         {manage && (
-          <Field label="Technician" required error={errors.userId}>
+          <Field label={t("common.technician")} required error={errors.userId}>
             {(p) => (
               <Select {...p} value={values.userId} onChange={(e) => set("userId", e.target.value)}>
-                <option value="">Choose…</option>
-                {technicians.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
+                <option value="">{t("common.choose")}</option>
+                {technicians.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
                   </option>
                 ))}
               </Select>
             )}
           </Field>
         )}
-        <Field label="Type" required error={errors.type}>
+        <Field label={t("common.type")} required error={errors.type}>
           {(p) => (
             <Select {...p} value={values.type} onChange={(e) => set("type", e.target.value)}>
-              {LEAVE_TYPES.map((t) => (
-                <option key={t} value={t}>
-                  {LEAVE_TYPE_LABELS[t]}
+              {LEAVE_TYPES.map((x) => (
+                <option key={x} value={x}>
+                  {t.dyn(`enums.leaveType.${x}`)}
                 </option>
               ))}
             </Select>
           )}
         </Field>
         <div className="grid grid-cols-2 gap-3">
-          <Field label="First day" required error={errors.startDate}>
+          <Field label={t("historyFields.startDate")} required error={errors.startDate}>
             {(p) => <Input {...p} type="date" min={manage ? undefined : overview.today} value={values.startDate} onChange={(e) => set("startDate", e.target.value)} />}
           </Field>
-          <Field label="Last day" required error={errors.endDate}>
+          <Field label={t("historyFields.endDate")} required error={errors.endDate}>
             {(p) => <Input {...p} type="date" min={values.startDate} value={values.endDate} onChange={(e) => set("endDate", e.target.value)} />}
           </Field>
         </div>
-        <Field label="Reason" error={errors.reason} hint="Optional. Visible to Admins.">
+        <Field label={t("common.reason")} error={errors.reason} hint={t("leaves.reasonHint")}>
           {(p) => <Textarea {...p} rows={2} maxLength={500} value={values.reason} onChange={(e) => set("reason", e.target.value)} />}
         </Field>
-        {errors._form && <Alert tone="danger">{errors._form}</Alert>}
+        {errors._form && <Alert tone="danger">{t.msg(errors._form)}</Alert>}
         <Button type="submit" className="w-full" loading={busy}>
-          {manage ? "Add leave" : "Send request"}
+          {manage ? t("leaves.add") : t("leaves.send")}
         </Button>
       </form>
     </Card>
@@ -213,6 +217,7 @@ function LeaveList({
 }
 
 function LeaveItem({ leave: l, manage, onClashes }: { leave: LeaveDTO; manage: boolean; onClashes: (c: { name: string; items: LeaveClash[] } | null) => void }) {
+  const t = useT();
   const router = useRouter();
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
@@ -223,15 +228,15 @@ function LeaveItem({ leave: l, manage, onClashes }: { leave: LeaveDTO; manage: b
     try {
       if (action === "CANCEL") {
         await api(`/api/leaves/${l.id}/cancel`, { method: "POST", body: {} });
-        toast.success("Leave cancelled");
+        toast.success(t("leaves.cancelled"));
       } else {
         const res = await api<{ leave: LeaveDTO; clashes: LeaveClash[] }>(`/api/leaves/${l.id}/decision`, { method: "POST", body: { decision: action, note } });
-        toast.success(action === "APPROVED" ? "Leave approved" : "Leave rejected");
+        toast.success(action === "APPROVED" ? t("leaves.approved") : t("leaves.rejected"));
         onClashes(res.clashes.length ? { name: res.leave.user.name, items: res.clashes } : null);
       }
       router.refresh();
     } catch (err) {
-      toast.error(err instanceof ApiError ? err.message : "Could not save");
+      toast.error(err instanceof ApiError ? err.message : t("common.couldNotSave"));
       router.refresh();
     } finally {
       setBusy(null);
@@ -243,17 +248,15 @@ function LeaveItem({ leave: l, manage, onClashes }: { leave: LeaveDTO; manage: b
     <li className="space-y-2 px-5 py-4" data-testid="leave-item">
       <div className="flex flex-wrap items-center gap-2">
         {manage && <span className="font-medium text-fg">{l.user.name}</span>}
-        <Badge>{LEAVE_TYPE_LABELS[l.type]}</Badge>
-        <span className="text-sm text-fg">{dayRangeLabel(l.startDate, l.endDate)}</span>
-        <span className="text-xs text-fg-subtle">
-          {l.days} day{l.days === 1 ? "" : "s"}
-        </span>
-        <Badge className={cn("ml-auto", STATUS_TONE[l.status])}>{LEAVE_STATUS_LABELS[l.status]}</Badge>
+        <Badge>{t.dyn(`enums.leaveType.${l.type}`)}</Badge>
+        <span className="text-sm text-fg">{dayRangeLabel(l.startDate, l.endDate, t.locale)}</span>
+        <span className="text-xs text-fg-subtle">{t("common.days", { count: l.days })}</span>
+        <Badge className={cn("ms-auto", STATUS_TONE[l.status])}>{t.dyn(`enums.leaveStatus.${l.status}`)}</Badge>
       </div>
       {l.reason && <p className="text-sm text-fg-muted">{l.reason}</p>}
       <p className="text-xs text-fg-subtle">
-        {l.requestedBy.id !== l.user.id ? `Added by ${l.requestedBy.name}` : "Requested by the technician"}
-        {l.decidedBy && l.requestedBy.id !== l.decidedBy.id && ` · ${l.status === "REJECTED" ? "Rejected" : "Approved"} by ${l.decidedBy.name}`}
+        {l.requestedBy.id !== l.user.id ? t("leaves.addedBy", { name: l.requestedBy.name }) : t("leaves.byTechnician")}
+        {l.decidedBy && l.requestedBy.id !== l.decidedBy.id && ` · ${t(l.status === "REJECTED" ? "leaves.rejectedBy" : "leaves.approvedBy", { name: l.decidedBy.name })}`}
         {l.decisionNote && ` · “${l.decisionNote}”`}
       </p>
       {(l.canDecide || l.canCancel) && (
@@ -261,35 +264,35 @@ function LeaveItem({ leave: l, manage, onClashes }: { leave: LeaveDTO; manage: b
           {l.canDecide && (
             <>
               <Input
-                aria-label={`Note for ${l.user.name}`}
-                placeholder="Note (optional)"
+                aria-label={t("leaves.noteFor", { name: l.user.name })}
+                placeholder={t("common.noteOptional")}
                 className="h-9 max-w-xs flex-1"
                 maxLength={500}
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
               />
               <Button size="sm" loading={busy === "APPROVED"} disabled={busy !== null} onClick={() => run("APPROVED")}>
-                <Check className="h-4 w-4" /> Approve
+                <Check className="h-4 w-4" /> {t("leaves.approve")}
               </Button>
               <Button size="sm" variant="outline" loading={busy === "REJECTED"} disabled={busy !== null} onClick={() => run("REJECTED")}>
-                <X className="h-4 w-4" /> Reject
+                <X className="h-4 w-4" /> {t("leaves.reject")}
               </Button>
             </>
           )}
           {l.canCancel &&
             (confirmCancel ? (
               <>
-                <span className="text-sm text-fg-muted">{l.status === "APPROVED" ? "End this leave?" : "Withdraw this request?"}</span>
+                <span className="text-sm text-fg-muted">{l.status === "APPROVED" ? t("leaves.endConfirm") : t("leaves.withdrawConfirm")}</span>
                 <Button size="sm" variant="danger" loading={busy === "CANCEL"} onClick={() => run("CANCEL")}>
-                  Yes, cancel it
+                  {t("leaves.yesCancel")}
                 </Button>
                 <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setConfirmCancel(false)}>
-                  Keep
+                  {t("leaves.keep")}
                 </Button>
               </>
             ) : (
               <Button size="sm" variant="ghost" disabled={busy !== null} onClick={() => setConfirmCancel(true)}>
-                Cancel leave
+                {t("leaves.cancelLeave")}
               </Button>
             ))}
         </div>

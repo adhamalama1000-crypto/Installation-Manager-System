@@ -6,6 +6,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { User } from "@prisma/client";
 import { POST as login } from "@/app/api/auth/login/route";
 import { POST as logout } from "@/app/api/auth/logout/route";
+import { POST as setLocale } from "@/app/api/me/locale/route";
 import { GET as listAppts, POST as createAppt } from "@/app/api/appointments/route";
 import { GET as getAppt, PATCH as patchAppt } from "@/app/api/appointments/[id]/route";
 import { POST as cancelAppt } from "@/app/api/appointments/[id]/cancel/route";
@@ -79,10 +80,35 @@ describe("authentication", () => {
       ["nobody@test.local", PASSWORD],
       ["viewer@test.local", PASSWORD],
     ]) {
-      const res = await login(req("/api/auth/login", { method: "POST", body: { email, password } }));
+      const res = await login(req("/api/auth/login", { method: "POST", body: { email, password }, cookie: "ims_locale=en" }));
       expect(res.status).toBe(401);
       expect((await res.json()).error.message).toBe("Invalid email or password.");
     }
+  });
+
+  it("answers in Arabic unless English was chosen", async () => {
+    const body = { email: "sales@test.local", password: "wrong-password1" };
+    const arabic = await login(req("/api/auth/login", { method: "POST", body }));
+    expect((await arabic.json()).error.message).toBe("البريد الإلكتروني أو كلمة المرور غير صحيحة.");
+    const english = await login(req("/api/auth/login", { method: "POST", body, cookie: "ims_locale=en" }));
+    expect((await english.json()).error.message).toBe("Invalid email or password.");
+  });
+
+  it("remembers the chosen language for the signed-in user", async () => {
+    const cookie = await signIn("sales@test.local");
+    const res = await setLocale(req("/api/me/locale", { method: "POST", cookie, body: { locale: "en" } }));
+    expect(res.status).toBe(200);
+    expect(res.headers.get("set-cookie")).toMatch(/ims_locale=en/);
+    expect((await prisma.user.findUniqueOrThrow({ where: { email: "sales@test.local" } })).locale).toBe("en");
+    const bad = await setLocale(req("/api/me/locale", { method: "POST", cookie, body: { locale: "fr" } }));
+    expect(bad.status).toBe(422);
+    // Signing in again on a browser without a language restores it...
+    const again = await login(req("/api/auth/login", { method: "POST", body: { email: "sales@test.local", password: PASSWORD } }));
+    expect(again.headers.get("set-cookie")).toMatch(/ims_locale=en/);
+    // ...but a language already chosen in the browser is kept.
+    const chosen = await login(req("/api/auth/login", { method: "POST", body: { email: "sales@test.local", password: PASSWORD }, cookie: "ims_locale=ar" }));
+    expect(chosen.status).toBe(200);
+    expect(chosen.headers.get("set-cookie")).not.toMatch(/ims_locale=/);
   });
 
   it("rate-limits repeated failed logins", async () => {

@@ -2,7 +2,9 @@ import { expect, type APIRequestContext, type Page } from "@playwright/test";
 
 export const PASSWORD = process.env.SEED_PASSWORD || "ChangeMe123!";
 
+/** Signs in through the English interface (extra browser contexts do not get the config's cookie). */
 export async function login(page: Page, email: string) {
+  await page.context().addCookies([{ name: "ims_locale", value: "en", url: process.env.E2E_BASE_URL ?? "http://localhost:3000" }]);
   await page.goto("/login");
   await page.getByLabel("Email").fill(email);
   await page.getByLabel("Password", { exact: true }).fill(PASSWORD);
