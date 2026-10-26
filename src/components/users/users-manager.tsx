@@ -31,7 +31,9 @@ type Draft = {
 const ROLE_HELP: Record<Role, string> = {
   ADMIN: "Full access including users, settings and the audit log.",
   SALES: "Sees all appointments; creates, edits, reschedules and cancels bookings.",
-  TECHNICIAN: "Read-only access to their own assigned appointments. Appears in technician selection automatically.",
+  TECHNICIAN: "Sees their own assigned appointments, records how each visit went and what was collected, and asks for leave. Appears in technician selection automatically.",
+  ACCOUNTANT: "Sees appointments, customers and the finance statement; confirms cash handed over by technicians. Cannot change bookings.",
+  STORE: "Registers stock by serial number, hands items to technicians and takes them back. Sees appointments read-only.",
   VIEWER: "Read-only. You choose exactly what they can see below.",
 };
 

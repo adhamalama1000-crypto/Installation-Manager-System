@@ -6,7 +6,7 @@ import type { Role } from "@prisma/client";
 import { permissionsFor, type Permission } from "@/lib/permissions";
 import type { SettingsValues } from "@/lib/validation";
 import { prisma } from "../db";
-import { getSettings } from "../services/settings";
+import { parseSettings } from "../services/settings";
 import { randomToken, sha256 } from "./crypto";
 
 export const SESSION_COOKIE = "ims_session";
@@ -69,22 +69,40 @@ export async function deleteUserSessions(userId: string, exceptSessionId?: strin
   await prisma.session.deleteMany({ where: { userId, ...(exceptSessionId ? { id: { not: exceptSessionId } } : {}) } });
 }
 
+type SessionRow = {
+  expiresAt: Date;
+  lastSeenAt: Date;
+  id: string;
+  name: string;
+  email: string;
+  role: Role;
+  color: string | null;
+  isActive: boolean;
+  viewerPermissions: string[];
+  settings: unknown;
+};
+
 /** Validates a raw session token and loads the user with their effective permissions. */
 export async function userFromToken(token: string | undefined | null): Promise<CurrentUser | null> {
   if (!token || token.length > 200) return null;
   const id = sha256(token);
-  const session = await prisma.session.findUnique({ where: { id }, include: { user: true } });
-  if (!session) return null;
-  if (session.expiresAt.getTime() <= Date.now() || !session.user.isActive) {
+  // Runs on every request, so session, user and settings come back in ONE round trip.
+  const rows = await prisma.$queryRaw<SessionRow[]>`
+    SELECT s."expiresAt", s."lastSeenAt", u.id, u.name, u.email, u.role, u.color, u."isActive", u."viewerPermissions",
+           (SELECT value FROM settings WHERE key = 'general') AS settings
+    FROM sessions s JOIN users u ON u.id = s."userId"
+    WHERE s.id = ${id}`;
+  const u = rows[0];
+  if (!u) return null;
+  if (u.expiresAt.getTime() <= Date.now() || !u.isActive) {
     await prisma.session.deleteMany({ where: { id } });
     return null;
   }
   // Touch at most every 5 minutes to avoid a write per request.
-  if (Date.now() - session.lastSeenAt.getTime() > 5 * 60 * 1000) {
+  if (Date.now() - u.lastSeenAt.getTime() > 5 * 60 * 1000) {
     await prisma.session.update({ where: { id }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
   }
-  const settings = await getSettings();
-  const u = session.user;
+  const settings = parseSettings(u.settings);
   return {
     id: u.id,
     name: u.name,

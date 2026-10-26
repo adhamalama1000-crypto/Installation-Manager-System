@@ -3,7 +3,7 @@
  */
 import { z } from "zod";
 import { HEX_COLOR_RE } from "./colors";
-import { PRODUCT_CATEGORIES, ROLES, STATUS_KINDS, phoneDigits } from "./constants";
+import { CONFIRMATIONS, LEAVE_TYPES, PAYMENT_METHODS, PRODUCT_CATEGORIES, ROLES, SERIAL_RE, STATUS_KINDS, VISIT_TYPES, parseSerials, phoneDigits } from "./constants";
 import { checkMapUrl, isValidLatitude, isValidLongitude } from "./maps";
 import { VIEWER_GRANTABLE } from "./permissions";
 import { TIME_RE, isValidDateString, isValidTimeZone } from "./time";
@@ -49,6 +49,38 @@ const optionalNumber = z.preprocess((v) => {
 
 const idField = z.string().min(1).max(64);
 
+/** An amount in EGP: blank = not recorded (null); commas and spaces are ignored. */
+const moneyField = z.preprocess(
+  (v) => {
+    if (v === "" || v === null || v === undefined) return v === undefined ? undefined : null;
+    return typeof v === "string" ? Number(v.replace(/[,\s]/g, "")) : v;
+  },
+  z
+    .number({ error: "Enter an amount" })
+    .min(0, "Cannot be negative")
+    .max(10_000_000, "Too large")
+    .refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, "At most two decimals")
+    .nullable()
+    .optional(),
+);
+
+/** Serial numbers typed one per line (or separated by commas/spaces), normalised and checked. */
+const serialsField = z.preprocess(
+  (v) => (Array.isArray(v) ? parseSerials(v.join("\n")) : typeof v === "string" ? parseSerials(v) : v),
+  z
+    .array(z.string())
+    .max(200, "At most 200 serial numbers at once")
+    .superRefine((list, ctx) => {
+      const bad = list.filter((s) => !SERIAL_RE.test(s));
+      if (bad.length) ctx.addIssue({ code: "custom", message: `Not a valid serial number: ${bad.slice(0, 5).join(", ")}` });
+    }),
+);
+
+const paymentMethodField = z.preprocess(
+  (v) => (v === "" ? null : v),
+  z.enum(PAYMENT_METHODS as [string, ...string[]], { error: "Choose how it was paid" }).nullable().optional(),
+);
+
 export const customerInputSchema = z.object({
   id: idField.optional().nullable(),
   name: requiredText("Customer name", 120),
@@ -90,6 +122,12 @@ export const appointmentInputSchema = z
     customer: customerInputSchema,
     location: locationInputSchema,
     productCategory: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: "Choose a product category" }),
+    visitType: z.preprocess((v) => (v === "" ? null : v), z.enum(VISIT_TYPES as [string, ...string[]], { error: "Choose a visit type" }).nullable().optional()),
+    customerConfirmation: z.enum(CONFIRMATIONS as [string, ...string[]]).optional(),
+    /** Create only: the earlier appointment this visit follows up. */
+    followUpOfId: idField.optional().nullable(),
+    /** Admin only: book on a weekday configured as closed. */
+    allowClosedDay: z.boolean().optional(),
     categoryOther: optionalText(120),
     brand: optionalText(120),
     model: optionalText(120),
@@ -109,10 +147,20 @@ export const appointmentInputSchema = z
       .max(10, "At most 10 technicians per appointment")
       .refine((ids) => new Set(ids).size === ids.length, "A technician was selected twice"),
     statusId: idField.optional().nullable(),
+    /** Money (left out = unchanged on edit, blank = not recorded). */
+    totalPrice: moneyField,
+    depositAmount: moneyField,
+    depositMethod: paymentMethodField,
+    extraFee: moneyField,
   })
   .superRefine((a, ctx) => {
     if (a.productCategory === "OTHER" && !a.categoryOther) {
       ctx.addIssue({ code: "custom", path: ["categoryOther"], message: "Describe the product category" });
+    }
+    if (a.depositAmount) {
+      if (a.totalPrice === null || a.totalPrice === undefined) ctx.addIssue({ code: "custom", path: ["totalPrice"], message: "Enter the total price so the deposit can be deducted" });
+      else if (a.depositAmount > a.totalPrice) ctx.addIssue({ code: "custom", path: ["depositAmount"], message: "The deposit cannot be more than the total price" });
+      if (!a.depositMethod) ctx.addIssue({ code: "custom", path: ["depositMethod"], message: "Choose how the deposit was paid" });
     }
   });
 
@@ -125,6 +173,73 @@ export const statusChangeSchema = z.object({
   note: optionalText(1000),
 });
 
+/** Outcomes a technician can record for a visit; every outcome except "started" needs a report. */
+export const VISIT_OUTCOMES = ["IN_PROGRESS", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"] as const;
+export type VisitOutcome = (typeof VISIT_OUTCOMES)[number];
+
+export const outcomeSchema = z
+  .object({
+    outcome: z.enum(VISIT_OUTCOMES, { error: "Choose the outcome of the visit" }),
+    report: optionalText(4000),
+    /** Paid by the customer at this visit (left out = unchanged). */
+    collectedAmount: moneyField,
+    collectedMethod: paymentMethodField,
+    /** Serial numbers installed at this visit (added to what is already recorded). */
+    serials: serialsField.optional(),
+    version: z.number().int().positive().optional(),
+  })
+  .superRefine((o, ctx) => {
+    if (o.outcome !== "IN_PROGRESS" && !o.report) {
+      ctx.addIssue({ code: "custom", path: ["report"], message: "Write what was done (or why not) - the visit report is required" });
+    }
+    if (o.outcome === "IN_PROGRESS" && o.collectedAmount) {
+      ctx.addIssue({ code: "custom", path: ["collectedAmount"], message: "Record the payment when you finish the visit" });
+    }
+    if (o.collectedAmount && !o.collectedMethod) {
+      ctx.addIssue({ code: "custom", path: ["collectedMethod"], message: "Choose how the customer paid" });
+    }
+    if (o.serials?.length && o.outcome !== "COMPLETED") {
+      ctx.addIssue({ code: "custom", path: ["serials"], message: "Record installed serial numbers when the job is done" });
+    }
+  });
+
+export const productModelSchema = z.object({
+  name: z.preprocess((v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v), z.string({ error: "Model name is required" }).min(1, "Model name is required").max(120)),
+  category: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: "Choose a product category" }),
+  warrantyMonths: z.coerce.number({ error: "Enter the warranty in months" }).int("Whole months").min(0, "Cannot be negative").max(120, "At most 120 months"),
+  isActive: z.boolean().optional(),
+});
+
+export const stockInSchema = z.object({
+  modelId: z.string({ error: "Choose the model" }).min(1, "Choose the model").max(64),
+  serials: serialsField.refine((l) => l.length > 0, "Enter at least one serial number (one per line)"),
+  note: optionalText(500),
+});
+
+export const STOCK_MOVE_TARGETS = ["IN_STORE", "WITH_TECHNICIAN", "RETURNED", "FAULTY"] as const;
+
+export const stockMoveSchema = z
+  .object({
+    itemIds: z.array(idField).min(1, "Choose at least one item").max(500),
+    to: z.enum(STOCK_MOVE_TARGETS, { error: "Choose where the items go" }),
+    technicianId: idField.optional().nullable(),
+    note: optionalText(500),
+  })
+  .superRefine((m, ctx) => {
+    if (m.to === "WITH_TECHNICIAN" && !m.technicianId) ctx.addIssue({ code: "custom", path: ["technicianId"], message: "Choose the technician" });
+  });
+
+export const cashReceiveSchema = z.object({
+  technicianId: idField,
+  /** Specific custody entries; all cash the technician holds when left out. */
+  entryIds: z.array(idField).min(1).max(500).optional(),
+});
+
+export const confirmationSchema = z.object({
+  confirmation: z.enum(CONFIRMATIONS as [string, ...string[]], { error: "Choose a confirmation status" }),
+  version: z.number().int().positive().optional(),
+});
+
 export const cancelSchema = z.object({
   version: z.number().int().positive().optional(),
   reason: optionalText(1000),
@@ -135,6 +250,31 @@ export const availabilitySchema = z.object({
   startTime: z.string().regex(TIME_RE, "Enter a valid time"),
   durationMinutes: z.coerce.number().int().min(15).max(1440),
   excludeAppointmentId: idField.optional().nullable(),
+});
+
+const dateField = z.string({ error: "Enter a valid date" }).refine(isValidDateString, "Enter a valid date");
+
+/** Leave of a technician: whole company-local days, first and last day inclusive. */
+export const leaveInputSchema = z
+  .object({
+    /** Admins add leave for a technician; a technician always asks for themselves. */
+    userId: idField.optional().nullable(),
+    startDate: dateField,
+    endDate: dateField,
+    type: z.enum(LEAVE_TYPES as [string, ...string[]], { error: "Choose the type of leave" }),
+    reason: optionalText(500),
+  })
+  .superRefine((v, ctx) => {
+    if (!isValidDateString(v.startDate) || !isValidDateString(v.endDate)) return;
+    if (v.endDate < v.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: "The last day must be on or after the first day" });
+    else if (Date.parse(v.endDate) - Date.parse(v.startDate) > 92 * 86_400_000) {
+      ctx.addIssue({ code: "custom", path: ["endDate"], message: "A single leave can cover at most 93 days" });
+    }
+  });
+
+export const leaveDecisionSchema = z.object({
+  decision: z.enum(["APPROVED", "REJECTED"], { error: "Choose approve or reject" }),
+  note: optionalText(500),
 });
 
 export const passwordSchema = z
@@ -214,6 +354,13 @@ export const settingsSchema = z
     salesCanViewReports: z.boolean(),
     salesCanEditOthersAppointments: z.boolean(),
     technicianCanSeeContacts: z.boolean(),
+    /** Weekdays (0 = Sunday ... 6 = Saturday) on which no visits can be booked. */
+    closedWeekdays: z
+      .array(z.coerce.number().int().min(0).max(6))
+      .max(6, "At least one day must stay open")
+      .refine((d) => new Set(d).size === d.length, "A day was selected twice"),
+    /** Used in messages to customers (WhatsApp reminders); blank = "your installation team". */
+    companyName: z.preprocess((v) => (typeof v === "string" ? v.trim() : (v ?? "")), z.string().max(80, "Must be at most 80 characters")),
   })
   .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: "Must be after the start hour" });
 

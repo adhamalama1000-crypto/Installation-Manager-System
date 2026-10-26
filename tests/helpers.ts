@@ -9,7 +9,7 @@ export { prisma };
 
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE notifications, audit_logs, appointment_technicians, appointments, customer_locations, customers,
+    `TRUNCATE TABLE notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
       password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
   );
 }
@@ -22,6 +22,7 @@ export async function seedStatuses() {
     { name: "Postponed/Rescheduled", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
     { name: "Cancelled", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
     { name: "Unable to Complete", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
+    { name: "Needs another visit", kind: "NEEDS_REVISIT", color: "#EA580C", blocksSchedule: true },
   ] as const;
   const out: Record<string, string> = {};
   for (const [i, d] of defs.entries()) {

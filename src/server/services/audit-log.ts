@@ -5,8 +5,9 @@ import { dayRangeUtc, isValidDateString } from "@/lib/time";
 import { prisma } from "../db";
 import { assertCan } from "../access";
 import type { CurrentUser } from "../auth/session";
+import { escapeLike } from "./appointment-reads";
 
-export const AUDIT_ENTITY_TYPES = ["APPOINTMENT", "USER", "STATUS", "SETTINGS", "CUSTOMER"] as const;
+export const AUDIT_ENTITY_TYPES = ["APPOINTMENT", "USER", "STATUS", "SETTINGS", "CUSTOMER", "LEAVE", "CASH", "STOCK"] as const;
 
 export async function listAuditLog(
   user: CurrentUser,
@@ -26,7 +27,7 @@ export async function listAuditLog(
     );
     and.push({ createdAt: { gte: r.start, lt: r.end } });
   }
-  if (opts.q?.trim()) and.push({ summary: { contains: opts.q.trim().slice(0, 100), mode: "insensitive" } });
+  if (opts.q?.trim()) and.push({ summary: { contains: escapeLike(opts.q.trim().slice(0, 100)), mode: "insensitive" } });
   const where: Prisma.AuditLogWhereInput = and.length ? { AND: and } : {};
   const [total, rows] = await Promise.all([
     prisma.auditLog.count({ where }),

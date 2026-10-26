@@ -1,6 +1,7 @@
 import "server-only";
-import { Prisma } from "@prisma/client";
+import { Prisma, type LeaveType } from "@prisma/client";
 import { appointmentCode } from "@/lib/constants";
+import { dateKey } from "@/lib/time";
 import type { Db, Tx } from "../db";
 import type { ConflictDetail } from "../errors";
 
@@ -59,24 +60,63 @@ export async function findTechnicianConflicts(db: Db, q: ConflictQuery): Promise
   }));
 }
 
+export type LeaveOnDay = { userId: string; name: string; type: LeaveType; startDate: string; endDate: string };
+
+/** Approved leave of the given technicians that overlaps the company-local days of [startsAt, endsAt). */
+export async function approvedLeaveDuring(db: Db, technicianIds: string[], startsAt: Date, endsAt: Date, tz: string): Promise<LeaveOnDay[]> {
+  if (!technicianIds.length) return [];
+  // Leave days are `@db.Date` columns, read and written as UTC midnight.
+  const day = (key: string) => new Date(`${key}T00:00:00.000Z`);
+  const first = dateKey(startsAt, tz);
+  const last = dateKey(new Date(Math.max(startsAt.getTime(), endsAt.getTime() - 1)), tz);
+  const rows = await db.technicianLeave.findMany({
+    where: { userId: { in: technicianIds }, status: "APPROVED", startDate: { lte: day(last) }, endDate: { gte: day(first) } },
+    select: { userId: true, type: true, startDate: true, endDate: true, user: { select: { name: true } } },
+    orderBy: { startDate: "asc" },
+  });
+  return rows.map((r) => ({
+    userId: r.userId,
+    name: r.user.name,
+    type: r.type,
+    startDate: r.startDate.toISOString().slice(0, 10),
+    endDate: r.endDate.toISOString().slice(0, 10),
+  }));
+}
+
 export type TechnicianAvailability = {
   id: string;
   name: string;
   available: boolean;
   conflicts: ConflictDetail[];
+  /** Approved leave covering the slot; the technician cannot be booked then. */
+  leave: Omit<LeaveOnDay, "userId" | "name"> | null;
 };
 
 /** Availability of every active technician for a proposed time slot (used by the booking form). */
-export async function technicianAvailability(db: Db, q: Omit<ConflictQuery, "technicianIds">): Promise<TechnicianAvailability[]> {
+export async function technicianAvailability(
+  db: Db,
+  q: Omit<ConflictQuery, "technicianIds"> & { timezone?: string },
+): Promise<TechnicianAvailability[]> {
   const technicians = await db.user.findMany({
     where: { role: "TECHNICIAN", isActive: true },
     select: { id: true, name: true },
     orderBy: { name: "asc" },
   });
-  const conflicts = await findTechnicianConflicts(db, { ...q, technicianIds: technicians.map((t) => t.id) });
+  const ids = technicians.map((t) => t.id);
+  const [conflicts, leave] = await Promise.all([
+    findTechnicianConflicts(db, { ...q, technicianIds: ids }),
+    q.timezone ? approvedLeaveDuring(db, ids, q.startsAt, q.endsAt, q.timezone) : Promise.resolve([]),
+  ]);
   return technicians.map((t) => {
     const own = conflicts.filter((c) => c.technicianId === t.id);
-    return { id: t.id, name: t.name, available: own.length === 0, conflicts: own };
+    const away = leave.find((l) => l.userId === t.id);
+    return {
+      id: t.id,
+      name: t.name,
+      available: own.length === 0 && !away,
+      conflicts: own,
+      leave: away ? { type: away.type, startDate: away.startDate, endDate: away.endDate } : null,
+    };
   });
 }
 

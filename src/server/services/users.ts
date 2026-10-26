@@ -1,5 +1,5 @@
 import "server-only";
-import type { Role, User } from "@prisma/client";
+import { Prisma, type Role, type User } from "@prisma/client";
 import { ROLE_LABELS, SALES_COLOR_SUGGESTIONS } from "@/lib/constants";
 import { DEFAULT_VIEWER_PERMISSIONS } from "@/lib/permissions";
 import type { UserDTO } from "@/lib/types";
@@ -57,15 +57,22 @@ export async function activeTechnicians() {
 
 /** Users that can appear as the Sales creator / colour legend (Sales, plus Admins with bookings). */
 export async function salesPeople(options: { includeInactive?: boolean } = {}) {
-  const users = await prisma.user.findMany({
-    where: {
-      OR: [{ role: "SALES" }, { role: "ADMIN" }, { createdAppointments: { some: {} } }],
-      ...(options.includeInactive ? {} : { isActive: true }),
-    },
-    select: { id: true, name: true, color: true, isActive: true, role: true },
-    orderBy: { name: "asc" },
-  });
-  return users;
+  // "Has this user created an appointment?" as EXISTS per user let the planner pick a sequential
+  // scan of all appointments for every user who never created one (190 ms with 33k appointments).
+  // Instead the distinct creators are walked through the (createdById, startsAt) index, one probe
+  // per creator (a "loose index scan").
+  return prisma.$queryRaw<{ id: string; name: string; color: string | null; isActive: boolean; role: Role }[]>`
+    WITH RECURSIVE creators AS (
+      (SELECT "createdById" AS id FROM appointments ORDER BY "createdById" LIMIT 1)
+      UNION ALL
+      SELECT (SELECT a."createdById" FROM appointments a WHERE a."createdById" > c.id ORDER BY a."createdById" LIMIT 1)
+      FROM creators c WHERE c.id IS NOT NULL
+    )
+    SELECT u.id, u.name, u.color, u."isActive", u.role::text AS role
+    FROM users u
+    WHERE (u.role IN ('SALES', 'ADMIN') OR u.id IN (SELECT id FROM creators WHERE id IS NOT NULL))
+      ${options.includeInactive ? Prisma.empty : Prisma.sql`AND u."isActive"`}
+    ORDER BY u.name ASC`;
 }
 
 async function nextSuggestedColor(tx: Tx): Promise<string> {

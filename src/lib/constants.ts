@@ -1,4 +1,4 @@
-import type { ProductCategory, Role, StatusKind } from "@prisma/client";
+import type { CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, StockStatus, VisitType } from "@prisma/client";
 
 export const APP_NAME = "Installation Manager System";
 
@@ -9,9 +9,51 @@ export const ROLE_LABELS: Record<Role, string> = {
   SALES: "Sales",
   TECHNICIAN: "Technician",
   VIEWER: "Viewer",
+  ACCOUNTANT: "Accountant",
+  STORE: "Store keeper",
 };
 
-export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "VIEWER"];
+export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "ACCOUNTANT", "STORE", "VIEWER"];
+
+export const STOCK_STATUS_LABELS: Record<StockStatus, string> = {
+  IN_STORE: "In store",
+  WITH_TECHNICIAN: "With technician",
+  INSTALLED: "Installed",
+  RETURNED: "Returned",
+  FAULTY: "Faulty",
+};
+
+export const STOCK_STATUSES: StockStatus[] = ["IN_STORE", "WITH_TECHNICIAN", "INSTALLED", "RETURNED", "FAULTY"];
+
+/** Serials are compared without spaces and in upper case, so "ab 12" and "AB12" are the same item. */
+export function normalizeSerial(raw: string): string {
+  return raw.replace(/\s+/g, "").toUpperCase();
+}
+
+/**
+ * One serial per line (commas, Arabic commas and semicolons also separate them); spaces inside a
+ * serial are ignored, since printed serials are often grouped ("SN 1234 5678"). Duplicates dropped.
+ */
+export function parseSerials(text: string | null | undefined): string[] {
+  return [...new Set((text ?? "").split(/[\r\n,،;]+/).map(normalizeSerial).filter(Boolean))];
+}
+
+export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
+
+export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
+  CASH: "Cash",
+  INSTAPAY: "InstaPay",
+  VODAFONE_CASH: "Vodafone Cash",
+  BANK_TRANSFER: "Bank transfer",
+};
+
+export const PAYMENT_METHODS: PaymentMethod[] = ["CASH", "INSTAPAY", "VODAFONE_CASH", "BANK_TRANSFER"];
+
+/** Amounts are Egyptian pounds with up to two decimals. */
+export function money(n: number | null | undefined): string {
+  if (n === null || n === undefined) return "—";
+  return `${n.toLocaleString("en-GB", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })} EGP`;
+}
 
 export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = {
   SMART_LOCK: "Smart Lock",
@@ -23,6 +65,42 @@ export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = {
 
 export const PRODUCT_CATEGORIES: ProductCategory[] = ["SMART_LOCK", "SMART_HOME", "CCTV", "INTERCOM", "OTHER"];
 
+export const VISIT_TYPE_LABELS: Record<VisitType, string> = {
+  INSPECTION: "Inspection",
+  INSTALLATION: "Installation",
+  COMPLETION: "Completion",
+  PROGRAMMING: "Programming",
+  MAINTENANCE: "Maintenance",
+};
+
+export const VISIT_TYPES: VisitType[] = ["INSTALLATION", "INSPECTION", "COMPLETION", "PROGRAMMING", "MAINTENANCE"];
+
+export const CONFIRMATION_LABELS: Record<CustomerConfirmation, string> = {
+  PENDING: "Awaiting confirmation",
+  CONFIRMED: "Confirmed by customer",
+  RESCHEDULE_REQUESTED: "Customer asked to reschedule",
+  UNREACHABLE: "Customer unreachable",
+};
+
+export const CONFIRMATIONS: CustomerConfirmation[] = ["PENDING", "CONFIRMED", "RESCHEDULE_REQUESTED", "UNREACHABLE"];
+
+export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
+  LEAVE: "Leave",
+  SICK: "Sick leave",
+  ABSENCE: "Absence",
+};
+
+export const LEAVE_TYPES: LeaveType[] = ["LEAVE", "SICK", "ABSENCE"];
+
+export const LEAVE_STATUS_LABELS: Record<LeaveStatus, string> = {
+  REQUESTED: "Awaiting approval",
+  APPROVED: "Approved",
+  REJECTED: "Rejected",
+  CANCELLED: "Cancelled",
+};
+
+export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
 export const STATUS_KIND_LABELS: Record<StatusKind, string> = {
   SCHEDULED: "Scheduled",
   IN_PROGRESS: "In Progress",
@@ -30,6 +108,7 @@ export const STATUS_KIND_LABELS: Record<StatusKind, string> = {
   POSTPONED: "Postponed / Rescheduled",
   CANCELLED: "Cancelled",
   UNABLE_TO_COMPLETE: "Unable to Complete",
+  NEEDS_REVISIT: "Needs another visit",
 };
 
 export const STATUS_KINDS: StatusKind[] = [
@@ -39,6 +118,7 @@ export const STATUS_KINDS: StatusKind[] = [
   "POSTPONED",
   "CANCELLED",
   "UNABLE_TO_COMPLETE",
+  "NEEDS_REVISIT",
 ];
 
 export const DURATION_PRESETS = [30, 60, 90, 120, 180, 240, 360, 480];

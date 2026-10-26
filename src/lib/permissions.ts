@@ -20,6 +20,20 @@ export const PERMISSIONS = [
   "notes.internal",
   /** Change history of an appointment. */
   "history.view",
+  /** Record the outcome of an assigned visit (start, done, unable, needs another visit) with a report. */
+  "visits.report",
+  /** Ask for leave, sick leave or a day off (own requests only). */
+  "leaves.request",
+  /** Approve, reject, add and cancel leave for any technician. */
+  "leaves.manage",
+  /** Monthly finance statement: sales, deposits, collections, balances owed, cash held. */
+  "finance.view",
+  /** Confirm that cash a technician collected was handed over. */
+  "cash.receive",
+  /** Stock by serial number. Technicians only see the items they hold. */
+  "stock.view",
+  /** Register goods in, hand items to technicians, take them back, mark returned / faulty; models and warranty. */
+  "stock.manage",
   "reports.view",
   "users.manage",
   "settings.manage",
@@ -83,10 +97,14 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }
+    case "ACCOUNTANT":
+      return new Set<Permission>(["appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive", "stock.view"]);
+    case "STORE":
+      return new Set<Permission>(["appointments.view", "stock.view", "stock.manage"]);
     case "VIEWER": {
       const granted = (user.viewerPermissions ?? []).filter((p): p is Permission =>
         (VIEWER_GRANTABLE as string[]).includes(p),

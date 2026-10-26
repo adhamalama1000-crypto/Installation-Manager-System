@@ -29,7 +29,8 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 11. [Environment variables](#environment-variables)
 12. [Branding](#branding)
 13. [Notifications - what is and isn't included](#notifications---what-is-and-isnt-included)
-14. [Known limitations](#known-limitations)
+14. [Performance](#performance)
+15. [Known limitations](#known-limitations)
 
 ---
 
@@ -54,7 +55,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 
 ## Quick start (local development)
 
-**Prerequisites:** Node.js 20.9+ (22 recommended, see `.nvmrc`) and PostgreSQL 14+ with the standard `contrib` extensions (for `btree_gist`; included in the official Docker image and most distributions).
+**Prerequisites:** Node.js 20.9+ (22 recommended, see `.nvmrc`) and PostgreSQL 14+ with the standard `contrib` extensions (`btree_gist` and `pg_trgm`; included in the official Docker image, most distributions and managed providers).
 
 ```bash
 # 1. Install dependencies
@@ -100,6 +101,7 @@ Useful scripts:
 | `npm run db:seed` | Demo data (only on an empty database; `SEED_FORCE=1` wipes and reseeds - never in production) |
 | `npm run db:reset` | Drop, re-migrate and reseed the development database |
 | `npm run create-admin` | Create the first Admin in a fresh production database |
+| `npx tsx scripts/perf/…` | Performance measurements: large test data set, response times and SQL counts, browser timings, load test (see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)) |
 
 ## Demo accounts
 
@@ -111,29 +113,41 @@ Created by `npm run db:seed`. Password for all of them: **`ChangeMe123!`** (or `
 | Sales | `sara.sales@example.com`, `omar.sales@example.com`, `mona.sales@example.com` | each has a calendar colour |
 | Technician | `karim.tech@example.com`, `youssef.tech@example.com`, `ahmed.tech@example.com`, `mostafa.tech@example.com` | sees only their assignments |
 | Technician (inactive) | `hany.tech@example.com` | cannot sign in; kept on past appointments |
+| Accountant | `nadia.accounts@example.com` | finance statement and cash hand-over; read-only bookings |
+| Store keeper | `store@example.com` | stock by serial number, custody, models and warranty |
 | Viewer | `viewer@example.com` | appointments, address/map and reports, read-only |
 
-The seed creates ~90 non-overlapping appointments from three weeks ago to three weeks ahead (in `Africa/Cairo`). **Never run the seed against production.**
+The seed creates ~100 non-overlapping appointments from three weeks ago to three weeks ahead (in `Africa/Cairo`), with prices, deposits, collections, cash custody and serial-numbered stock (some installed with warranty). It only runs on an empty database, so a database seeded before the Accountant and Store keeper roles existed has neither account: an Admin can create them under Users. **Never run the seed against production.**
 
 ## Roles & permissions
 
 Permissions are defined once in [`src/lib/permissions.ts`](src/lib/permissions.ts) and enforced on the server in every service function ([`src/server/access.ts`](src/server/access.ts)). The UI only hides what the server would refuse anyway.
 
-| Capability | Admin | Sales | Technician | Viewer |
-|---|:-:|:-:|:-:|:-:|
-| See appointments | all | all | **assigned only** | if granted |
-| Create / edit / reschedule / assign / change status / cancel | ✓ | ✓¹ | - | - |
-| Customer phone numbers | ✓ | ✓ | ✓² | if granted |
-| Address, apartment, floor, map link | ✓ | ✓ | ✓ | if granted |
-| Internal notes | ✓ | ✓ | - | if granted |
-| Appointment history | ✓ | ✓ | - | if granted |
-| Customer directory | ✓ | ✓ | - | if granted |
-| Reports & CSV exports | ✓ | ✓³ | - | if granted |
-| Users, roles, colours, settings, statuses, audit log | ✓ | - | - | - |
+| Capability | Admin | Sales | Technician | Accountant | Store keeper | Viewer |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|
+| See appointments | all | all | **assigned only** | all | all | if granted |
+| Create / edit / reschedule / assign / change status / cancel | ✓ | ✓¹ | - | - | - | - |
+| Record the visit outcome (started / done / unable / needs another visit) with a report, the amount collected and the serials installed | ✓ | ✓¹ | assigned only | - | - | - |
+| Day plan: one WhatsApp message per technician, customer reminders | ✓ | ✓ | - | - | - | - |
+| Prices, deposits and payment details | ✓ | ✓ | amount to collect only | ✓ | - | - |
+| Finance statement, cash with technicians, finance CSV | ✓ | - | - | ✓ | - | - |
+| Confirm cash handed over by a technician | ✓ | - | - | ✓ | - | - |
+| Stock by serial number | ✓ | - | own custody | ✓ | ✓ | - |
+| Goods in, hand to / take back from technicians, returned / faulty, models & warranty | ✓ | - | - | - | ✓ | - |
+| Leave: ask for / withdraw own leave | - | - | ✓ | - | - | - |
+| Leave: approve, reject, record, cancel for any technician | ✓ | - | - | - | - | - |
+| Customer phone numbers | ✓ | ✓ | ✓² | ✓ | - | if granted |
+| Address, apartment, floor, map link | ✓ | ✓ | ✓ | - | - | if granted |
+| Internal notes | ✓ | ✓ | - | - | - | if granted |
+| Appointment history | ✓ | ✓ | - | - | - | if granted⁴ |
+| Customer directory | ✓ | ✓ | - | ✓ | - | if granted |
+| Reports & CSV exports | ✓ | ✓³ | - | - | - | if granted |
+| Users, roles, colours, settings, statuses, audit log | ✓ | - | - | - | - | - |
 
 ¹ An Admin can restrict Sales to editing only the appointments they created (Settings → "Sales can edit any appointment").
 ² Configurable (Settings → "Technicians see customer phone numbers").
 ³ Configurable (Settings → "Sales can view reports").
+⁴ Amounts in the history are shown as "(hidden)" to Viewers.
 
 Rules worth knowing:
 
@@ -193,7 +207,7 @@ e2e/                       Playwright browser tests
 - **Validation**: the same Zod schemas validate in the browser (instant feedback) and on the server (authoritative).
 - **Reads** happen in React Server Components via the service layer with the current user. **Writes** go through `/api/*` route handlers that call the same services. Every service function receives the acting user and checks permissions itself.
 - **Errors**: services throw typed errors (validation, conflict, forbidden, not found, stale). The API returns them as structured JSON. Unexpected errors are logged on the server with a reference ID and the user only sees a generic message (no stack traces).
-- **Freshness**: dashboard, list and detail pages refresh every 30 seconds and when the tab regains focus. The calendar re-fetches its range on the same schedule, and notifications poll every 60 seconds.
+- **Freshness**: dashboard, list and detail pages refresh every 30 seconds and when the tab regains focus. The calendar re-fetches its range on the same schedule (an unchanged range costs a `304` with no body), and notifications poll every 60 seconds. Business data is never cached: every request reads the database.
 
 ## Database
 
@@ -208,8 +222,8 @@ Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customer
 ## Testing
 
 ```bash
-npm test            # 65 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
-npm run test:e2e    # 9 Playwright tests against a running, seeded app
+npm test            # 119 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
+npm run test:e2e    # 15 Playwright tests against a running, seeded app
 ```
 
 What is covered:
@@ -218,8 +232,14 @@ What is covered:
 - **Permissions**: technician scoping (lists, calendar, details, 404 for others' jobs), technician read-only for every write, viewer restrictions and redaction (no phone/address/internal notes unless granted, no phone search), Sales vs Admin powers, history redaction.
 - **Users**: automatic technician availability after creation, deactivation removing them from assignment, colours, invitation links (single use), duplicate emails, last-Admin protection, session revocation.
 - **Audit & reports**: history entries with old/new values, append-only enforcement, report aggregates, CSV without internal notes and with formula-injection protection.
+- **Booking details and field work**: visit type, customer confirmation with optimistic locking, closed weekdays (Admin override only), follow-up links scoped for technicians; the technician's visit outcome with a mandatory report, notifications, and the "needs another visit" dashboard alert until a follow-up is booked.
+- **Leave**: requests, approval/rejection, Admin-recorded leave, overlap and date rules; approved leave refusing bookings on company-local days (including visits that cross midnight), re-checks only when a booking moves to other days or is re-activated, existing bookings reported to their Sales creators and flagged on the dashboard.
+- **Payments**: price/deposit/extra-fee validation (also on partial edits), per-role redaction (technicians only see what to collect, viewers see no amounts, history amounts hidden), collections recorded with the outcome, cash custody from collection to the accountant's receipt (corrections, non-cash payments, stale receipts, office collections), the monthly statement totals by method, balances owed, and the finance CSV.
+- **Inventory**: model names unique regardless of case, serial normalisation and duplicate refusal, custody hand-over and return with notifications, technicians seeing only their own custody, append-only movement history, installation only from the technician's own custody (or from the store by a manager), warranty from the visit date, refusal of unknown / faulty / already-installed serials without partial changes, and the faulty-unit swap.
+- **Day plan**: grouping of a day's active visits per technician (cancelled/postponed left out, unassigned listed separately), shared visits, amounts still to collect, WhatsApp number normalisation (local 0… numbers become 20…) and message text.
+- **SQL reads**: the hand-written list/calendar/export queries return exactly what the Prisma filters return (300 random filter combinations), including literal `%`/`_` in search terms.
 - **API**: login/logout with cookies, generic login errors, rate limiting, cross-origin rejection, malformed JSON, 401/403/404/409 responses, server-assigned creator.
-- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation.
+- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), a technician collecting cash that the Admin then receives on the finance page, the store handing serials to a technician who installs one at the visit (warranty shown, custody updated), and Sales opening the day plan with a WhatsApp link per technician.
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
 
@@ -244,7 +264,7 @@ Production checklist:
 - Back up the PostgreSQL database regularly.
 - Do **not** run `npm run db:seed` in production (it refuses unless forced).
 
-Serverless platforms work too. Use a pooled connection string for `DATABASE_URL` if your provider recommends one.
+Serverless platforms work too. Use a pooled connection string for `DATABASE_URL` if your provider recommends one. Keep the database close to the app (same region): each page needs a few database round trips, so distance adds directly to every page load.
 
 ## Environment variables
 
@@ -273,9 +293,18 @@ No secrets are committed. `.env` is git-ignored and `.env.example` documents the
 - **Included:** in-app notifications (bell icon) for technicians: new assignment, removal, reschedule, update, status change and cancellation. Pages and the calendar also refresh automatically.
 - **Not included:** email, SMS, WhatsApp or push. No such service is configured, so nothing is sent outside the app. Invitation and password-reset links are shown to the Admin, who passes them on. Adding an email provider would mean sending those links (and optionally the in-app notifications) from `src/server/services/users.ts` and `notifications.ts`.
 
+## Performance
+
+Measured on a production build with 33,000 appointments and 30,000 customers: pages respond in 12–75 ms with the database on the same machine and 30–145 ms with 20 ms of network distance to it; the calendar renders a month of 1,350 events without blocking the browser. What was slow, what changed and all measurements are in [docs/PERFORMANCE.md](docs/PERFORMANCE.md).
+
+Judge speed on `npm run build && npm start`, not `npm run dev`: the development server compiles each page the first time it is opened and is several times slower.
+
 ## Known limitations
 
 - No map picker or geocoding: Sales paste a map link (or coordinates). Coordinates can be read automatically from full Google Maps URLs. Short links (`maps.app.goo.gl`) are saved and opened as-is.
-- Text search uses PostgreSQL `ILIKE` with B-tree indexes. For very large data sets, add `pg_trgm` indexes.
+- Text search uses PostgreSQL `ILIKE` with `pg_trgm` indexes; search terms shorter than 3 characters cannot use them and scan instead.
 - Recurring appointments and file attachments (photos, documents) are not implemented.
-- The UI is in English. Dates use the `en-GB` format.
+- The UI and the WhatsApp texts are in English. Dates use the `en-GB` format.
+- WhatsApp messages are never sent automatically: the day plan opens WhatsApp with the text filled in (no WhatsApp Business API or e-mail provider is connected). Numbers without a country code are treated as Egyptian.
+- Payment proofs (transfer screenshots), before/after photos and signatures need file storage and are not implemented; the repeat-visit fee is entered by Sales rather than set automatically.
+- Not ported from Aura yet: GPS check-ins and the live technician board, attendance and points, complaints, transport expenses, the company car route, slot holds and quotation parsing (see [docs/AURA-FEATURE-MATRIX.md](docs/AURA-FEATURE-MATRIX.md)).

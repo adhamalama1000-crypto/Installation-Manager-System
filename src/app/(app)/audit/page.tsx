@@ -11,7 +11,7 @@ import { AUDIT_ENTITY_TYPES, listAuditLog } from "@/server/services/audit-log";
 
 export const metadata = { title: "Audit log" };
 
-const ENTITY_LABELS: Record<string, string> = { APPOINTMENT: "Appointment", USER: "User", STATUS: "Status", SETTINGS: "Settings", CUSTOMER: "Customer" };
+const ENTITY_LABELS: Record<string, string> = { APPOINTMENT: "Appointment", USER: "User", STATUS: "Status", SETTINGS: "Settings", CUSTOMER: "Customer", LEAVE: "Leave", CASH: "Cash custody", STOCK: "Stock" };
 
 type SP = { entityType?: string; actorId?: string; from?: string; to?: string; q?: string; page?: string };
 
@@ -71,7 +71,7 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
                   </div>
                   <p className="mt-1.5 text-sm text-fg">
                     {e.appointmentId ? (
-                      <Link href={`/appointments/${e.appointmentId}`} className="hover:text-brand-text hover:underline">{e.summary}</Link>
+                      <Link href={`/appointments/${e.appointmentId}`} prefetch={false} className="hover:text-brand-text hover:underline">{e.summary}</Link>
                     ) : (
                       e.summary
                     )}

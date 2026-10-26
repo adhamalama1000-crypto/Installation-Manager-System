@@ -91,6 +91,9 @@ test.describe("Sales booking workflow", () => {
     // Entered data is preserved.
     await expect(page.getByLabel("Customer full name")).toHaveValue(name);
     await expect(page).toHaveURL(/\/appointments\/new/);
+    // Cancel the colleague's booking so later runs that land on the same 2031 date are not blocked by it.
+    const { appointment } = await booked.json();
+    expect((await omar.post(`/api/appointments/${appointment.id}/cancel`, { data: { reason: "E2E cleanup" } })).ok()).toBeTruthy();
     await omar.dispose();
   });
 });

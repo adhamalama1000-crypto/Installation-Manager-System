@@ -76,7 +76,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
             <ul className="divide-y divide-line">
               {c.appointments.map((a) => (
                 <li key={a.id}>
-                  <Link href={`/appointments/${a.id}`} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 hover:bg-surface-muted">
+                  <Link href={`/appointments/${a.id}`} prefetch={false} className="flex flex-wrap items-center gap-x-4 gap-y-1 px-5 py-3 hover:bg-surface-muted">
                     <span className="w-28 text-sm font-medium text-brand-text">{a.code}</span>
                     <span className="w-48 text-sm">
                       {shortDate(a.startsAt, tz)} <span className="tabular-nums text-fg-muted">{timeRange(a.startsAt, a.endsAt, tz)}</span>

@@ -21,6 +21,35 @@ enum Role {
   SALES
   TECHNICIAN
   VIEWER
+  /// Receives the cash technicians collect and sees the monthly finance statement.
+  ACCOUNTANT
+  /// Store keeper: registers serial-numbered stock and hands it to technicians.
+  STORE
+}
+
+/// Where a serial-numbered item is (Aura: في المخزن / عهدة / اتركب / مرتجع / عطلان).
+enum StockStatus {
+  IN_STORE
+  WITH_TECHNICIAN
+  INSTALLED
+  RETURNED
+  FAULTY
+}
+
+/// How a customer paid (Aura: كاش / إنستاباي / فودافون كاش / تحويل بنكي).
+enum PaymentMethod {
+  CASH
+  INSTAPAY
+  VODAFONE_CASH
+  BANK_TRANSFER
+}
+
+/// Cash a technician collected: held by the technician until the accountant receives it.
+enum CustodyStatus {
+  HELD
+  RECEIVED
+  /// The collection was corrected (no longer cash, or zero) before it was handed over.
+  VOID
 }
 
 enum ProductCategory {
@@ -29,6 +58,37 @@ enum ProductCategory {
   CCTV
   INTERCOM
   OTHER
+}
+
+/// What the visit is for (Aura: معاينة / تركيب / تكملة / برمجة / صيانة).
+enum VisitType {
+  INSPECTION
+  INSTALLATION
+  COMPLETION
+  PROGRAMMING
+  MAINTENANCE
+}
+
+/// Whether the customer has confirmed the booked time.
+enum CustomerConfirmation {
+  PENDING
+  CONFIRMED
+  RESCHEDULE_REQUESTED
+  UNREACHABLE
+}
+
+/// Why a technician is unavailable on a day (Aura's leave/sick/absence).
+enum LeaveType {
+  LEAVE
+  SICK
+  ABSENCE
+}
+
+enum LeaveStatus {
+  REQUESTED
+  APPROVED
+  REJECTED
+  CANCELLED
 }
 
 /// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
@@ -40,6 +100,8 @@ enum StatusKind {
   POSTPONED
   CANCELLED
   UNABLE_TO_COMPLETE
+  /// The visit happened but the job needs another visit (follow-up).
+  NEEDS_REVISIT
 }
 
 model User {
@@ -61,16 +123,27 @@ model User {
   updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
   passwordChangedAt DateTime? @db.Timestamptz(3)
 
-  sessions            Session[]
-  passwordTokens      PasswordToken[]         @relation("TokenUser")
-  issuedTokens        PasswordToken[]         @relation("TokenIssuer")
-  createdAppointments Appointment[]           @relation("AppointmentCreator")
-  updatedAppointments Appointment[]           @relation("AppointmentUpdater")
-  assignments         AppointmentTechnician[] @relation("AssignmentTechnician")
-  assignedByMe        AppointmentTechnician[] @relation("AssignmentAssigner")
-  auditLogs           AuditLog[]
-  notifications       Notification[]
-  settingsUpdated     Setting[]
+  sessions              Session[]
+  passwordTokens        PasswordToken[]         @relation("TokenUser")
+  issuedTokens          PasswordToken[]         @relation("TokenIssuer")
+  createdAppointments   Appointment[]           @relation("AppointmentCreator")
+  updatedAppointments   Appointment[]           @relation("AppointmentUpdater")
+  reportedAppointments  Appointment[]           @relation("AppointmentReporter")
+  collectedAppointments Appointment[]           @relation("AppointmentCollector")
+  cashHeld              CashCustody[]           @relation("CustodyTechnician")
+  cashReceived          CashCustody[]           @relation("CustodyReceiver")
+  stockHeld             StockItem[]             @relation("StockHolder")
+  stockRegistered       StockItem[]             @relation("StockCreator")
+  stockMovesMade        StockMovement[]         @relation("StockActor")
+  stockMovesReceived    StockMovement[]         @relation("StockMoveHolder")
+  leaves                TechnicianLeave[]       @relation("LeaveUser")
+  leavesRequested       TechnicianLeave[]       @relation("LeaveRequester")
+  leavesDecided         TechnicianLeave[]       @relation("LeaveDecider")
+  assignments           AppointmentTechnician[] @relation("AssignmentTechnician")
+  assignedByMe          AppointmentTechnician[] @relation("AssignmentAssigner")
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+  settingsUpdated       Setting[]
 
   @@index([role, isActive])
   @@map("users")
@@ -140,6 +213,11 @@ model Customer {
   @@index([phoneDigits])
   @@index([secondaryPhoneDigits])
   @@index([name])
+  @@index([updatedAt])
+  /// Trigram indexes make "contains" searches (ILIKE '%...%') use an index (needs pg_trgm).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_name_trgm_idx")
+  @@index([phoneDigits(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_phoneDigits_trgm_idx")
+  @@index([secondaryPhoneDigits(ops: raw("gin_trgm_ops"))], type: Gin, map: "customers_secondaryPhoneDigits_trgm_idx")
   @@map("customers")
 }
 
@@ -168,6 +246,9 @@ model CustomerLocation {
   @@index([customerId])
   @@index([area])
   @@index([building])
+  @@index([area(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_locations_area_trgm_idx")
+  @@index([building(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_locations_building_trgm_idx")
+  @@index([streetAddress(ops: raw("gin_trgm_ops"))], type: Gin, map: "customer_locations_streetAddress_trgm_idx")
   @@map("customer_locations")
 }
 
@@ -200,16 +281,44 @@ model Appointment {
   locationId String
   location   CustomerLocation @relation(fields: [locationId], references: [id], onDelete: Restrict)
 
-  productCategory   ProductCategory
+  productCategory      ProductCategory
+  /// Null for appointments booked before visit types existed.
+  visitType            VisitType?
+  customerConfirmation CustomerConfirmation @default(PENDING)
+  /// The earlier visit this one continues (a repeat / follow-up visit).
+  followUpOfId         String?
+  followUpOf           Appointment?         @relation("FollowUp", fields: [followUpOfId], references: [id], onDelete: Restrict)
+  followUps            Appointment[]        @relation("FollowUp")
   /// Free-text category when productCategory = OTHER.
-  categoryOther     String?
-  brand             String?
-  model             String?
-  description       String?
-  requiredEquipment String?
-  additionalNotes   String?
+  categoryOther        String?
+  brand                String?
+  model                String?
+  description          String?
+  requiredEquipment    String?
+  additionalNotes      String?
   /// Visible only to roles allowed to see internal notes.
-  internalNotes     String?
+  internalNotes        String?
+  /// What the technician did / found, written when recording the outcome of the visit.
+  visitReport          String?
+  reportedAt           DateTime?            @db.Timestamptz(3)
+  reportedById         String?
+  reportedBy           User?                @relation("AppointmentReporter", fields: [reportedById], references: [id], onDelete: Restrict)
+
+  /// Price agreed with the customer (EGP). Null when not recorded.
+  totalPrice      Decimal?        @db.Decimal(12, 2)
+  depositAmount   Decimal?        @db.Decimal(12, 2)
+  depositMethod   PaymentMethod?
+  /// Charged on top of the price, e.g. for a repeat visit the customer caused.
+  extraFee        Decimal?        @db.Decimal(12, 2)
+  /// Collected from the customer at the visit, recorded with the visit outcome.
+  collectedAmount Decimal?        @db.Decimal(12, 2)
+  collectedMethod PaymentMethod?
+  collectedAt     DateTime?       @db.Timestamptz(3)
+  collectedById   String?
+  collectedBy     User?           @relation("AppointmentCollector", fields: [collectedById], references: [id], onDelete: Restrict)
+  custody         CashCustody?
+  stockItems      StockItem[]
+  stockMovements  StockMovement[]
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -244,6 +353,7 @@ model Appointment {
   @@index([customerId])
   @@index([locationId])
   @@index([productCategory])
+  @@index([followUpOfId])
   @@map("appointments")
 }
 
@@ -287,6 +397,7 @@ model AuditLog {
   @@index([appointmentId, createdAt])
   @@index([actorId, createdAt])
   @@index([createdAt])
+  @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "audit_logs_summary_trgm_idx")
   @@map("audit_logs")
 }
 
@@ -314,4 +425,114 @@ model Setting {
   updatedBy   User?    @relation(fields: [updatedById], references: [id], onDelete: SetNull)
 
   @@map("settings")
+}
+
+/// A day range (company-local dates, inclusive) on which a technician cannot be booked once approved.
+/// Technicians request it; Admins approve, reject or add it directly.
+model TechnicianLeave {
+  id            String      @id @default(cuid())
+  userId        String
+  user          User        @relation("LeaveUser", fields: [userId], references: [id], onDelete: Restrict)
+  startDate     DateTime    @db.Date
+  endDate       DateTime    @db.Date
+  type          LeaveType
+  reason        String?
+  status        LeaveStatus @default(REQUESTED)
+  requestedById String
+  requestedBy   User        @relation("LeaveRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  decidedById   String?
+  decidedBy     User?       @relation("LeaveDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt     DateTime?   @db.Timestamptz(3)
+  decisionNote  String?
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime    @updatedAt @db.Timestamptz(3)
+
+  @@index([userId, startDate])
+  @@index([status, startDate])
+  @@map("technician_leaves")
+}
+
+/// One row per appointment whose collection was cash: who holds it, and when the accountant got it.
+model CashCustody {
+  id            String        @id @default(cuid())
+  appointmentId String        @unique
+  appointment   Appointment   @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  technicianId  String
+  technician    User          @relation("CustodyTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
+  amount        Decimal       @db.Decimal(12, 2)
+  status        CustodyStatus @default(HELD)
+  collectedAt   DateTime      @db.Timestamptz(3)
+  receivedById  String?
+  receivedBy    User?         @relation("CustodyReceiver", fields: [receivedById], references: [id], onDelete: Restrict)
+  receivedAt    DateTime?     @db.Timestamptz(3)
+  createdAt     DateTime      @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime      @updatedAt @db.Timestamptz(3)
+
+  @@index([technicianId, status])
+  @@index([status, collectedAt])
+  @@map("cash_custody")
+}
+
+/// A product model kept in stock, with its warranty (Aura's «models» list: "model | months").
+model ProductModel {
+  id             String          @id @default(cuid())
+  /// Unique, compared case-insensitively by the application.
+  name           String          @unique
+  category       ProductCategory
+  warrantyMonths Int             @default(12)
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime        @updatedAt @db.Timestamptz(3)
+  items          StockItem[]
+
+  @@map("product_models")
+}
+
+/// One physical item identified by its serial number.
+model StockItem {
+  id            String          @id @default(cuid())
+  /// Stored trimmed, without spaces, upper-case.
+  serial        String          @unique
+  modelId       String
+  model         ProductModel    @relation(fields: [modelId], references: [id], onDelete: Restrict)
+  status        StockStatus     @default(IN_STORE)
+  /// The technician holding it (status WITH_TECHNICIAN).
+  holderId      String?
+  holder        User?           @relation("StockHolder", fields: [holderId], references: [id], onDelete: Restrict)
+  /// The visit it was installed on (status INSTALLED).
+  appointmentId String?
+  appointment   Appointment?    @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  installedAt   DateTime?       @db.Timestamptz(3)
+  warrantyUntil DateTime?       @db.Date
+  note          String?
+  createdById   String
+  createdBy     User            @relation("StockCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
+  movements     StockMovement[]
+
+  @@index([status, modelId])
+  @@index([holderId, status])
+  @@index([appointmentId])
+  @@map("stock_items")
+}
+
+/// Append-only history of every stock change.
+model StockMovement {
+  id            String       @id @default(cuid())
+  itemId        String
+  item          StockItem    @relation(fields: [itemId], references: [id], onDelete: Restrict)
+  fromStatus    StockStatus?
+  toStatus      StockStatus
+  holderId      String?
+  holder        User?        @relation("StockMoveHolder", fields: [holderId], references: [id], onDelete: Restrict)
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  note          String?
+  actorId       String
+  actor         User         @relation("StockActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([itemId, createdAt])
+  @@map("stock_movements")
 }

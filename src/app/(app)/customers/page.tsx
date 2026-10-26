@@ -58,7 +58,7 @@ export default async function CustomersPage({ searchParams }: { searchParams: Pr
                   {result.rows.map((c) => (
                     <tr key={c.id} className="hover:bg-surface-muted/60">
                       <td className="px-4 py-3">
-                        <Link href={`/customers/${c.id}`} className="font-medium text-fg hover:text-brand-text hover:underline">
+                        <Link href={`/customers/${c.id}`} prefetch={false} className="font-medium text-fg hover:text-brand-text hover:underline">
                           {c.name}
                         </Link>
                       </td>

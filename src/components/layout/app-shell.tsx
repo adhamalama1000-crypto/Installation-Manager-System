@@ -1,16 +1,20 @@
 "use client";
 
-import { useEffect, useState } from "react";
-import Link from "next/link";
+import { Suspense, useEffect, useState } from "react";
+import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
   BarChart3,
+  Boxes,
   CalendarDays,
   ClipboardList,
   History,
   LayoutDashboard,
   LogOut,
   Menu,
+  MessageCircle,
+  Plane,
+  Wallet,
   Plus,
   Settings,
   UserCircle,
@@ -24,6 +28,7 @@ import type { Permission } from "@/lib/permissions";
 import { colorOrFallback } from "@/lib/colors";
 import { cn, initials } from "@/lib/utils";
 import { Logo, LogoMark } from "./logo";
+import { NavigationProgress } from "./navigation-progress";
 import { NotificationsBell } from "./notifications-bell";
 import { ThemeToggle } from "./theme-toggle";
 
@@ -37,6 +42,10 @@ function navFor(user: ShellUser) {
     { href: "/calendar", label: tech ? "My schedule" : "Calendar", icon: CalendarDays, show: has("appointments.view") },
     { href: "/appointments", label: tech ? "My appointments" : "Appointments", icon: ClipboardList, show: has("appointments.view") },
     { href: "/customers", label: "Customers", icon: Contact, show: has("customers.view") },
+    { href: "/day-plan", label: "Day plan", icon: MessageCircle, show: has("appointments.manage") },
+    { href: "/leaves", label: tech ? "My leave" : "Leave", icon: Plane, show: has("leaves.manage") || has("leaves.request") },
+    { href: "/inventory", label: tech ? "My stock" : "Inventory", icon: Boxes, show: has("stock.view") },
+    { href: "/finance", label: "Finance", icon: Wallet, show: has("finance.view") },
     { href: "/reports", label: "Reports", icon: BarChart3, show: has("reports.view") },
     { href: "/users", label: "Users", icon: Users, show: has("users.manage") },
     { href: "/audit", label: "Audit log", icon: History, show: has("audit.view") },
@@ -49,6 +58,12 @@ function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/appointments") return pathname === "/appointments" || (pathname.startsWith("/appointments/") && pathname !== "/appointments/new");
   return pathname === href || pathname.startsWith(`${href}/`);
+}
+
+/** Immediate feedback on the clicked link until the next page arrives. */
+function PendingDot() {
+  const { pending } = useLinkStatus();
+  return <span aria-hidden className={cn("ml-auto h-1.5 w-1.5 rounded-full bg-brand transition-opacity", pending ? "animate-pulse opacity-100" : "opacity-0")} />;
 }
 
 async function logout() {
@@ -99,6 +114,7 @@ function SidebarContent({ user, onNavigate }: { user: ShellUser; onNavigate?: ()
                   {active && <span className="absolute inset-y-1.5 left-0 w-1 rounded-r-full bg-brand" aria-hidden />}
                   <Icon className="h-[18px] w-[18px] shrink-0" />
                   {label}
+                  <PendingDot />
                 </Link>
               </li>
             );
@@ -139,6 +155,9 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
 
   return (
     <div className="min-h-dvh lg:pl-64">
+      <Suspense fallback={null}>
+        <NavigationProgress />
+      </Suspense>
       {/* Desktop sidebar */}
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-64 border-r border-line bg-surface lg:block">
         <SidebarContent user={user} />

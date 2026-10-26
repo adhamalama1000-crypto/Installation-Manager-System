@@ -1,4 +1,4 @@
-import type { ProductCategory, Role, StatusKind } from "@prisma/client";
+import type { CustodyStatus, CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
 
 export type StatusDTO = {
   id: string;
@@ -34,6 +34,11 @@ export type AppointmentDTO = {
   code: string;
   productCategory: ProductCategory;
   categoryOther: string | null;
+  visitType: VisitType | null;
+  customerConfirmation: CustomerConfirmation;
+  /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
+  followUpOf: { id: string; code: string } | null;
+  followUps: { id: string; code: string; startsAt: string; status: { name: string; color: string; kind: StatusKind } }[];
   brand: string | null;
   model: string | null;
   description: string | null;
@@ -41,6 +46,9 @@ export type AppointmentDTO = {
   additionalNotes: string | null;
   /** Undefined when the viewer may not see internal notes. */
   internalNotes?: string | null;
+  visitReport: string | null;
+  reportedAt: string | null;
+  reportedBy: { id: string; name: string } | null;
   startsAt: string;
   endsAt: string;
   durationMinutes: number;
@@ -62,6 +70,32 @@ export type AppointmentDTO = {
   version: number;
   /** Whether the current user may edit / reschedule / cancel / change status. */
   canManage: boolean;
+  /** Whether the current user may record the outcome of the visit (assigned technician or manager). */
+  canReport: boolean;
+  /** Money for this visit; null for roles that may not see it. */
+  payment: PaymentDTO | null;
+  /** Serial-numbered items installed at this visit, each with its warranty end date. */
+  installed: { serial: string; model: string; warrantyUntil: string | null }[];
+};
+
+/**
+ * Prices are shown to people who manage bookings or the finances. Technicians only get what to
+ * collect (`due`) and what they recorded; the price fields are then left out.
+ */
+export type PaymentDTO = {
+  totalPrice?: number | null;
+  depositAmount?: number | null;
+  depositMethod?: PaymentMethod | null;
+  extraFee?: number | null;
+  /** Price minus deposit plus extra fee; null when no price or fee is recorded. */
+  due: number | null;
+  collectedAmount: number | null;
+  collectedMethod: PaymentMethod | null;
+  collectedAt: string | null;
+  collectedBy: { id: string; name: string } | null;
+  /** Still owed after the collection (due minus collected). */
+  balance: number | null;
+  custody?: { status: CustodyStatus; holder: { id: string; name: string }; receivedAt: string | null; receivedBy: { id: string; name: string } | null } | null;
 };
 
 export type AppointmentListItem = {
@@ -76,6 +110,8 @@ export type AppointmentListItem = {
   building?: string | null;
   productCategory: ProductCategory;
   categoryOther: string | null;
+  visitType: VisitType | null;
+  customerConfirmation: CustomerConfirmation;
   brand: string | null;
   model: string | null;
   status: Pick<StatusDTO, "id" | "name" | "kind" | "color">;
@@ -122,4 +158,31 @@ export type ConflictDTO = {
 
 export type ApiErrorBody = {
   error: { code: string; message: string; fieldErrors?: Record<string, string>; conflicts?: ConflictDTO[] };
+};
+
+export type LeaveDTO = {
+  id: string;
+  user: { id: string; name: string };
+  startDate: string;
+  endDate: string;
+  days: number;
+  type: LeaveType;
+  reason: string | null;
+  status: LeaveStatus;
+  requestedBy: { id: string; name: string };
+  decidedBy: { id: string; name: string } | null;
+  decidedAt: string | null;
+  decisionNote: string | null;
+  createdAt: string;
+  canCancel: boolean;
+  canDecide: boolean;
+};
+
+/** A booking that falls inside a leave and needs another technician. */
+export type LeaveClash = {
+  appointmentId: string;
+  code: string;
+  customerName: string;
+  startsAt: string;
+  createdById: string;
 };

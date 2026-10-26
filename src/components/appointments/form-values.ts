@@ -1,4 +1,4 @@
-import type { ProductCategory } from "@prisma/client";
+import type { CustomerConfirmation, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
 import type { AppointmentDTO } from "@/lib/types";
 import { dateKey, timeKey } from "@/lib/time";
 
@@ -17,6 +17,10 @@ export type FormValues = {
     longitude: string;
   };
   productCategory: ProductCategory | "";
+  visitType: VisitType | "";
+  customerConfirmation: CustomerConfirmation;
+  /** Create only: the visit this one follows up. */
+  followUpOfId: string | null;
   categoryOther: string;
   brand: string;
   model: string;
@@ -30,7 +34,14 @@ export type FormValues = {
   technicianIds: string[];
   statusId: string;
   salesUserId: string;
+  /** Amounts as typed (EGP); blank = not recorded. */
+  totalPrice: string;
+  depositAmount: string;
+  depositMethod: PaymentMethod;
+  extraFee: string;
 };
+
+const amount = (n: number | null | undefined) => (n === null || n === undefined ? "" : String(n));
 
 const s = (v: string | null | undefined) => v ?? "";
 
@@ -50,6 +61,9 @@ export function valuesFromAppointment(a: AppointmentDTO, tz: string): FormValues
       longitude: a.location?.longitude != null ? String(a.location.longitude) : "",
     },
     productCategory: a.productCategory,
+    visitType: a.visitType ?? "",
+    customerConfirmation: a.customerConfirmation,
+    followUpOfId: null,
     categoryOther: s(a.categoryOther),
     brand: s(a.brand),
     model: s(a.model),
@@ -63,6 +77,10 @@ export function valuesFromAppointment(a: AppointmentDTO, tz: string): FormValues
     technicianIds: a.technicians.map((t) => t.id),
     statusId: a.status.id,
     salesUserId: a.createdBy.id,
+    totalPrice: amount(a.payment?.totalPrice),
+    depositAmount: amount(a.payment?.depositAmount),
+    depositMethod: a.payment?.depositMethod ?? "CASH",
+    extraFee: amount(a.payment?.extraFee),
   };
 }
 
@@ -72,6 +90,9 @@ export function emptyValues(opts: { date: string; durationMinutes: number; statu
     customer: { id: null, name: "", phone: "", secondaryPhone: "" },
     location: { id: null, area: "", streetAddress: "", building: "", apartment: "", floor: "", accessInstructions: "", mapUrl: "", latitude: "", longitude: "" },
     productCategory: "",
+    visitType: "INSTALLATION",
+    customerConfirmation: "PENDING",
+    followUpOfId: null,
     categoryOther: "",
     brand: "",
     model: "",
@@ -85,5 +106,9 @@ export function emptyValues(opts: { date: string; durationMinutes: number; statu
     technicianIds: [],
     statusId: opts.statusId,
     salesUserId: opts.salesUserId,
+    totalPrice: "",
+    depositAmount: "",
+    depositMethod: "CASH",
+    extraFee: "",
   };
 }

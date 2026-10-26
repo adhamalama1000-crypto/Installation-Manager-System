@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Ban, CalendarClock, Pencil, RefreshCw } from "lucide-react";
+import { Ban, CalendarClock, CalendarPlus, Pencil, RefreshCw } from "lucide-react";
 import { Button, ButtonLink } from "@/components/ui/button";
 import { Dialog } from "@/components/ui/dialog";
 import { Field, Select, Textarea } from "@/components/ui/field";
@@ -85,6 +85,9 @@ export function AppointmentActions({
       </ButtonLink>
       <ButtonLink href={`/appointments/${id}/edit#schedule`} variant="outline">
         <CalendarClock className="h-4 w-4" /> Reschedule
+      </ButtonLink>
+      <ButtonLink href={`/appointments/new?followUp=${id}`} variant="outline">
+        <CalendarPlus className="h-4 w-4" /> Follow-up visit
       </ButtonLink>
       <Button variant="outline" onClick={() => { setError(null); setNewStatus(statusId); setStatusOpen(true); }}>
         <RefreshCw className="h-4 w-4" /> Change status

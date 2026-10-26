@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import {
   CalendarClock,
+  CalendarOff,
   CheckCircle2,
+  Banknote,
   Crosshair,
   ExternalLink,
   Loader2,
@@ -17,14 +19,29 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { ProductCategory } from "@prisma/client";
+import type { CustomerConfirmation, LeaveType, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert, Badge, SalesTag } from "@/components/ui/misc";
 import { api, ApiError } from "@/lib/api-client";
 import { colorOrFallback } from "@/lib/colors";
-import { DURATION_PRESETS, PRODUCT_CATEGORIES, PRODUCT_CATEGORY_LABELS, minutesLabel } from "@/lib/constants";
+import {
+  CONFIRMATIONS,
+  CONFIRMATION_LABELS,
+  DURATION_PRESETS,
+  LEAVE_TYPE_LABELS,
+  PAYMENT_METHODS,
+  PAYMENT_METHOD_LABELS,
+  PRODUCT_CATEGORIES,
+  PRODUCT_CATEGORY_LABELS,
+  VISIT_TYPES,
+  VISIT_TYPE_LABELS,
+  WEEKDAY_NAMES,
+  minutesLabel,
+  money,
+} from "@/lib/constants";
+import { dayRangeLabel, weekdayOfKey } from "@/lib/time";
 import { timeRange } from "@/lib/format";
 import { checkMapUrl, extractCoordinates } from "@/lib/maps";
 import type { AppointmentDTO, ConflictDTO, StatusDTO } from "@/lib/types";
@@ -33,7 +50,8 @@ import { appointmentInputSchema, fieldErrorsFromZod } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
 type TechOption = { id: string; name: string; isActive: boolean };
-type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[] }>;
+type LeaveInfo = { type: LeaveType; startDate: string; endDate: string } | null;
+type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }>;
 export type SavedLocation = {
   id: string;
   area: string | null;
@@ -72,6 +90,9 @@ export function AppointmentForm({
   tz,
   originalCreator,
   initialLocations = [],
+  closedWeekdays = [],
+  isAdmin = false,
+  followUpOf,
 }: {
   mode: "create" | "edit";
   initial: FormValues;
@@ -87,6 +108,11 @@ export function AppointmentForm({
   originalCreator?: { name: string; color: string | null; isActive: boolean };
   /** Saved sites of the customer being edited. */
   initialLocations?: SavedLocation[];
+  /** Weekdays (0 = Sunday) that cannot be booked (Settings). */
+  closedWeekdays?: number[];
+  isAdmin?: boolean;
+  /** Code of the visit this one follows up (create only). */
+  followUpOf?: { id: string; code: string };
 }) {
   const router = useRouter();
   const [v, setV] = useState<FormValues>(initial);
@@ -99,6 +125,7 @@ export function AppointmentForm({
   const [checking, setChecking] = useState(false);
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>(initialLocations);
   const [customDuration, setCustomDuration] = useState(!DURATION_PRESETS.includes(initial.durationMinutes));
+  const [allowClosedDay, setAllowClosedDay] = useState(false);
   const requestId = useRef<string>("");
   const techSection = useRef<HTMLDivElement>(null);
 
@@ -140,12 +167,12 @@ export function AppointmentForm({
     const t = setTimeout(async () => {
       setChecking(true);
       try {
-        const res = await api<{ technicians: { id: string; available: boolean; conflicts: ConflictDTO[] }[] }>("/api/appointments/availability", {
+        const res = await api<{ technicians: { id: string; available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }[] }>("/api/appointments/availability", {
           method: "POST",
           body: { date: v.date, startTime: v.startTime, durationMinutes: v.durationMinutes, excludeAppointmentId: appointmentId ?? null },
           signal: ctrl.signal,
         });
-        setAvailability(Object.fromEntries(res.technicians.map((t2) => [t2.id, { available: t2.available, conflicts: t2.conflicts }])));
+        setAvailability(Object.fromEntries(res.technicians.map((t2) => [t2.id, { available: t2.available, conflicts: t2.conflicts, leave: t2.leave ?? null }])));
       } catch (e) {
         if ((e as Error).name !== "AbortError") setAvailability(null);
       } finally {
@@ -158,6 +185,14 @@ export function AppointmentForm({
     };
   }, [v.date, v.startTime, v.durationMinutes, appointmentId]);
 
+  const closedDay = /^\d{4}-\d{2}-\d{2}$/.test(v.date) && closedWeekdays.includes(weekdayOfKey(v.date));
+  const toCollect = useMemo(() => {
+    const n = (s: string) => (s.trim() === "" ? null : Number(s.replace(/[,\s]/g, "")));
+    const [total, deposit, fee] = [n(v.totalPrice), n(v.depositAmount), n(v.extraFee)];
+    if ([total, deposit, fee].some((x) => x !== null && !Number.isFinite(x))) return null;
+    if (total === null && fee === null) return null;
+    return Math.round((Math.max(0, (total ?? 0) - (deposit ?? 0)) + (fee ?? 0)) * 100) / 100;
+  }, [v.totalPrice, v.depositAmount, v.extraFee]);
   const selectedStatus = statuses.find((st) => st.id === v.statusId);
   const statusBlocks = selectedStatus ? selectedStatus.blocksSchedule : true;
   const end = addMinutesToTime(v.startTime, v.durationMinutes);
@@ -180,6 +215,10 @@ export function AppointmentForm({
       customer: v.customer,
       location: v.location,
       productCategory: v.productCategory,
+      visitType: v.visitType || null,
+      customerConfirmation: v.customerConfirmation,
+      followUpOfId: mode === "create" ? v.followUpOfId : undefined,
+      allowClosedDay: isAdmin && closedDay ? allowClosedDay : undefined,
       categoryOther: v.categoryOther,
       brand: v.brand,
       model: v.model,
@@ -192,6 +231,10 @@ export function AppointmentForm({
       durationMinutes: v.durationMinutes,
       technicianIds: v.technicianIds,
       statusId: v.statusId || null,
+      totalPrice: v.totalPrice,
+      depositAmount: v.depositAmount,
+      depositMethod: v.depositAmount.trim() ? v.depositMethod : null,
+      extraFee: v.extraFee,
     };
   }
 
@@ -252,6 +295,11 @@ export function AppointmentForm({
   return (
     <form onSubmit={submit} noValidate className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
       <div className="space-y-6">
+        {followUpOf && (
+          <Alert tone="info" title={`Follow-up visit for ${followUpOf.code}`}>
+            The customer, site and installation details were copied from the earlier visit. The two appointments are linked.
+          </Alert>
+        )}
         {formError && (
           <Alert tone="danger" title="Could not save">
             {formError}
@@ -450,15 +498,27 @@ export function AppointmentForm({
                 )}
               </Field>
             </div>
+            <div data-field="visitType">
+              <Field label="Visit type" error={err("visitType")}>
+                {(p) => (
+                  <Select {...p} value={v.visitType} onChange={(e) => set("visitType", e.target.value as VisitType | "")}>
+                    <option value="">Not specified</option>
+                    {VISIT_TYPES.map((t) => (
+                      <option key={t} value={t}>
+                        {VISIT_TYPE_LABELS[t]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
             {v.productCategory === "OTHER" ? (
               <div data-field="categoryOther">
                 <Field label="Describe the category" required error={err("categoryOther")}>
                   {(p) => <Input {...p} value={v.categoryOther} onChange={(e) => set("categoryOther", e.target.value)} />}
                 </Field>
               </div>
-            ) : (
-              <div className="hidden sm:block" />
-            )}
+            ) : null}
             <div data-field="brand">
               <Field label="Brand" error={err("brand")}>
                 {(p) => <Input {...p} value={v.brand} onChange={(e) => set("brand", e.target.value)} />}
@@ -493,6 +553,49 @@ export function AppointmentForm({
             )}
           </div>
         </Card>
+
+        <Card>
+          <CardHeader
+            title="Price & payment"
+            description="Optional. Technicians only see the amount to collect, not the price."
+            icon={<Banknote className="h-4 w-4" />}
+          />
+          <div className="grid gap-4 p-5 sm:grid-cols-2">
+            <div data-field="totalPrice">
+              <Field label="Total price (EGP)" error={err("totalPrice")}>
+                {(p) => <Input {...p} inputMode="decimal" value={v.totalPrice} onChange={(e) => set("totalPrice", e.target.value)} placeholder="e.g. 4500" />}
+              </Field>
+            </div>
+            <div data-field="extraFee">
+              <Field label="Extra fee (EGP)" error={err("extraFee")} hint="e.g. a repeat visit the customer caused">
+                {(p) => <Input {...p} inputMode="decimal" value={v.extraFee} onChange={(e) => set("extraFee", e.target.value)} />}
+              </Field>
+            </div>
+            <div data-field="depositAmount">
+              <Field label="Deposit paid (EGP)" error={err("depositAmount")}>
+                {(p) => <Input {...p} inputMode="decimal" value={v.depositAmount} onChange={(e) => set("depositAmount", e.target.value)} />}
+              </Field>
+            </div>
+            <div data-field="depositMethod">
+              <Field label="Deposit paid by" error={err("depositMethod")}>
+                {(p) => (
+                  <Select {...p} value={v.depositMethod} disabled={!v.depositAmount.trim()} onChange={(e) => set("depositMethod", e.target.value as PaymentMethod)}>
+                    {PAYMENT_METHODS.map((m) => (
+                      <option key={m} value={m}>
+                        {PAYMENT_METHOD_LABELS[m]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            {toCollect !== null && (
+              <p className="text-sm text-fg-muted sm:col-span-2">
+                To collect at the visit: <strong className="text-fg">{money(toCollect)}</strong>
+              </p>
+            )}
+          </div>
+        </Card>
       </div>
 
       <div className="space-y-6 xl:sticky xl:top-20 xl:self-start">
@@ -504,6 +607,20 @@ export function AppointmentForm({
                 {(p) => <Input {...p} type="date" value={v.date} onChange={(e) => set("date", e.target.value)} />}
               </Field>
             </div>
+            {closedDay && (
+              <div className="sm:col-span-2">
+                <Alert tone="warning" title={`${WEEKDAY_NAMES[weekdayOfKey(v.date)]} is a closed day`}>
+                  {isAdmin ? (
+                    <label className="mt-1 flex items-center gap-2">
+                      <input type="checkbox" checked={allowClosedDay} onChange={(e) => setAllowClosedDay(e.target.checked)} className="h-4 w-4 accent-[var(--brand-strong)]" />
+                      Book on a closed day anyway
+                    </label>
+                  ) : (
+                    "Choose another date."
+                  )}
+                </Alert>
+              </div>
+            )}
             <div data-field="startTime">
               <Field label="Start time" required error={err("startTime")}>
                 {(p) => <Input {...p} type="time" step={300} value={v.startTime} onChange={(e) => set("startTime", e.target.value)} />}
@@ -572,6 +689,19 @@ export function AppointmentForm({
                 )}
               </Field>
             </div>
+            <div data-field="customerConfirmation" className="sm:col-span-2">
+              <Field label="Customer confirmation" error={err("customerConfirmation")}>
+                {(p) => (
+                  <Select {...p} value={v.customerConfirmation} onChange={(e) => set("customerConfirmation", e.target.value as CustomerConfirmation)}>
+                    {CONFIRMATIONS.map((c) => (
+                      <option key={c} value={c}>
+                        {CONFIRMATION_LABELS[c]}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
             {mode === "create" && salesOptions ? (
               <div data-field="salesUserId" className="sm:col-span-2">
                 <Field label="Sales employee (original creator)" error={err("salesUserId")} hint="Determines the appointment colour. Cannot be changed later.">
@@ -621,7 +751,8 @@ export function AppointmentForm({
             )}
             {busySelected.length > 0 && conflicts.length === 0 && (
               <Alert tone="warning">
-                {busySelected.map((id) => technicians.find((t) => t.id === id)?.name).join(", ")} {busySelected.length === 1 ? "is" : "are"} busy at this time.
+                {busySelected.map((id) => technicians.find((t) => t.id === id)?.name).join(", ")} {busySelected.length === 1 ? "is" : "are"}{" "}
+                {busySelected.every((id) => availability?.[id]?.leave) ? "on leave on this date" : "busy or on leave at this time"}.
               </Alert>
             )}
             {err("technicianIds") && <Alert tone="danger">{err("technicianIds")}</Alert>}
@@ -654,7 +785,11 @@ export function AppointmentForm({
                           <span className="text-sm font-medium text-fg">{t.name}</span>
                           {!t.isActive && <Badge>inactive</Badge>}
                           {a &&
-                            (busy ? (
+                            (busy && a.leave ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
+                                <CalendarOff className="h-3.5 w-3.5" /> On leave
+                              </span>
+                            ) : busy ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
                                 <XCircle className="h-3.5 w-3.5" /> Busy
                               </span>
@@ -664,6 +799,11 @@ export function AppointmentForm({
                               </span>
                             ))}
                         </span>
+                        {busy && a!.leave && (
+                          <span className="mt-0.5 block text-xs text-fg-muted">
+                            {LEAVE_TYPE_LABELS[a!.leave.type]} · {dayRangeLabel(a!.leave.startDate, a!.leave.endDate)}
+                          </span>
+                        )}
                         {busy &&
                           a!.conflicts.map((c) => (
                             <span key={c.appointmentId} className="mt-0.5 block text-xs text-fg-muted">

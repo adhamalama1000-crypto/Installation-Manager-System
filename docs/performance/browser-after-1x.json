@@ -1,0 +1,186 @@
+{
+  "base": "http://localhost:3100",
+  "throttle": 1,
+  "at": "2026-10-25T21:04:03.292Z",
+  "rows": [
+    {
+      "name": "login -> dashboard visible",
+      "value": 680,
+      "unit": "ms"
+    },
+    {
+      "name": "full load / (load event)",
+      "value": 226,
+      "unit": "ms"
+    },
+    {
+      "name": "full load /appointments (load event)",
+      "value": 169,
+      "unit": "ms"
+    },
+    {
+      "name": "full load /customers (load event)",
+      "value": 96,
+      "unit": "ms"
+    },
+    {
+      "name": "full load /reports (load event)",
+      "value": 152,
+      "unit": "ms"
+    },
+    {
+      "name": "full load /audit (load event)",
+      "value": 111,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Appointments: first feedback",
+      "value": 139,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Appointments: page ready",
+      "value": 150,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Customers: first feedback",
+      "value": 78,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Customers: page ready",
+      "value": 86,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Reports: first feedback",
+      "value": 126,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Reports: page ready",
+      "value": 140,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Audit log: first feedback",
+      "value": 79,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Audit log: page ready",
+      "value": 86,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Dashboard: first feedback",
+      "value": 128,
+      "unit": "ms"
+    },
+    {
+      "name": "sidebar -> Dashboard: page ready",
+      "value": 144,
+      "unit": "ms"
+    },
+    {
+      "name": "calendar week: loaded + rendered",
+      "value": 229,
+      "unit": "ms"
+    },
+    {
+      "name": "calendar week: main thread blocked (TBT)",
+      "value": 0,
+      "unit": "ms",
+      "note": "0 long tasks, longest 0 ms"
+    },
+    {
+      "name": "calendar month: loaded + rendered",
+      "value": 328,
+      "unit": "ms"
+    },
+    {
+      "name": "calendar month: main thread blocked (TBT)",
+      "value": 0,
+      "unit": "ms",
+      "note": "0 long tasks, longest 0 ms"
+    },
+    {
+      "name": "calendar day: loaded + rendered",
+      "value": 167,
+      "unit": "ms"
+    },
+    {
+      "name": "calendar day: main thread blocked (TBT)",
+      "value": 0,
+      "unit": "ms",
+      "note": "0 long tasks, longest 0 ms"
+    },
+    {
+      "name": "calendar agenda: loaded + rendered",
+      "value": 266,
+      "unit": "ms"
+    },
+    {
+      "name": "calendar agenda: main thread blocked (TBT)",
+      "value": 0,
+      "unit": "ms",
+      "note": "0 long tasks, longest 0 ms"
+    },
+    {
+      "name": "calendar tab -> Month: done",
+      "value": 269,
+      "unit": "ms",
+      "note": "blocked 0 ms, longest task 0 ms"
+    },
+    {
+      "name": "calendar tab -> Week: done",
+      "value": 180,
+      "unit": "ms",
+      "note": "blocked 0 ms, longest task 0 ms"
+    },
+    {
+      "name": "calendar tab -> Day: done",
+      "value": 132,
+      "unit": "ms",
+      "note": "blocked 0 ms, longest task 0 ms"
+    },
+    {
+      "name": "calendar month: click event",
+      "value": 58,
+      "unit": "ms",
+      "note": "blocked 0 ms"
+    },
+    {
+      "name": "booking form: type 28 chars (30 ms between keys)",
+      "value": 1003,
+      "unit": "ms",
+      "note": "slowest key event 16 ms, 19 key events >16 ms"
+    },
+    {
+      "name": "idle 65s on /: requests",
+      "value": 35,
+      "unit": "req"
+    },
+    {
+      "name": "idle 65s on /: bytes downloaded",
+      "value": 8,
+      "unit": "KB"
+    },
+    {
+      "name": "idle 65s on /calendar?view=month: requests",
+      "value": 3,
+      "unit": "req"
+    },
+    {
+      "name": "idle 65s on /calendar?view=month: bytes downloaded",
+      "value": 0,
+      "unit": "KB"
+    },
+    {
+      "name": "JS heap used at end",
+      "value": 13,
+      "unit": "MB"
+    }
+  ]
+}

@@ -6,7 +6,7 @@ import { Bell } from "lucide-react";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-type Item = { id: string; message: string; appointmentId: string | null; readAt: string | null; createdAt: string };
+type Item = { id: string; type: string; message: string; appointmentId: string | null; readAt: string | null; createdAt: string };
 
 function ago(iso: string) {
   const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -16,7 +16,7 @@ function ago(iso: string) {
   return `${Math.floor(s / 86400)} d ago`;
 }
 
-/** In-app notifications (assignments, reschedules, cancellations). Polls every 60 seconds. */
+/** In-app notifications (assignments, reschedules, cancellations, leave). Polls every 60 seconds. */
 export function NotificationsBell() {
   const [open, setOpen] = useState(false);
   const [data, setData] = useState<{ unread: number; items: Item[] }>({ unread: 0, items: [] });
@@ -95,10 +95,12 @@ export function NotificationsBell() {
                   </div>
                 </div>
               );
+              // Leave notifications without a booking open the leave page.
+              const href = n.appointmentId ? `/appointments/${n.appointmentId}` : n.type.startsWith("LEAVE_") ? "/leaves" : null;
               return (
                 <li key={n.id} className="border-b border-line last:border-0">
-                  {n.appointmentId ? (
-                    <Link href={`/appointments/${n.appointmentId}`} className="block hover:bg-surface-muted" onClick={() => setOpen(false)}>
+                  {href ? (
+                    <Link href={href} prefetch={false} className="block hover:bg-surface-muted" onClick={() => setOpen(false)}>
                       {body}
                     </Link>
                   ) : (
