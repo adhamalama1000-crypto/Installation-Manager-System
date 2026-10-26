@@ -143,7 +143,11 @@ export type EnumType =
   | "leaveType"
   | "leaveStatus"
   | "statusKind"
-  | "outcome";
+  | "outcome"
+  | "siteReadiness"
+  | "internet"
+  | "equipmentAt"
+  | "specialty";
 
 export function enumLabel(locale: Locale, type: EnumType, value: string): string {
   const key = `enum.${type}.${value}`;

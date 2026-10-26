@@ -63,4 +63,24 @@ export const enums = defineMessages({
   "enum.outcome.COMPLETED": { en: "Done", ar: "تم التنفيذ" },
   "enum.outcome.UNABLE_TO_COMPLETE": { en: "Unable to complete", ar: "تعذّر الإكمال" },
   "enum.outcome.NEEDS_REVISIT": { en: "Needs another visit", ar: "يحتاج زيارة أخرى" },
+
+  "enum.siteReadiness.UNKNOWN": { en: "Not checked yet", ar: "لم يتم التأكد" },
+  "enum.siteReadiness.NOT_READY": { en: "Not ready", ar: "غير جاهز" },
+  "enum.siteReadiness.PARTIAL": { en: "Partly ready", ar: "جاهز جزئيًا" },
+  "enum.siteReadiness.READY": { en: "Ready", ar: "جاهز" },
+  "enum.siteReadiness.NOT_NEEDED": { en: "Not needed", ar: "غير مطلوب" },
+
+  "enum.internet.UNKNOWN": { en: "Not checked yet", ar: "لم يتم التأكد" },
+  "enum.internet.WORKING": { en: "Working", ar: "يعمل" },
+  "enum.internet.NOT_WORKING": { en: "Not working", ar: "لا يعمل" },
+  "enum.internet.NOT_AVAILABLE": { en: "No internet at the site", ar: "غير متوفر" },
+  "enum.internet.NOT_NEEDED": { en: "Not needed", ar: "غير مطلوب" },
+
+  "enum.equipmentAt.OFFICE": { en: "At the office", ar: "في مقر الشركة" },
+  "enum.equipmentAt.CUSTOMER": { en: "With the customer", ar: "عند العميل" },
+  "enum.equipmentAt.UNDECIDED": { en: "Not decided yet", ar: "لم يُحدَّد بعد" },
+
+  "enum.specialty.BOTH": { en: "Locks and smart home", ar: "لوك وسمارت هوم" },
+  "enum.specialty.LOCK": { en: "Locks", ar: "لوك" },
+  "enum.specialty.SMART_HOME": { en: "Smart home", ar: "سمارت هوم" },
 });

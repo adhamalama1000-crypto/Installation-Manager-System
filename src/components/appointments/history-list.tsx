@@ -14,6 +14,10 @@ const ENUM_FIELDS = {
   depositMethod: "paymentMethod",
   collectedMethod: "paymentMethod",
   role: "role",
+  siteReadiness: "siteReadiness",
+  internetStatus: "internet",
+  equipmentAt: "equipmentAt",
+  specialty: "specialty",
 } as const;
 const MONEY_FIELDS = new Set(["totalPrice", "depositAmount", "extraFee", "collectedAmount", "amount"]);
 

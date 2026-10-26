@@ -135,6 +135,10 @@ describe("enum labels", () => {
       leaveType: $Enums.LeaveType,
       leaveStatus: $Enums.LeaveStatus,
       statusKind: $Enums.StatusKind,
+      siteReadiness: $Enums.SiteReadiness,
+      internet: $Enums.InternetStatus,
+      equipmentAt: $Enums.EquipmentLocation,
+      specialty: $Enums.Specialty,
     };
     for (const [type, values] of Object.entries(map)) {
       for (const v of Object.values(values)) expect(isMessageKey(`enum.${type}.${v}`), `enum.${type}.${v}`).toBe(true);

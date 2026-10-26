@@ -1,5 +1,16 @@
 import "server-only";
-import { Prisma, type AppointmentStatus, type CustomerConfirmation, type PaymentMethod, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
+import {
+  Prisma,
+  type AppointmentStatus,
+  type CustomerConfirmation,
+  type EquipmentLocation,
+  type InternetStatus,
+  type PaymentMethod,
+  type ProductCategory,
+  type SiteReadiness,
+  type StatusKind,
+  type VisitType,
+} from "@prisma/client";
 import { z } from "zod";
 import {
   PRODUCT_CATEGORIES,
@@ -12,7 +23,7 @@ import { msg, ref, withNote, type Param } from "@/i18n/translate";
 import { resolveLocationLink } from "@/lib/maps";
 import { type Permission } from "@/lib/permissions";
 import type { AppointmentDTO, AppointmentListItem, AuditEntryDTO } from "@/lib/types";
-import { computeEnd, dateKey, dayRangeUtc, isValidDateString, weekdayOfKey, zonedToUtc } from "@/lib/time";
+import { computeEnd, dateKey, dayRangeUtc, isValidDateString, todayKey, weekdayOfKey, zonedToUtc } from "@/lib/time";
 import {
   appointmentInputSchema,
   cancelSchema,
@@ -35,6 +46,7 @@ import {
 import { diffValues, recordAudit } from "./audit";
 import { notifyUsers, storedMessage } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
+import { assertNotHeld, releaseHolds } from "./holds";
 import { assertTechniciansNotOnLeave } from "./leaves";
 import { canSeePrices, loadCustody, paymentDTO, prepareCollection, type CustodyView } from "./payments";
 import { installSerials, installedOn } from "./stock";
@@ -110,6 +122,9 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     categoryOther: a.categoryOther,
     visitType: a.visitType,
     customerConfirmation: a.customerConfirmation,
+    siteReadiness: a.siteReadiness,
+    internetStatus: a.internetStatus,
+    equipmentAt: a.equipmentAt,
     followUpOf: a.links.followUpOf,
     followUps: a.links.followUps,
     brand: a.brand,
@@ -500,6 +515,9 @@ function snapshot(a: AppointmentFull | null) {
     categoryOther: a.categoryOther,
     visitType: a.visitType,
     customerConfirmation: a.customerConfirmation,
+    siteReadiness: a.siteReadiness,
+    internetStatus: a.internetStatus,
+    equipmentAt: a.equipmentAt,
     brand: a.brand,
     model: a.model,
     description: a.description,
@@ -539,6 +557,11 @@ function assertOpenDay(user: CurrentUser, date: string, closedWeekdays: number[]
     { date: msg(user.role === "ADMIN" ? "e.closedDayAdmin" : "e.closedDay", { day: { weekday: day } }) },
     msg("e.closedDayShort"),
   );
+}
+
+/** Only an Admin may book on a day that has passed (to record a visit afterwards). */
+function assertNotPast(user: CurrentUser, date: string, tz: string) {
+  if (user.role !== "ADMIN" && date < todayKey(tz)) throw new ValidationError({ date: msg("e.pastBooking") });
 }
 
 /** "Sat 14 Mar 2026, 14:30–16:30" in the reader's language. */
@@ -606,6 +629,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
 
   const startsAt = zonedToUtc(input.date, input.startTime, tz);
   const endsAt = computeEnd(startsAt, input.durationMinutes);
+  assertNotPast(user, input.date, tz);
   if (input.followUpOfId) {
     const original = await prisma.appointment.findFirst({ where: { AND: [{ id: input.followUpOfId }, appointmentScope(user)] }, select: { id: true } });
     if (!original) throw new ValidationError({ followUpOfId: msg("e.originalGone") });
@@ -625,6 +649,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
       await validateTechnicians(tx, input.technicianIds, []);
       await lockTechnicians(tx, input.technicianIds);
       if (status.blocksSchedule) {
+        await assertNotHeld(tx, input.technicianIds, startsAt, endsAt, user.id, tz);
         await assertTechniciansNotOnLeave(tx, input.technicianIds, startsAt, endsAt, tz);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
@@ -643,6 +668,9 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
           categoryOther: input.productCategory === "OTHER" ? input.categoryOther : null,
           visitType: (input.visitType as VisitType | null | undefined) ?? null,
           customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? "PENDING",
+          siteReadiness: (input.siteReadiness as SiteReadiness | null | undefined) ?? null,
+          internetStatus: (input.internetStatus as InternetStatus | null | undefined) ?? null,
+          equipmentAt: (input.equipmentAt as EquipmentLocation | null | undefined) ?? null,
           followUpOfId: input.followUpOfId ?? null,
           ...moneyData(input),
           brand: input.brand,
@@ -701,6 +729,8 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         },
         user.id,
       );
+      // The slot is booked now; whatever this user was holding is no longer needed.
+      await releaseHolds(tx, user.id);
       return appt.id;
     }, TX_OPTIONS);
     return getAppointment(user, id);
@@ -747,6 +777,8 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
     await prisma.$transaction(async (tx) => {
       const existing = await loadForUpdate(tx, user, id, input.version);
       const status = await resolveStatus(tx, input.statusId, existing.status);
+      // Moving a booking onto a past day follows the same rule as creating one there.
+      if (dateKey(existing.startsAt, tz) !== input.date) assertNotPast(user, input.date, tz);
       if (status.blocksSchedule && dateKey(existing.startsAt, tz) !== input.date) {
         assertOpenDay(user, input.date, settings.closedWeekdays, input.allowClosedDay);
       }
@@ -760,6 +792,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
         const recheck = daysChanged || !existing.status.blocksSchedule;
         const onLeaveCheck = recheck ? input.technicianIds : input.technicianIds.filter((t) => !currentTechIds.includes(t));
         await assertTechniciansNotOnLeave(tx, onLeaveCheck, startsAt, endsAt, tz);
+        await assertNotHeld(tx, input.technicianIds, startsAt, endsAt, user.id, tz);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
           startsAt,
@@ -780,6 +813,9 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           categoryOther: input.productCategory === "OTHER" ? input.categoryOther : null,
           visitType: input.visitType === undefined ? existing.visitType : ((input.visitType as VisitType | null) ?? null),
           customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? existing.customerConfirmation,
+          siteReadiness: input.siteReadiness === undefined ? existing.siteReadiness : ((input.siteReadiness as SiteReadiness | null) ?? null),
+          internetStatus: input.internetStatus === undefined ? existing.internetStatus : ((input.internetStatus as InternetStatus | null) ?? null),
+          equipmentAt: input.equipmentAt === undefined ? existing.equipmentAt : ((input.equipmentAt as EquipmentLocation | null) ?? null),
           // followUpOfId is set at creation only.
           ...moneyData(input, existing),
           brand: input.brand,
@@ -881,6 +917,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
         });
       }
       for (const a of audits) await recordAudit(tx, a);
+      await releaseHolds(tx, user.id);
 
       const when = whenLabel(startsAt, endsAt, tz);
       await notifyUsers(tx, added, { appointmentId: id, type: "ASSIGNED", message: msg("n.assigned", { code, customer: customer.name, when }) }, user.id);

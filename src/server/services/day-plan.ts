@@ -47,6 +47,7 @@ export async function dayPlan(user: CurrentUser, date: string, lang: Locale = "e
       requiredEquipment: true,
       additionalNotes: true,
       customerConfirmation: true,
+      equipmentAt: true,
       totalPrice: true,
       depositAmount: true,
       extraFee: true,
@@ -85,6 +86,7 @@ export async function dayPlan(user: CurrentUser, date: string, lang: Locale = "e
       ]),
       mapLink: resolveLocationLink({ mapUrl: l.mapUrl, latitude: l.latitude?.toNumber() ?? null, longitude: l.longitude?.toNumber() ?? null }),
       equipment: a.requiredEquipment,
+      pickupAtOffice: a.equipmentAt === "OFFICE",
       notes: a.additionalNotes,
       // What is still to be collected (nothing once a collection is recorded).
       toCollect: due !== null && a.collectedAmount === null ? due : null,

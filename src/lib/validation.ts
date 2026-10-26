@@ -4,7 +4,22 @@
 import { z } from "zod";
 import { msg } from "@/i18n/translate";
 import { HEX_COLOR_RE } from "./colors";
-import { CONFIRMATIONS, LEAVE_TYPES, PAYMENT_METHODS, PRODUCT_CATEGORIES, ROLES, SERIAL_RE, STATUS_KINDS, VISIT_TYPES, parseSerials, phoneDigits } from "./constants";
+import {
+  CONFIRMATIONS,
+  EQUIPMENT_LOCATIONS,
+  INTERNET_STATUSES,
+  LEAVE_TYPES,
+  PAYMENT_METHODS,
+  PRODUCT_CATEGORIES,
+  ROLES,
+  SERIAL_RE,
+  SITE_READINESS,
+  SPECIALTIES,
+  STATUS_KINDS,
+  VISIT_TYPES,
+  parseSerials,
+  phoneDigits,
+} from "./constants";
 import { checkMapUrl, isValidLatitude, isValidLongitude } from "./maps";
 import { VIEWER_GRANTABLE } from "./permissions";
 import { TIME_RE, isValidDateString, isValidTimeZone } from "./time";
@@ -41,6 +56,11 @@ const phoneField = () =>
       const n = phoneDigits(v).length;
       return n >= 7 && n <= 15;
     }, msg("v.phoneLength"));
+
+/** One of `values`; "" or null = not recorded; left out = unchanged. */
+function optionalEnum<T extends string>(values: readonly T[]) {
+  return z.preprocess((v) => (v === "" ? null : v), z.enum(values as [T, ...T[]], { error: msg("v.chooseOption") }).nullable().optional());
+}
 
 const optionalPhone = z.preprocess(
   (v) => (typeof v === "string" ? v.trim() || null : (v ?? null)),
@@ -141,6 +161,10 @@ export const appointmentInputSchema = z
     followUpOfId: idField.optional().nullable(),
     /** Admin only: book on a weekday configured as closed. */
     allowClosedDay: z.boolean().optional(),
+    /** Site preparation (left out = unchanged on edit, "" = not recorded). */
+    siteReadiness: optionalEnum(SITE_READINESS),
+    internetStatus: optionalEnum(INTERNET_STATUSES),
+    equipmentAt: optionalEnum(EQUIPMENT_LOCATIONS),
     categoryOther: optionalText(120),
     brand: optionalText(120),
     model: optionalText(120),
@@ -263,6 +287,16 @@ export const availabilitySchema = z.object({
   startTime: z.string().regex(TIME_RE, msg("v.time")),
   durationMinutes: z.coerce.number().int().min(15).max(1440),
   excludeAppointmentId: idField.optional().nullable(),
+  /** Booking category, to mark technicians whose specialty does not fit. */
+  productCategory: z.enum(PRODUCT_CATEGORIES as [string, ...string[]]).optional().nullable(),
+});
+
+/** Hold a slot for the chosen technicians while the booking is being made (empty list releases). */
+export const holdSchema = z.object({
+  date: z.string().refine(isValidDateString, msg("v.date")),
+  startTime: z.string().regex(TIME_RE, msg("v.time")),
+  durationMinutes: z.coerce.number().int().min(15).max(1440),
+  technicianIds: z.array(idField).max(10, msg("v.maxTechnicians")),
 });
 
 const dateField = z.string({ error: msg("v.date") }).refine(isValidDateString, msg("v.date"));
@@ -332,6 +366,7 @@ export const userCreateSchema = z.object({
   role: z.enum(ROLES as [string, ...string[]], { error: msg("v.chooseRole") }),
   color: colorField.optional(),
   viewerPermissions: viewerPermissionsField.optional(),
+  specialty: optionalEnum(SPECIALTIES),
   /** Optional: set an initial password directly instead of sending an invitation link. */
   password: z.preprocess((v) => (v === "" ? undefined : v), passwordSchema.optional()),
 });
@@ -344,6 +379,7 @@ export const userUpdateSchema = z.object({
   isActive: z.boolean().optional(),
   color: colorField.optional(),
   viewerPermissions: viewerPermissionsField.optional(),
+  specialty: optionalEnum(SPECIALTIES),
 });
 
 export const statusInputSchema = z.object({

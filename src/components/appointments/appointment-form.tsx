@@ -7,6 +7,7 @@ import {
   CalendarClock,
   CalendarOff,
   CheckCircle2,
+  ClipboardCheck,
   Banknote,
   Crosshair,
   ExternalLink,
@@ -19,7 +20,7 @@ import {
   Users,
   XCircle,
 } from "lucide-react";
-import type { CustomerConfirmation, LeaveType, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
+import type { CustomerConfirmation, EquipmentLocation, InternetStatus, LeaveType, PaymentMethod, ProductCategory, SiteReadiness, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
@@ -28,7 +29,16 @@ import { Alert, Badge, SalesTag } from "@/components/ui/misc";
 import { useI18n } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
 import { colorOrFallback } from "@/lib/colors";
-import { CONFIRMATIONS, DURATION_PRESETS, PAYMENT_METHODS, PRODUCT_CATEGORIES, VISIT_TYPES } from "@/lib/constants";
+import {
+  CONFIRMATIONS,
+  DURATION_PRESETS,
+  EQUIPMENT_LOCATIONS,
+  INTERNET_STATUSES,
+  PAYMENT_METHODS,
+  PRODUCT_CATEGORIES,
+  SITE_READINESS,
+  VISIT_TYPES,
+} from "@/lib/constants";
 import { weekdayOfKey } from "@/lib/time";
 import { checkMapUrl, extractCoordinates } from "@/lib/maps";
 import type { AppointmentDTO, ConflictDTO, StatusDTO } from "@/lib/types";
@@ -38,7 +48,17 @@ import { cn } from "@/lib/utils";
 
 type TechOption = { id: string; name: string; isActive: boolean };
 type LeaveInfo = { type: LeaveType; startDate: string; endDate: string } | null;
-type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }>;
+type AvailabilityRow = {
+  id: string;
+  available: boolean;
+  conflicts: ConflictDTO[];
+  leave: LeaveInfo;
+  held: { byName: string; expiresAt: string } | null;
+  fits: boolean;
+  dayLoad: number;
+  suggested: boolean;
+};
+type Availability = Record<string, AvailabilityRow>;
 export type SavedLocation = {
   id: string;
   area: string | null;
@@ -155,12 +175,18 @@ export function AppointmentForm({
     const t = setTimeout(async () => {
       setChecking(true);
       try {
-        const res = await api<{ technicians: { id: string; available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }[] }>("/api/appointments/availability", {
+        const res = await api<{ technicians: AvailabilityRow[] }>("/api/appointments/availability", {
           method: "POST",
-          body: { date: v.date, startTime: v.startTime, durationMinutes: v.durationMinutes, excludeAppointmentId: appointmentId ?? null },
+          body: {
+            date: v.date,
+            startTime: v.startTime,
+            durationMinutes: v.durationMinutes,
+            excludeAppointmentId: appointmentId ?? null,
+            productCategory: v.productCategory || null,
+          },
           signal: ctrl.signal,
         });
-        setAvailability(Object.fromEntries(res.technicians.map((t2) => [t2.id, { available: t2.available, conflicts: t2.conflicts, leave: t2.leave ?? null }])));
+        setAvailability(Object.fromEntries(res.technicians.map((t2) => [t2.id, t2])));
       } catch (e) {
         if ((e as Error).name !== "AbortError") setAvailability(null);
       } finally {
@@ -171,7 +197,50 @@ export function AppointmentForm({
       clearTimeout(t);
       ctrl.abort();
     };
-  }, [v.date, v.startTime, v.durationMinutes, appointmentId]);
+  }, [v.date, v.startTime, v.durationMinutes, appointmentId, v.productCategory]);
+
+  // While a new booking is being made, the chosen technicians' slot is held for a few minutes so
+  // a colleague cannot take it at the same moment (Aura's temporary hold). Saving releases it.
+  const [hold, setHold] = useState<{ expiresAt: string | null; error: string | null }>({ expiresAt: null, error: null });
+  const holdKey = mode === "create" ? JSON.stringify([v.date, v.startTime, v.durationMinutes, [...v.technicianIds].sort()]) : null;
+  useEffect(() => {
+    if (!holdKey) return;
+    const [date, startTime, durationMinutes, technicianIds] = JSON.parse(holdKey) as [string, string, number, string[]];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(startTime) || !(durationMinutes >= 15)) return;
+    let cancelled = false;
+    const take = async () => {
+      try {
+        const res = await api<{ hold: { expiresAt: string | null } }>("/api/appointments/holds", {
+          method: "POST",
+          body: { date, startTime, durationMinutes, technicianIds },
+        });
+        if (!cancelled) setHold({ expiresAt: res.hold.expiresAt, error: null });
+      } catch (e) {
+        if (cancelled) return;
+        const apiErr = e instanceof ApiError ? e : null;
+        setHold({ expiresAt: null, error: apiErr?.fieldErrors?.technicianIds ?? apiErr?.message ?? null });
+      }
+    };
+    const first = setTimeout(take, 500);
+    // Renewed before it runs out while the form stays open.
+    const renew = setInterval(take, 8 * 60_000);
+    return () => {
+      cancelled = true;
+      clearTimeout(first);
+      clearInterval(renew);
+    };
+  }, [holdKey]);
+  useEffect(() => {
+    if (mode !== "create") return;
+    const release = () => {
+      void fetch("/api/appointments/holds", { method: "DELETE", keepalive: true, headers: { "Content-Type": "application/json" } }).catch(() => {});
+    };
+    window.addEventListener("pagehide", release);
+    return () => {
+      window.removeEventListener("pagehide", release);
+      release();
+    };
+  }, [mode]);
 
   const closedDay = /^\d{4}-\d{2}-\d{2}$/.test(v.date) && closedWeekdays.includes(weekdayOfKey(v.date));
   const toCollect = useMemo(() => {
@@ -205,6 +274,9 @@ export function AppointmentForm({
       productCategory: v.productCategory,
       visitType: v.visitType || null,
       customerConfirmation: v.customerConfirmation,
+      siteReadiness: v.siteReadiness || null,
+      internetStatus: v.internetStatus || null,
+      equipmentAt: v.equipmentAt || null,
       followUpOfId: mode === "create" ? v.followUpOfId : undefined,
       allowClosedDay: isAdmin && closedDay ? allowClosedDay : undefined,
       categoryOther: v.categoryOther,
@@ -539,6 +611,54 @@ export function AppointmentForm({
         </Card>
 
         <Card>
+          <CardHeader title={t("form.sitePrep")} description={t("form.sitePrepDesc")} icon={<ClipboardCheck className="h-4 w-4" />} />
+          <div className="grid gap-4 p-5 sm:grid-cols-3">
+            <div data-field="siteReadiness">
+              <Field label={t("field.siteReadiness")} error={err("siteReadiness")}>
+                {(p) => (
+                  <Select {...p} value={v.siteReadiness} onChange={(e) => set("siteReadiness", e.target.value as SiteReadiness | "")}>
+                    <option value="">{t("form.notChecked")}</option>
+                    {SITE_READINESS.filter((x) => x !== "UNKNOWN").map((x) => (
+                      <option key={x} value={x}>
+                        {label("siteReadiness", x)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <div data-field="internetStatus">
+              <Field label={t("field.internetStatus")} error={err("internetStatus")}>
+                {(p) => (
+                  <Select {...p} value={v.internetStatus} onChange={(e) => set("internetStatus", e.target.value as InternetStatus | "")}>
+                    <option value="">{t("form.notChecked")}</option>
+                    {INTERNET_STATUSES.filter((x) => x !== "UNKNOWN").map((x) => (
+                      <option key={x} value={x}>
+                        {label("internet", x)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <div data-field="equipmentAt">
+              <Field label={t("field.equipmentAt")} error={err("equipmentAt")}>
+                {(p) => (
+                  <Select {...p} value={v.equipmentAt} onChange={(e) => set("equipmentAt", e.target.value as EquipmentLocation | "")}>
+                    <option value="">{t("form.notChecked")}</option>
+                    {EQUIPMENT_LOCATIONS.map((x) => (
+                      <option key={x} value={x}>
+                        {label("equipmentAt", x)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+          </div>
+        </Card>
+
+        <Card>
           <CardHeader
             title={t("form.price")}
             description={t("form.priceDesc")}
@@ -745,6 +865,10 @@ export function AppointmentForm({
               </Alert>
             )}
             {err("technicianIds") && <Alert tone="danger">{tm(err("technicianIds"))}</Alert>}
+            {!err("technicianIds") && conflicts.length === 0 && hold.error && <Alert tone="warning">{tm(hold.error)}</Alert>}
+            {!hold.error && hold.expiresAt && v.technicianIds.length > 0 && (
+              <p className="text-xs text-fg-subtle">{t("form.heldForYou", { time: f.time(hold.expiresAt) })}</p>
+            )}
             {activeTechs.length === 0 && <p className="text-sm text-fg-muted">{t("form.noTechnicians")}</p>}
             <ul className="space-y-2">
               {activeTechs.map((tech) => {
@@ -773,6 +897,8 @@ export function AppointmentForm({
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-medium text-fg">{tech.name}</span>
                           {!tech.isActive && <Badge>{t("form.inactive")}</Badge>}
+                          {a?.suggested && !selected && <Badge className="border-success/40 text-success">{t("form.suggested")}</Badge>}
+                          {a && !a.fits && <Badge className="border-warning/40 text-warning">{t("form.otherSpecialty")}</Badge>}
                           {a &&
                             (busy && a.leave ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
@@ -788,6 +914,12 @@ export function AppointmentForm({
                               </span>
                             ))}
                         </span>
+                        {busy && a!.held && !a!.leave && a!.conflicts.length === 0 && (
+                          <span className="mt-0.5 block text-xs text-fg-muted">{t("form.heldBy", { name: a!.held.byName, time: f.time(a!.held.expiresAt) })}</span>
+                        )}
+                        {a && !busy && (
+                          <span className="mt-0.5 block text-xs text-fg-subtle">{t("form.dayLoad", { count: a.dayLoad })}</span>
+                        )}
                         {busy && a!.leave && (
                           <span className="mt-0.5 block text-xs text-fg-muted">
                             {label("leaveType", a!.leave.type)} · {f.dayRange(a!.leave.startDate, a!.leave.endDate)}

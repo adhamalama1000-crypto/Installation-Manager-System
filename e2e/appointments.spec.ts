@@ -64,9 +64,9 @@ test.describe("Sales booking workflow", () => {
     const firstTech = page.locator('[data-field="technicianIds"] label').first();
     await expect(firstTech).toContainText("Available");
     const techName = (await firstTech.locator("span.font-medium").first().textContent())!.trim();
-    await firstTech.click();
 
-    // Meanwhile a colleague books the same technician for an overlapping slot through the API.
+    // Meanwhile, before Sara picks him, a colleague books the same technician for an overlapping
+    // slot through the API; Sara's screen still shows him as available.
     const omar = await playwright.request.newContext({ baseURL: page.url().split("/appointments")[0] });
     const loginRes = await omar.post("/api/auth/login", { data: { email: "omar.sales@example.com", password: "ChangeMe123!" } });
     expect(loginRes.ok()).toBeTruthy();
@@ -84,6 +84,9 @@ test.describe("Sales booking workflow", () => {
     });
     expect(booked.status()).toBe(201);
     void request;
+    await firstTech.click();
+    // Holding the slot fails, which already warns her.
+    await expect(page.getByText(`${techName} is already booked at this time.`)).toBeVisible();
 
     await page.getByRole("button", { name: "Create appointment" }).click();
     await expect(page.getByText("Scheduling conflict", { exact: true })).toBeVisible();
@@ -109,5 +112,40 @@ test.describe("Calendar", () => {
       await first.click();
       await expect(page.getByRole("link", { name: /Open full details/ })).toBeVisible();
     }
+  });
+});
+
+test.describe("Slot holds", () => {
+  test("a technician picked in the booking form is held, so a colleague cannot take the slot meanwhile", async ({ page, playwright }) => {
+    const date = futureDate(2);
+    await login(page, "sara.sales@example.com");
+    await page.goto(`/appointments/new?date=${date}`);
+    await page.getByLabel("Product category").selectOption("SMART_LOCK");
+    await page.getByLabel("Start time").fill("11:00");
+    const firstTech = page.locator('[data-field="technicianIds"] label').first();
+    await expect(firstTech).toContainText("Available");
+    const techName = (await firstTech.locator("span.font-medium").first().textContent())!.trim();
+    await firstTech.click();
+    await expect(page.getByText(/Held for you until \d{2}:\d{2}/)).toBeVisible();
+
+    const omar = await playwright.request.newContext({ baseURL: page.url().split("/appointments")[0] });
+    expect((await omar.post("/api/auth/login", { data: { email: "omar.sales@example.com", password: "ChangeMe123!" } })).ok()).toBeTruthy();
+    const tech = (await technicianIds(omar)).find((t) => t.name === techName)!;
+    const refused = await omar.post("/api/appointments", {
+      data: { customer: { name: "Colleague booking", phone: "01005550404" }, location: {}, productCategory: "INTERCOM", date, startTime: "11:30", durationMinutes: 60, technicianIds: [tech.id] },
+    });
+    expect(refused.status()).toBe(422);
+    expect((await refused.json()).error.fieldErrors.technicianIds).toContain(`${techName} is being booked by Sara`);
+
+    // Leaving the form releases the hold.
+    await page.goto("/appointments");
+    await expect
+      .poll(async () => {
+        const res = await omar.post("/api/appointments/holds", { data: { date, startTime: "11:30", durationMinutes: 60, technicianIds: [tech.id] } });
+        return res.status();
+      })
+      .toBe(200);
+    await omar.delete("/api/appointments/holds");
+    await omar.dispose();
   });
 });

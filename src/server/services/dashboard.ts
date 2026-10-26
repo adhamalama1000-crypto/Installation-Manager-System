@@ -33,7 +33,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   // Everything is independent, so it all runs in one wave. The six counters are a single statement:
   // with six separate ones the page needed more statements than the connection pool (9 by default)
   // has connections, which costs an extra round trip to the database.
-  const [[counts], overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, todays] = await Promise.all([
+  const [[counts], overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, siteNotReady, todays] = await Promise.all([
     prisma.$queryRaw<{ today: number; upcoming: number; scheduled: number; completed: number; postponed: number; cancelled: number }[]>`
       SELECT
         count(*) FILTER (WHERE x.kind <> 'CANCELLED' AND x."startsAt" >= ${todayRange.start} AND x."startsAt" < ${todayRange.end})::int AS today,
@@ -95,6 +95,16 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
       soonest,
       20,
     ),
+    // Smart-home installations of the coming week whose wiring or internet is not confirmed
+    // (Aura: «راجع جاهزية الموقع»). Inspections are where this gets checked, so they are left out.
+    appointmentListRows(
+      user,
+      Prisma.sql`${upcomingWeek} AND a."productCategory" = 'SMART_HOME' AND a."visitType" IS DISTINCT FROM 'INSPECTION'
+        AND (a."siteReadiness" IS NULL OR a."siteReadiness" IN ('UNKNOWN', 'NOT_READY')
+             OR a."internetStatus" IS NULL OR a."internetStatus" IN ('UNKNOWN', 'NOT_WORKING'))`,
+      soonest,
+      20,
+    ),
     calendarAppointments(user, { from: today, to: today }),
   ]);
 
@@ -113,6 +123,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   push(noLocation, "dash.reason.noLocation");
   push(unconfirmed, "dash.reason.unconfirmed");
   push(revisit, "dash.reason.revisit");
+  push(siteNotReady, "dash.reason.siteNotReady");
 
   return {
     today,

@@ -23,6 +23,7 @@ export const validation = defineMessages({
   "v.latitude": { en: "Latitude must be between -90 and 90", ar: "يجب أن يكون خط العرض بين -90 و90" },
   "v.longitude": { en: "Longitude must be between -180 and 180", ar: "يجب أن يكون خط الطول بين -180 و180" },
   "v.latLngBoth": { en: "Enter both latitude and longitude, or neither", ar: "أدخل خط العرض وخط الطول معًا أو اتركهما فارغين" },
+  "v.chooseOption": { en: "Choose one of the options", ar: "اختر أحد الاختيارات" },
   "v.chooseCategory": { en: "Choose a product category", ar: "اختر فئة المنتج" },
   "v.chooseVisitType": { en: "Choose a visit type", ar: "اختر نوع الزيارة" },
   "v.describeCategory": { en: "Describe the product category", ar: "صف فئة المنتج" },

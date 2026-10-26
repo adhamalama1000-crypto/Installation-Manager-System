@@ -47,7 +47,12 @@ export const errors = defineMessages({
   "e.closedDay": { en: "{day} is a closed day. Choose another date.", ar: "يوم {day} يوم إجازة. اختر تاريخًا آخر." },
   "e.closedDayAdmin": { en: "{day} is a closed day. Tick \"Book on a closed day\" to book it anyway.", ar: "يوم {day} يوم إجازة. فعّل «الحجز في يوم إجازة» للحجز رغم ذلك." },
   "e.closedDayShort": { en: "This date is a closed day.", ar: "هذا التاريخ يوم إجازة." },
-  "e.pastBooking": { en: "This time is in the past. Only an Admin can record a past visit.", ar: "هذا الوقت في الماضي. المسؤول فقط يمكنه تسجيل زيارة سابقة." },
+  "e.pastBooking": { en: "This date has passed. Choose today or a later date; only an Admin can record a past visit.", ar: "هذا التاريخ فات. اختر اليوم أو تاريخًا لاحقًا؛ المسؤول فقط يمكنه تسجيل زيارة سابقة." },
+  "e.slotHeld": {
+    en: "{name} is being booked by {by} right now (held until {until}). Choose someone else or wait a few minutes.",
+    ar: "{name} محجوز مؤقتًا بواسطة {by} الآن (حتى {until}). اختر فنيًا آخر أو انتظر بضع دقائق.",
+  },
+  "e.holdBooked": { en: "{name} is already booked at this time.", ar: "{name} محجوز بالفعل في هذا الوقت." },
   "e.onlyAssignedReport": { en: "Only the assigned technicians can record the outcome of this visit.", ar: "الفنيون المكلّفون فقط يمكنهم تسجيل نتيجة هذه الزيارة." },
   "e.noOutcomeInStatus": { en: "This appointment is \"{status}\", so no outcome can be recorded.", ar: "حالة هذا الموعد «{status}»، لذلك لا يمكن تسجيل نتيجة." },
   "e.noStatusOfKind": { en: "No active \"{kind}\" status is set up. An Admin can add one in Settings.", ar: "لا توجد حالة نشطة من نوع «{kind}». يمكن للمسؤول إضافتها من الإعدادات." },

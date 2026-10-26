@@ -4,7 +4,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
 import { Copy, KeyRound, Pencil, Plus, Search } from "lucide-react";
-import type { Role } from "@prisma/client";
+import type { Role, Specialty } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
@@ -15,7 +15,7 @@ import { useI18n } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/translate";
 import { api, ApiError } from "@/lib/api-client";
 import { colorOrFallback } from "@/lib/colors";
-import { ROLES, SALES_COLOR_SUGGESTIONS } from "@/lib/constants";
+import { ROLES, SALES_COLOR_SUGGESTIONS, SPECIALTIES } from "@/lib/constants";
 import { DEFAULT_VIEWER_PERMISSIONS, VIEWER_GRANTABLE } from "@/lib/permissions";
 import type { UserDTO } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -28,6 +28,8 @@ type Draft = {
   isActive: boolean;
   color: string;
   viewerPermissions: string[];
+  /** Technicians only; "" = locks and smart home. */
+  specialty: Specialty | "";
   password: string;
 };
 
@@ -81,14 +83,14 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
   function openCreate() {
     setErrors({});
     setEditing(null);
-    setDraft({ name: "", email: "", phone: "", role: "SALES", isActive: true, color: "", viewerPermissions: [...DEFAULT_VIEWER_PERMISSIONS], password: "" });
+    setDraft({ name: "", email: "", phone: "", role: "SALES", isActive: true, color: "", viewerPermissions: [...DEFAULT_VIEWER_PERMISSIONS], specialty: "", password: "" });
     setCreating(true);
   }
   function openEdit(u: UserDTO) {
     setErrors({});
     setCreating(false);
     setEditing(u);
-    setDraft({ name: u.name, email: u.email, phone: u.phone ?? "", role: u.role, isActive: u.isActive, color: u.color ?? "", viewerPermissions: u.viewerPermissions, password: "" });
+    setDraft({ name: u.name, email: u.email, phone: u.phone ?? "", role: u.role, isActive: u.isActive, color: u.color ?? "", viewerPermissions: u.viewerPermissions, specialty: u.specialty ?? "", password: "" });
   }
   const close = () => {
     setCreating(false);
@@ -109,6 +111,7 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
         role: draft.role,
         color: draft.color || null,
         viewerPermissions: draft.role === "VIEWER" ? draft.viewerPermissions : undefined,
+        specialty: draft.role === "TECHNICIAN" ? draft.specialty || null : undefined,
         ...(creating ? { password: draft.password } : { isActive: draft.isActive }),
       };
       if (creating) {
@@ -201,6 +204,9 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
                     </td>
                     <td className="px-4 py-3">
                       <Badge className={cn(u.role === "ADMIN" && "border-brand/40 bg-brand-soft text-brand-text")}>{label("role", u.role)}</Badge>
+                      {u.role === "TECHNICIAN" && u.specialty && u.specialty !== "BOTH" && (
+                        <span className="mt-1 block text-xs text-fg-subtle">{label("specialty", u.specialty)}</span>
+                      )}
                     </td>
                     <td className="px-4 py-3">
                       {u.isActive ? <span className="text-success">{t("common.active")}</span> : <span className="text-fg-subtle">{t("common.inactive")}</span>}
@@ -268,6 +274,20 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
                 )}
               </Field>
             </div>
+            {draft.role === "TECHNICIAN" && (
+              <Field label={t("users.specialty")} error={errors.specialty} hint={t("users.specialtyHint")}>
+                {(p) => (
+                  <Select {...p} value={draft.specialty} onChange={(e) => upd({ specialty: e.target.value as Specialty | "" })}>
+                    <option value="">{label("specialty", "BOTH")}</option>
+                    {SPECIALTIES.filter((sp) => sp !== "BOTH").map((sp) => (
+                      <option key={sp} value={sp}>
+                        {label("specialty", sp)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            )}
             {showColor && (
               <div>
                 <p className="mb-2 text-sm font-medium">{t("users.calendarColour")}</p>

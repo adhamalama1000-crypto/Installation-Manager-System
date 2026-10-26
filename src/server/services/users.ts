@@ -1,6 +1,6 @@
 import "server-only";
 import { msg, ref } from "@/i18n/translate";
-import { Prisma, type Role, type User } from "@prisma/client";
+import { Prisma, type Role, type Specialty, type User } from "@prisma/client";
 import { SALES_COLOR_SUGGESTIONS } from "@/lib/constants";
 import { DEFAULT_VIEWER_PERMISSIONS } from "@/lib/permissions";
 import type { UserDTO } from "@/lib/types";
@@ -28,6 +28,7 @@ export function toUserDTO(u: User): UserDTO {
     isActive: u.isActive,
     color: u.color,
     viewerPermissions: u.viewerPermissions,
+    specialty: u.specialty,
     hasPassword: Boolean(u.passwordHash),
     createdAt: u.createdAt.toISOString(),
     updatedAt: u.updatedAt.toISOString(),
@@ -113,6 +114,7 @@ export async function createUser(actor: CurrentUser, raw: unknown) {
           role,
           color,
           viewerPermissions: role === "VIEWER" ? (input.viewerPermissions ?? DEFAULT_VIEWER_PERMISSIONS) : [],
+          specialty: role === "TECHNICIAN" ? ((input.specialty as Specialty | null | undefined) ?? null) : null,
           passwordHash,
           passwordChangedAt: passwordHash ? new Date() : null,
         },
@@ -122,7 +124,7 @@ export async function createUser(actor: CurrentUser, raw: unknown) {
         entityId: user.id,
         action: "USER_CREATED",
         summary: msg("s.userCreated", { role: ref(`enum.role.${role}`), name: user.name, email: user.email }),
-        changes: { name: user.name, email: user.email, role, color, viewerPermissions: user.viewerPermissions },
+        changes: { name: user.name, email: user.email, role, color, viewerPermissions: user.viewerPermissions, specialty: user.specialty },
         actorId: actor.id,
       });
       const invite = passwordHash ? null : await issuePasswordToken(tx, user.id, "INVITE", actor.id);
@@ -166,13 +168,15 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
           isActive: input.isActive,
           color,
           viewerPermissions: role === "VIEWER" ? (input.viewerPermissions ?? before.viewerPermissions) : [],
+          // Only technicians have a specialty; it is kept when the field is left out.
+          specialty: role === "TECHNICIAN" ? (input.specialty === undefined ? before.specialty : ((input.specialty as Specialty | null) ?? null)) : null,
         },
       });
 
       const changes = diffValues(
         before as unknown as Record<string, unknown>,
         after as unknown as Record<string, unknown>,
-        ["name", "email", "phone", "role", "isActive", "color", "viewerPermissions"],
+        ["name", "email", "phone", "role", "isActive", "color", "viewerPermissions", "specialty"],
       );
       if (Object.keys(changes).length) {
         const action = changes.isActive

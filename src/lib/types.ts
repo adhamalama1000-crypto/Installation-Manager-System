@@ -1,4 +1,18 @@
-import type { CustodyStatus, CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, VisitType } from "@prisma/client";
+import type {
+  CustodyStatus,
+  CustomerConfirmation,
+  EquipmentLocation,
+  InternetStatus,
+  LeaveStatus,
+  LeaveType,
+  PaymentMethod,
+  ProductCategory,
+  Role,
+  SiteReadiness,
+  Specialty,
+  StatusKind,
+  VisitType,
+} from "@prisma/client";
 
 export type StatusDTO = {
   id: string;
@@ -38,6 +52,10 @@ export type AppointmentDTO = {
   categoryOther: string | null;
   visitType: VisitType | null;
   customerConfirmation: CustomerConfirmation;
+  /** Site preparation (null = not recorded). */
+  siteReadiness: SiteReadiness | null;
+  internetStatus: InternetStatus | null;
+  equipmentAt: EquipmentLocation | null;
   /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
   followUpOf: { id: string; code: string } | null;
   followUps: { id: string; code: string; startsAt: string; status: { name: string; nameAr: string | null; color: string; kind: StatusKind } }[];
@@ -146,6 +164,8 @@ export type UserDTO = {
   isActive: boolean;
   color: string | null;
   viewerPermissions: string[];
+  /** Technicians only (null = locks and smart home). */
+  specialty: Specialty | null;
   hasPassword: boolean;
   createdAt: string;
   updatedAt: string;

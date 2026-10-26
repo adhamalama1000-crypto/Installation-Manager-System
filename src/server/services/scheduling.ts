@@ -1,7 +1,7 @@
 import "server-only";
-import { Prisma, type LeaveType } from "@prisma/client";
-import { appointmentCode } from "@/lib/constants";
-import { dateKey } from "@/lib/time";
+import { Prisma, type LeaveType, type ProductCategory, type Specialty } from "@prisma/client";
+import { appointmentCode, specialtyFits } from "@/lib/constants";
+import { dateKey, dayRangeUtc } from "@/lib/time";
 import type { Db, Tx } from "../db";
 import type { ConflictDetail } from "../errors";
 
@@ -90,34 +90,79 @@ export type TechnicianAvailability = {
   conflicts: ConflictDetail[];
   /** Approved leave covering the slot; the technician cannot be booked then. */
   leave: Omit<LeaveOnDay, "userId" | "name"> | null;
+  /** Someone else is holding this slot for the technician right now. */
+  held: { byName: string; expiresAt: string } | null;
+  specialty: Specialty | null;
+  /** False when the technician's specialty does not match the booking category. */
+  fits: boolean;
+  /** Schedule-blocking visits the technician already has that day. */
+  dayLoad: number;
+  /** One of the (at most two) best free technicians: right specialty, lightest day. */
+  suggested: boolean;
 };
 
 /** Availability of every active technician for a proposed time slot (used by the booking form). */
 export async function technicianAvailability(
   db: Db,
-  q: Omit<ConflictQuery, "technicianIds"> & { timezone?: string },
+  q: Omit<ConflictQuery, "technicianIds"> & { timezone?: string; userId?: string; category?: ProductCategory | null; now?: Date },
 ): Promise<TechnicianAvailability[]> {
   const technicians = await db.user.findMany({
     where: { role: "TECHNICIAN", isActive: true },
-    select: { id: true, name: true },
+    select: { id: true, name: true, specialty: true },
     orderBy: { name: "asc" },
   });
   const ids = technicians.map((t) => t.id);
-  const [conflicts, leave] = await Promise.all([
+  const day = q.timezone ? dayRangeUtc(dateKey(q.startsAt, q.timezone), dateKey(q.startsAt, q.timezone), q.timezone) : null;
+  const [conflicts, leave, holds, load] = await Promise.all([
     findTechnicianConflicts(db, { ...q, technicianIds: ids }),
     q.timezone ? approvedLeaveDuring(db, ids, q.startsAt, q.endsAt, q.timezone) : Promise.resolve([]),
+    db.slotHold.findMany({
+      where: {
+        technicianId: { in: ids },
+        ...(q.userId ? { heldById: { not: q.userId } } : {}),
+        expiresAt: { gt: q.now ?? new Date() },
+        startsAt: { lt: q.endsAt },
+        endsAt: { gt: q.startsAt },
+      },
+      select: { technicianId: true, expiresAt: true, heldBy: { select: { name: true } } },
+    }),
+    day
+      ? db.appointmentTechnician.groupBy({
+          by: ["technicianId"],
+          where: {
+            technicianId: { in: ids },
+            blocksSchedule: true,
+            startsAt: { gte: day.start, lt: day.end },
+            ...(q.excludeAppointmentId ? { appointmentId: { not: q.excludeAppointmentId } } : {}),
+          },
+          _count: { _all: true },
+        })
+      : Promise.resolve([]),
   ]);
-  return technicians.map((t) => {
+  const result = technicians.map((t): TechnicianAvailability => {
     const own = conflicts.filter((c) => c.technicianId === t.id);
     const away = leave.find((l) => l.userId === t.id);
+    const hold = holds.find((h) => h.technicianId === t.id);
     return {
       id: t.id,
       name: t.name,
-      available: own.length === 0 && !away,
+      available: own.length === 0 && !away && !hold,
       conflicts: own,
       leave: away ? { type: away.type, startDate: away.startDate, endDate: away.endDate } : null,
+      held: hold ? { byName: hold.heldBy.name, expiresAt: hold.expiresAt.toISOString() } : null,
+      specialty: t.specialty,
+      fits: specialtyFits(t.specialty, q.category),
+      dayLoad: load.find((l) => l.technicianId === t.id)?._count._all ?? 0,
+      suggested: false,
     };
   });
+  // Like the legacy "best technician" hint: free, right specialty, fewest visits that day.
+  result
+    .filter((t) => t.available && t.fits)
+    .sort((a, b) => a.dayLoad - b.dayLoad || a.name.localeCompare(b.name))
+    .slice(0, 2)
+    .forEach((t) => (t.suggested = true));
+  return result;
 }
 
 /** True when a Prisma/PostgreSQL error is the technician overlap exclusion constraint. */
