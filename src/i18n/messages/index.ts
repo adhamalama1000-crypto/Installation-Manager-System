@@ -11,6 +11,7 @@ import { enums } from "./enums";
 import { errors } from "./errors";
 import { ops } from "./ops";
 import { pages } from "./pages";
+import { server } from "./server";
 import { shell } from "./shell";
 import { validation } from "./validation";
 
@@ -23,6 +24,7 @@ export const messages = {
   ...errors,
   ...ops,
   ...pages,
+  ...server,
   ...shell,
   ...validation,
 };

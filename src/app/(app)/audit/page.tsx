@@ -86,10 +86,10 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
                   <p className="mt-1.5 text-sm text-fg">
                     {e.appointmentId ? (
                       <Link href={`/appointments/${e.appointmentId}`} prefetch={false} className="hover:text-brand-text hover:underline">
-                        {tm(e.summary)}
+                        {tm(e.display ?? e.summary)}
                       </Link>
                     ) : (
-                      tm(e.summary)
+                      tm(e.display ?? e.summary)
                     )}
                   </p>
                   <p className="text-xs text-fg-muted">{t("audit.by", { name: e.actor?.name ?? t("hist.system") })}</p>

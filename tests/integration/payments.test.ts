@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it } from "vitest";
 import type { User } from "@prisma/client";
 import { createAppointment, getAppointment, getAppointmentHistory, recordVisitOutcome, updateAppointment } from "@/server/services/appointments";
-import { financeCsv, financeStatement, receiveCash } from "@/server/services/payments";
+import { Prisma } from "@prisma/client";
+import { amountDue, financeCsv, financeStatement, receiveCash } from "@/server/services/payments";
 import { listNotifications } from "@/server/services/notifications";
 import { listAuditLog } from "@/server/services/audit-log";
 import { ForbiddenError, ValidationError } from "@/server/errors";
@@ -28,6 +29,13 @@ async function finish(id: string, collectedAmount: unknown, collectedMethod: str
 }
 
 describe("prices on a booking", () => {
+  it("works out the amount due exactly, without floating-point drift", () => {
+    const d = (v: string | null) => (v === null ? null : new Prisma.Decimal(v));
+    expect(amountDue({ totalPrice: d("0.30"), depositAmount: d("0.10"), extraFee: d("0.20") })).toBe(0.4);
+    expect(amountDue({ totalPrice: d("1000.10"), depositAmount: d("1000.20"), extraFee: d("5.05") })).toBe(5.05);
+    expect(amountDue({ totalPrice: null, depositAmount: null, extraFee: null })).toBeNull();
+  });
+
   it("stores price, deposit and extra fee, and works out what to collect", async () => {
     const a = await priced({ extraFee: 250 });
     expect(a.payment).toMatchObject({ totalPrice: 4500, depositAmount: 1500, depositMethod: "INSTAPAY", extraFee: 250, due: 3250, collectedAmount: null, balance: 3250 });
@@ -147,6 +155,11 @@ describe("monthly finance statement", () => {
     expect(lines).toHaveLength(3);
     expect(lines[0]).toContain("Total price,Deposit,Deposit method,Extra fee,Due at visit,Collected,Collected method,Balance");
     expect(lines.find((l) => l.startsWith(b.code))).toContain("2000,,,300,2300,1300,Bank transfer,1000");
+
+    // The same export for an Arabic reader: translated headings and labels, unchanged numbers.
+    const ar = (await financeCsv(asCurrent(accountant), "2030-03", "ar")).trim().split("\r\n");
+    expect(ar[0]).toContain("السعر الإجمالي,العربون");
+    expect(ar.find((l) => l.startsWith(b.code))).toContain("2000,,,300,2300,1300,تحويل بنكي,1000");
 
     await expect(financeStatement(asCurrent(sales), "2030-03")).rejects.toBeInstanceOf(ForbiddenError);
     await expect(financeStatement(asCurrent(tech), "2030-03")).rejects.toBeInstanceOf(ForbiddenError);

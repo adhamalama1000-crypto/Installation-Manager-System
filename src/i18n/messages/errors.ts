@@ -51,9 +51,16 @@ export const errors = defineMessages({
   "e.onlyAssignedReport": { en: "Only the assigned technicians can record the outcome of this visit.", ar: "الفنيون المكلّفون فقط يمكنهم تسجيل نتيجة هذه الزيارة." },
   "e.noOutcomeInStatus": { en: "This appointment is \"{status}\", so no outcome can be recorded.", ar: "حالة هذا الموعد «{status}»، لذلك لا يمكن تسجيل نتيجة." },
   "e.noStatusOfKind": { en: "No active \"{kind}\" status is set up. An Admin can add one in Settings.", ar: "لا توجد حالة نشطة من نوع «{kind}». يمكن للمسؤول إضافتها من الإعدادات." },
-  "e.onLeave": { en: "{names} on leave on this date.", ar: "{names} في إجازة في هذا التاريخ." },
+  "e.onLeave": {
+    en: { one: "{names} is on leave on this date.", other: "{names} are on leave on this date." },
+    ar: { one: "{names} في إجازة في هذا التاريخ.", two: "{names} في إجازة في هذا التاريخ.", few: "{names} في إجازة في هذا التاريخ.", many: "{names} في إجازة في هذا التاريخ.", other: "{names} في إجازة في هذا التاريخ." },
+  },
   "e.onLeaveDetail": { en: "{detail}. Choose another technician or date.", ar: "{detail}. اختر فنيًا آخر أو تاريخًا آخر." },
   "e.onLeaveOne": { en: "{name} is on {type} ({range})", ar: "{name} في {type} ({range})" },
+  "e.invalidDateRange": { en: "Invalid date range", ar: "نطاق التاريخ غير صالح" },
+  "e.depositNeedsTotal": { en: "Enter the total price so the deposit can be deducted.", ar: "أدخل السعر الإجمالي ليمكن خصم العربون." },
+  "e.depositOverTotal": { en: "The deposit cannot be more than the total price.", ar: "لا يمكن أن يزيد العربون عن السعر الإجمالي." },
+  "e.chooseDepositMethod": { en: "Choose how the deposit was paid.", ar: "اختر طريقة دفع العربون." },
 
   "e.collectedOverDue": { en: "That is more than the amount due ({amount}).", ar: "هذا أكثر من المبلغ المستحق ({amount})." },
   "e.cashAlreadyHanded": { en: "This cash was already handed over to the accountant, so it can no longer be changed here.", ar: "تم تسليم هذا المبلغ للمحاسب بالفعل، لذا لا يمكن تعديله من هنا." },
@@ -78,8 +85,14 @@ export const errors = defineMessages({
   "e.justRegistered": { en: "One of these serial numbers was just registered by someone else.", ar: "سجّل شخص آخر أحد هذه الأرقام التسلسلية للتو." },
   "e.chooseActiveTechnician": { en: "Choose an active technician.", ar: "اختر فنيًا نشطًا." },
   "e.itemsGone": { en: "Some of these items no longer exist. Refresh the page.", ar: "بعض هذه القطع لم تعد موجودة. حدّث الصفحة." },
-  "e.itemsInstalled": { en: "{list}: installed; mark them returned or faulty instead.", ar: "{list}: تم تركيبها؛ سجّلها مرتجعة أو تالفة بدلًا من ذلك." },
-  "e.notInStock": { en: "Not in stock: {list} - the store has to register them first.", ar: "غير موجودة في المخزن: {list} - يجب أن يسجّلها المخزن أولًا." },
+  "e.itemsInstalled": {
+    en: { one: "{list} is installed; mark it returned or faulty instead.", other: "{list} are installed; mark them returned or faulty instead." },
+    ar: { one: "{list} تم تركيبه؛ سجّله مرتجعًا أو تالفًا بدلًا من ذلك.", two: "{list} تم تركيبها؛ سجّلها مرتجعة أو تالفة بدلًا من ذلك.", few: "{list} تم تركيبها؛ سجّلها مرتجعة أو تالفة بدلًا من ذلك.", many: "{list} تم تركيبها؛ سجّلها مرتجعة أو تالفة بدلًا من ذلك.", other: "{list} تم تركيبها؛ سجّلها مرتجعة أو تالفة بدلًا من ذلك." },
+  },
+  "e.notInStock": {
+    en: { one: "Not in stock: {list} - the store has to register it first.", other: "Not in stock: {list} - the store has to register them first." },
+    ar: { one: "غير موجود في المخزن: {list} - يجب أن يسجّله المخزن أولًا.", two: "غير موجودة في المخزن: {list} - يجب أن يسجّلها المخزن أولًا.", few: "غير موجودة في المخزن: {list} - يجب أن يسجّلها المخزن أولًا.", many: "غير موجودة في المخزن: {list} - يجب أن يسجّلها المخزن أولًا.", other: "غير موجودة في المخزن: {list} - يجب أن يسجّلها المخزن أولًا." },
+  },
   "e.installedElsewhere": { en: "{serial} is already installed on {code}.", ar: "{serial} مركّب بالفعل في {code}." },
   "e.serialMarked": { en: "{serial} is marked {status} - talk to the store.", ar: "{serial} مسجّل «{status}» - تواصل مع المخزن." },
   "e.notYourCustody": { en: "{serial} is not in your custody ({where}).", ar: "{serial} ليس في عهدتك ({where})." },
@@ -92,5 +105,8 @@ export const errors = defineMessages({
   "e.leaveOverlapsApproved": { en: "This overlaps approved leave on {range}.", ar: "يتداخل هذا مع إجازة موافق عليها في {range}." },
   "e.leaveOverlapsRequest": { en: "This overlaps a leave request on {range}.", ar: "يتداخل هذا مع طلب إجازة في {range}." },
   "e.leaveAlready": { en: "This request is already {status}.", ar: "هذا الطلب {status} بالفعل." },
+  "e.leaveIsAlready": { en: "This leave is already {status}.", ar: "هذه الإجازة {status} بالفعل." },
+  "e.stock.RETURNED": { en: "returned", ar: "مرتجع" },
+  "e.stock.FAULTY": { en: "faulty", ar: "تالف" },
   "e.leaveEnded": { en: "This leave has already ended.", ar: "انتهت هذه الإجازة بالفعل." },
 });

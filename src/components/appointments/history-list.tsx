@@ -77,7 +77,7 @@ export function HistoryList({ entries }: { entries: AuditEntryDTO[] }) {
       {entries.map((e) => (
         <li key={e.id} className="relative">
           <span className="absolute -start-[27px] top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-surface bg-brand" aria-hidden />
-          <p className="text-sm text-fg">{tm(e.summary)}</p>
+          <p className="text-sm text-fg">{tm(e.display ?? e.summary)}</p>
           <p className="mt-0.5 text-xs text-fg-subtle">
             {e.actor?.name ?? t("hist.system")} · {f.dateTime(e.createdAt)}
           </p>

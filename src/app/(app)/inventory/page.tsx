@@ -26,7 +26,7 @@ const control = "h-9 rounded-lg border border-line-strong bg-surface px-3 text-s
 export default async function InventoryPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await requirePagePermission("stock.view");
   const sp = await searchParams;
-  const { t, f, label } = await getI18n();
+  const { t, tm, f, label } = await getI18n();
   const manage = user.permissions.includes("stock.manage");
   const [overview, models, technicians, history] = await Promise.all([
     stockOverview(user, { q: sp.q, status: sp.status, modelId: sp.modelId, holderId: sp.holderId, page: Number(sp.page) || 1 }),
@@ -82,7 +82,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                         </Link>
                       </>
                     )}
-                    {m.note && <span className="text-fg-muted"> · {m.note}</span>}
+                    {m.note && <span className="text-fg-muted"> · {tm(m.note)}</span>}
                     <span className="block text-xs text-fg-subtle">
                       {m.actor} · {f.dateTime(m.createdAt)}
                     </span>

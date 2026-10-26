@@ -3,7 +3,7 @@ import { localeFromAcceptLanguage } from "@/i18n/config";
 import type { Entry } from "@/i18n/define";
 import { createFormatter } from "@/i18n/format";
 import { messages } from "@/i18n/messages";
-import { decodeMessage, msg, ref, translate, translateMessage } from "@/i18n/translate";
+import { decodeMessage, msg, ref, translate, translateMessage, withNote } from "@/i18n/translate";
 
 const placeholders = (text: string) => new Set([...text.matchAll(/\{(\w+)\}/g)].map((m) => m[1]!));
 const forms = (e: Entry) => (typeof e === "string" ? [e] : Object.values(e).filter((v): v is string => typeof v === "string"));
@@ -46,6 +46,8 @@ describe("translation completeness", () => {
     for (const [key, pair] of entries) {
       if (SAME_IN_BOTH.has(key)) continue;
       const ar = other(pair.ar);
+      // Templates made only of placeholders and punctuation ("{text}: {note}") have no words to translate.
+      if (!/\p{L}/u.test(ar.replace(/\{\w+\}/g, ""))) continue;
       expect(/[\u0600-\u06FF]/.test(ar), `${key} looks untranslated: ${ar}`).toBe(true);
     }
   });
@@ -137,5 +139,40 @@ describe("enum labels", () => {
     for (const [type, values] of Object.entries(map)) {
       for (const v of Object.values(values)) expect(isMessageKey(`enum.${type}.${v}`), `enum.${type}.${v}`).toBe(true);
     }
+  });
+});
+
+describe("server messages", () => {
+  const when = { d: "2026-03-14T12:30:00.000Z", e: "2026-03-14T14:30:00.000Z", tz: "Africa/Cairo", s: "when" as const };
+
+  it("keeps the English audit and notification texts and translates them for Arabic readers", () => {
+    const text = msg("n.assigned", { code: "APT-000123", customer: "Mona", when });
+    expect(translateMessage(text, "en")).toBe("New assignment APT-000123: Mona, Sat 14 Mar 2026, 14:30–16:30");
+    const ar = translateMessage(text, "ar");
+    expect(ar).toContain("مهمة جديدة APT-000123");
+    expect(ar).toContain("14:30–16:30");
+  });
+
+  it("shows status names in the reader's language", () => {
+    const text = msg("s.statusChanged", { code: "APT-000001", from: { name: "Scheduled", nameAr: "مجدول" }, to: { name: "Completed", nameAr: null } });
+    expect(translateMessage(text, "en")).toBe("Changed status of APT-000001 from Scheduled to Completed");
+    expect(translateMessage(text, "ar")).toBe("تغيير حالة APT-000001 من مجدول إلى Completed");
+  });
+
+  it("joins lists with the language's comma and picks singular or plural sentences", () => {
+    const one = msg("e.itemsInstalled", { list: { join: ["PH-1"] }, count: 1 });
+    const two = msg("e.itemsInstalled", { list: { join: ["PH-1", "PH-2"] }, count: 2 });
+    expect(translateMessage(one, "en")).toBe("PH-1 is installed; mark it returned or faulty instead.");
+    expect(translateMessage(two, "en")).toBe("PH-1, PH-2 are installed; mark them returned or faulty instead.");
+    expect(translateMessage(two, "ar")).toContain("PH-1، PH-2");
+  });
+
+  it("names weekdays, leave ranges and notes", () => {
+    expect(translateMessage(msg("e.closedDay", { day: { weekday: 5 } }), "en")).toBe("Friday is a closed day. Choose another date.");
+    expect(translateMessage(msg("e.closedDay", { day: { weekday: 5 } }), "ar")).toContain("الجمعة");
+    const what = ref("lv.what.SICK", { range: { day: "2026-03-14", to: "2026-03-16" } });
+    expect(translateMessage(withNote(msg("s.leaveApproved", { what, name: "Omar" }), "back on Tuesday"), "en")).toBe(
+      "Approved sick leave on Sat 14 Mar – Mon 16 Mar for Omar: back on Tuesday",
+    );
   });
 });

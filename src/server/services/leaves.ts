@@ -1,15 +1,16 @@
 import "server-only";
+import { msg, ref, withNote, type Param } from "@/i18n/translate";
 import { Prisma, type LeaveType } from "@prisma/client";
 import type { LeaveClash, LeaveDTO } from "@/lib/types";
-import { LEAVE_STATUS_LABELS, LEAVE_TYPE_LABELS, appointmentCode } from "@/lib/constants";
-import { dayRangeLabel as leaveRangeLabel, dayRangeUtc, fmt, todayKey } from "@/lib/time";
+import { appointmentCode } from "@/lib/constants";
+import { dateKey, dayRangeUtc, todayKey } from "@/lib/time";
 import { fieldErrorsFromZod, leaveDecisionSchema, leaveInputSchema } from "@/lib/validation";
 import { prisma, type Db, type Tx } from "../db";
 import { assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { recordAudit } from "./audit";
-import { notifyUsers } from "./notifications";
+import { notifyUsers, storedNotification } from "./notifications";
 import { approvedLeaveDuring, lockTechnicians } from "./scheduling";
 
 /**
@@ -101,6 +102,11 @@ export async function leaveOverview(user: CurrentUser, now: Date = new Date()) {
   return { today, pending: map(pending), upcoming: map(upcoming), past: map(past) };
 }
 
+/** "sick leave on Sat 14 Mar – Mon 16 Mar" in the reader's language. */
+function leaveWhat(type: LeaveType, startDate: string, endDate: string): Param {
+  return ref(`lv.what.${type}`, { range: { day: startDate, to: endDate } });
+}
+
 async function assertNoOverlappingLeave(tx: Tx, userId: string, startDate: string, endDate: string, excludeId: string | null) {
   const other = await tx.technicianLeave.findFirst({
     where: {
@@ -113,8 +119,8 @@ async function assertNoOverlappingLeave(tx: Tx, userId: string, startDate: strin
     select: { startDate: true, endDate: true, status: true },
   });
   if (other) {
-    const msg = `This overlaps ${other.status === "APPROVED" ? "approved leave" : "a leave request"} on ${leaveRangeLabel(keyOf(other.startDate), keyOf(other.endDate))}.`;
-    throw new ValidationError({ startDate: msg }, msg);
+    const text = msg(other.status === "APPROVED" ? "e.leaveOverlapsApproved" : "e.leaveOverlapsRequest", { range: { day: keyOf(other.startDate), to: keyOf(other.endDate) } });
+    throw new ValidationError({ startDate: text }, text);
   }
 }
 
@@ -144,7 +150,7 @@ async function notifyClashes(tx: Tx, clashes: LeaveClash[], technicianName: stri
       userId: c.createdById,
       appointmentId: c.appointmentId,
       type: "LEAVE_CLASH",
-      message: `${technicianName} is on approved leave on ${fmt(c.startsAt, tz, "EEE d MMM")} - assign another technician to ${c.code} (${c.customerName})`.slice(0, 500),
+      ...storedNotification(msg("n.leaveClash", { name: technicianName, day: { day: dateKey(new Date(c.startsAt), tz) }, code: c.code, customer: c.customerName })),
     }));
   if (data.length) await tx.notification.createMany({ data });
 }
@@ -168,17 +174,17 @@ export async function createLeave(user: CurrentUser, raw: unknown, now: Date = n
 
   let targetId: string;
   if (manage) {
-    if (!input.userId) throw new ValidationError({ userId: "Choose a technician." });
+    if (!input.userId) throw new ValidationError({ userId: msg("e.chooseTechnicianLeave") });
     targetId = input.userId;
   } else {
-    if (input.userId && input.userId !== user.id) throw new ForbiddenError("You can only ask for leave for yourself.");
-    if (input.startDate < today) throw new ValidationError({ startDate: "Leave cannot start in the past." });
+    if (input.userId && input.userId !== user.id) throw new ForbiddenError(msg("e.ownLeaveOnly"));
+    if (input.startDate < today) throw new ValidationError({ startDate: msg("e.leavePast") });
     targetId = user.id;
   }
 
   return prisma.$transaction(async (tx) => {
     const target = await tx.user.findUnique({ where: { id: targetId }, select: { id: true, name: true, role: true, isActive: true } });
-    if (!target || target.role !== "TECHNICIAN" || !target.isActive) throw new ValidationError({ userId: "Choose an active technician." });
+    if (!target || target.role !== "TECHNICIAN" || !target.isActive) throw new ValidationError({ userId: msg("e.chooseActiveTechnician") });
     await lockTechnicians(tx, [target.id]);
     await assertNoOverlappingLeave(tx, target.id, input.startDate, input.endDate, null);
     const leave = await tx.technicianLeave.create({
@@ -195,31 +201,31 @@ export async function createLeave(user: CurrentUser, raw: unknown, now: Date = n
       },
       include: leaveInclude,
     });
-    const what = `${LEAVE_TYPE_LABELS[leave.type].toLowerCase()} on ${leaveRangeLabel(input.startDate, input.endDate)}`;
+    const what = leaveWhat(leave.type, input.startDate, input.endDate);
     await recordAudit(tx, {
       entityType: "LEAVE",
       entityId: leave.id,
       action: manage ? "LEAVE_ADDED" : "LEAVE_REQUESTED",
-      summary: manage ? `Recorded ${what} for ${target.name}` : `${target.name} asked for ${what}`,
+      summary: msg(manage ? "s.leaveRecorded" : "s.leaveAsked", { what, name: target.name }),
       changes: { technician: target.name, type: leave.type, startDate: input.startDate, endDate: input.endDate, reason: input.reason, status: leave.status },
       actorId: user.id,
     });
     let clashes: LeaveClash[] = [];
     if (manage) {
-      await notifyUsers(tx, [target.id], { type: "LEAVE_APPROVED", message: `${user.name} recorded your ${what}` }, user.id);
+      await notifyUsers(tx, [target.id], { type: "LEAVE_APPROVED", message: msg("n.leaveRecorded", { user: user.name, what }) }, user.id);
       clashes = await bookingsDuringLeave(tx, target.id, input.startDate, input.endDate, tz);
       await notifyClashes(tx, clashes, target.name, user.id, tz);
     } else {
-      await notifyUsers(tx, await activeAdminIds(tx), { type: "LEAVE_REQUESTED", message: `${target.name} asked for ${what}` }, user.id);
+      await notifyUsers(tx, await activeAdminIds(tx), { type: "LEAVE_REQUESTED", message: msg("n.leaveAsked", { name: target.name, what }) }, user.id);
     }
     return { leave: toDTO(user, leave, today), clashes };
   }, TX_OPTIONS);
 }
 
 async function lockLeave(tx: Tx, id: string) {
-  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Leave not found.");
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError(msg("e.leaveNotFound"));
   const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM technician_leaves WHERE id = ${id} FOR UPDATE`;
-  if (!rows.length) throw new NotFoundError("Leave not found.");
+  if (!rows.length) throw new NotFoundError(msg("e.leaveNotFound"));
   return tx.technicianLeave.findUniqueOrThrow({ where: { id }, include: leaveInclude });
 }
 
@@ -235,8 +241,8 @@ export async function decideLeave(user: CurrentUser, id: string, raw: unknown, n
   return prisma.$transaction(async (tx) => {
     const before = await lockLeave(tx, id);
     if (before.status !== "REQUESTED") {
-      const msg = `This request is already ${LEAVE_STATUS_LABELS[before.status].toLowerCase()}.`;
-      throw new ValidationError({ decision: msg }, msg);
+      const text = msg("e.leaveAlready", { status: ref(`lv.status.${before.status}`) });
+      throw new ValidationError({ decision: text }, text);
     }
     const startDate = keyOf(before.startDate);
     const endDate = keyOf(before.endDate);
@@ -249,20 +255,20 @@ export async function decideLeave(user: CurrentUser, id: string, raw: unknown, n
       data: { status: decision, decidedById: user.id, decidedAt: now, decisionNote: note },
       include: leaveInclude,
     });
-    const what = `${LEAVE_TYPE_LABELS[leave.type].toLowerCase()} on ${leaveRangeLabel(startDate, endDate)}`;
-    const verb = decision === "APPROVED" ? "Approved" : "Rejected";
+    const what = leaveWhat(leave.type, startDate, endDate);
+    const approved = decision === "APPROVED";
     await recordAudit(tx, {
       entityType: "LEAVE",
       entityId: leave.id,
       action: decision === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED",
-      summary: `${verb} ${what} for ${leave.user.name}${note ? `: ${note}` : ""}`,
+      summary: withNote(msg(approved ? "s.leaveApproved" : "s.leaveRejected", { what, name: leave.user.name }), note),
       changes: { status: { from: before.status, to: decision }, ...(note ? { note } : {}) },
       actorId: user.id,
     });
     await notifyUsers(
       tx,
       [leave.userId, leave.requestedById],
-      { type: decision === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED", message: `${user.name} ${verb.toLowerCase()} your ${what}${note ? `: ${note}` : ""}` },
+      { type: decision === "APPROVED" ? "LEAVE_APPROVED" : "LEAVE_REJECTED", message: withNote(msg(approved ? "n.leaveApproved" : "n.leaveRejected", { user: user.name, what }), note) },
       user.id,
     );
     let clashes: LeaveClash[] = [];
@@ -282,23 +288,23 @@ export async function cancelLeave(user: CurrentUser, id: string, now: Date = new
   return prisma.$transaction(async (tx) => {
     const before = await lockLeave(tx, id);
     const manage = hasPermission(user, "leaves.manage");
-    if (!manage && before.userId !== user.id) throw new NotFoundError("Leave not found.");
+    if (!manage && before.userId !== user.id) throw new NotFoundError(msg("e.leaveNotFound"));
     if (!canCancel(user, before, today)) {
-      const msg = before.status === "APPROVED" ? "This leave has already ended." : `This leave is already ${LEAVE_STATUS_LABELS[before.status].toLowerCase()}.`;
-      throw new ValidationError({ _form: msg }, msg);
+      const text = before.status === "APPROVED" ? msg("e.leaveEnded") : msg("e.leaveIsAlready", { status: ref(`lv.status.${before.status}`) });
+      throw new ValidationError({ _form: text }, text);
     }
     const leave = await tx.technicianLeave.update({ where: { id }, data: { status: "CANCELLED" }, include: leaveInclude });
-    const what = `${LEAVE_TYPE_LABELS[leave.type].toLowerCase()} on ${leaveRangeLabel(keyOf(leave.startDate), keyOf(leave.endDate))}`;
+    const what = leaveWhat(leave.type, keyOf(leave.startDate), keyOf(leave.endDate));
     await recordAudit(tx, {
       entityType: "LEAVE",
       entityId: leave.id,
       action: "LEAVE_CANCELLED",
-      summary: `Cancelled ${what} for ${leave.user.name}`,
+      summary: msg("s.leaveCancelled", { what, name: leave.user.name }),
       changes: { status: { from: before.status, to: "CANCELLED" } },
       actorId: user.id,
     });
     const recipients = before.userId === user.id ? await activeAdminIds(tx) : [before.userId];
-    await notifyUsers(tx, recipients, { type: "LEAVE_CANCELLED", message: `${user.name} cancelled ${before.userId === user.id ? "their" : "your"} ${what}` }, user.id);
+    await notifyUsers(tx, recipients, { type: "LEAVE_CANCELLED", message: msg(before.userId === user.id ? "n.leaveCancelledTheirs" : "n.leaveCancelledYours", { user: user.name, what }) }, user.id);
     return toDTO(user, leave, today);
   }, TX_OPTIONS);
 }
@@ -307,7 +313,10 @@ export async function cancelLeave(user: CurrentUser, id: string, now: Date = new
 export async function assertTechniciansNotOnLeave(db: Db, technicianIds: string[], startsAt: Date, endsAt: Date, tz: string) {
   const leave = await approvedLeaveDuring(db, technicianIds, startsAt, endsAt, tz);
   if (!leave.length) return;
-  const detail = leave.map((l) => `${l.name} is on ${LEAVE_TYPE_LABELS[l.type].toLowerCase()} (${leaveRangeLabel(l.startDate, l.endDate)})`);
-  const names = [...new Set(leave.map((l) => l.name))].join(", ");
-  throw new ValidationError({ technicianIds: `${detail.join("; ")}. Choose another technician or date.` }, `${names} ${leave.length === 1 ? "is" : "are"} on leave on this date.`);
+  const detail = leave.map((l) => ref("e.onLeaveOne", { name: l.name, type: ref(`lv.type.${l.type}`), range: { day: l.startDate, to: l.endDate } }));
+  const names = [...new Set(leave.map((l) => l.name))];
+  throw new ValidationError(
+    { technicianIds: msg("e.onLeaveDetail", { detail: { lines: detail, sep: "; " } }) },
+    msg("e.onLeave", { names: { join: names }, count: leave.length }),
+  );
 }

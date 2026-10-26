@@ -7,7 +7,7 @@ import { useI18n, type ClientI18n } from "@/i18n/client";
 import { api } from "@/lib/api-client";
 import { cn } from "@/lib/utils";
 
-type Item = { id: string; type: string; message: string; appointmentId: string | null; readAt: string | null; createdAt: string };
+type Item = { id: string; type: string; message: string; display?: string; appointmentId: string | null; readAt: string | null; createdAt: string };
 
 function ago(iso: string, t: ClientI18n["t"]) {
   const s = Math.max(1, Math.round((Date.now() - new Date(iso).getTime()) / 1000));
@@ -92,7 +92,7 @@ export function NotificationsBell() {
                 <div className={cn("flex gap-3 px-4 py-3", !n.readAt && "bg-brand-soft/60")}>
                   <span className={cn("mt-1.5 h-2 w-2 shrink-0 rounded-full", n.readAt ? "bg-transparent" : "bg-brand")} aria-hidden />
                   <div className="min-w-0">
-                    <p className="text-sm text-fg">{tm(n.message)}</p>
+                    <p className="text-sm text-fg">{tm(n.display ?? n.message)}</p>
                     <p className="mt-0.5 text-xs text-fg-subtle">{ago(n.createdAt, t)}</p>
                   </div>
                 </div>

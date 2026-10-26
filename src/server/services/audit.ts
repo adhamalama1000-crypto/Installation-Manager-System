@@ -1,11 +1,13 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
+import { decodeMessage, translateMessage } from "@/i18n/translate";
 import type { Db } from "../db";
 
 export type AuditInput = {
-  entityType: "APPOINTMENT" | "USER" | "STATUS" | "SETTINGS" | "CUSTOMER" | "LEAVE" | "CASH" | "STOCK";
+  entityType: "APPOINTMENT" | "USER" | "STATUS" | "SETTINGS" | "CUSTOMER" | "LEAVE" | "CASH" | "STOCK" | "COMPLAINT" | "ATTENDANCE" | "EXPENSE" | "ATTACHMENT" | "VEHICLE";
   entityId: string;
   action: string;
+  /** Plain text or a message descriptor (`msg()`); stored in English plus the descriptor. */
   summary: string;
   changes?: Record<string, unknown> | null;
   actorId: string | null;
@@ -13,12 +15,14 @@ export type AuditInput = {
 };
 
 export async function recordAudit(db: Db, entry: AuditInput) {
+  const descriptor = decodeMessage(entry.summary);
   await db.auditLog.create({
     data: {
       entityType: entry.entityType,
       entityId: entry.entityId,
       action: entry.action,
-      summary: entry.summary.slice(0, 500),
+      summary: translateMessage(entry.summary, "en").slice(0, 500),
+      params: descriptor ? (descriptor as unknown as Prisma.InputJsonValue) : Prisma.DbNull,
       changes: entry.changes ? (entry.changes as Prisma.InputJsonValue) : Prisma.DbNull,
       actorId: entry.actorId,
       appointmentId: entry.appointmentId ?? null,

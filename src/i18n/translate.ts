@@ -22,7 +22,15 @@ export type Param =
   | { d: string; tz: string; s: "date" | "time" | "dateTime" | "when" | "longDate" | "shortDate"; e?: string }
   | { day: string; to?: string }
   | { money: number }
-  | { list: Param[] };
+  | { list: Param[] }
+  /** Joined with the language's comma ("a, b, c" / "a، b، c"), without "and". */
+  | { join: Param[] }
+  /** A weekday name: 0 = Sunday. */
+  | { weekday: number }
+  /** Several messages shown one after another (e.g. a list of problems), joined by `sep`. */
+  | { lines: Param[]; sep?: string }
+  /** A configurable name with an optional Arabic version (status names). */
+  | { name: string; nameAr?: string | null };
 export type Params = Record<string, Param>;
 
 const PREFIX = "@@";
@@ -34,6 +42,16 @@ export function isMessageKey(key: string): key is MessageKey {
 /** Encodes a message descriptor as a string (safe to store, send as JSON or throw). */
 export function msg(key: MessageKey, params?: Params): string {
   return params && Object.keys(params).length ? `${PREFIX}${key}|${JSON.stringify(params)}` : `${PREFIX}${key}`;
+}
+
+/** "<text>: <note>" when there is a note, otherwise the text alone. */
+export function withNote(text: string, note: string | null | undefined): string {
+  return note ? msg("s.withNote", { text, note }) : text;
+}
+
+/** "<text> (<note>)" when there is a note, otherwise the text alone. */
+export function withParenNote(text: string, note: string | null | undefined): string {
+  return note ? msg("s.withParenNote", { text, note }) : text;
 }
 
 /** A nested, translatable parameter value. */
@@ -85,6 +103,10 @@ function renderParam(value: Param, locale: Locale, tz: string): string {
   }
   if ("money" in value) return createFormatter(locale, tz).money(value.money);
   if ("list" in value) return createFormatter(locale, tz).list(value.list.map((v) => renderParam(v, locale, tz)).filter(Boolean));
+  if ("join" in value) return createFormatter(locale, tz).join(value.join.map((v) => renderParam(v, locale, tz)));
+  if ("weekday" in value) return createFormatter(locale, tz).weekday(value.weekday, "long");
+  if ("lines" in value) return value.lines.map((v) => renderParam(v, locale, tz)).filter(Boolean).join(value.sep ?? " ");
+  if ("name" in value) return localName(locale, value);
   return "";
 }
 

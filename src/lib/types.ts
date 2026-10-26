@@ -125,7 +125,10 @@ export type AppointmentListItem = {
 export type AuditEntryDTO = {
   id: string;
   action: string;
+  /** English text as recorded. */
   summary: string;
+  /** What to show (message descriptor when the entry has one, translated by the reader). */
+  display?: string;
   changes: Record<string, { from: unknown; to: unknown }> | Record<string, unknown> | null;
   actor: { id: string; name: string } | null;
   createdAt: string;

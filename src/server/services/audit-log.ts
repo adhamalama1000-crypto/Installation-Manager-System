@@ -6,8 +6,9 @@ import { prisma } from "../db";
 import { assertCan } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { escapeLike } from "./appointment-reads";
+import { storedMessage } from "./notifications";
 
-export const AUDIT_ENTITY_TYPES = ["APPOINTMENT", "USER", "STATUS", "SETTINGS", "CUSTOMER", "LEAVE", "CASH", "STOCK"] as const;
+export const AUDIT_ENTITY_TYPES = ["APPOINTMENT", "USER", "STATUS", "SETTINGS", "CUSTOMER", "LEAVE", "CASH", "STOCK", "COMPLAINT", "ATTENDANCE", "EXPENSE", "ATTACHMENT", "VEHICLE"] as const;
 
 export async function listAuditLog(
   user: CurrentUser,
@@ -43,6 +44,7 @@ export async function listAuditLog(
     id: r.id,
     action: r.action,
     summary: r.summary,
+    display: storedMessage(r.summary, r.params),
     changes: (r.changes as AuditEntryDTO["changes"]) ?? null,
     actor: r.actor,
     createdAt: r.createdAt.toISOString(),

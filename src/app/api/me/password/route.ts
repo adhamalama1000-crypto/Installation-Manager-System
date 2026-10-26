@@ -22,7 +22,7 @@ export const POST = apiRoute(async ({ req, user }) => {
     entityType: "USER",
     entityId: user.id,
     action: "USER_PASSWORD_CHANGED",
-    summary: `${user.name} changed their password`,
+    summary: msg("s.passwordChanged", { name: user.name }),
     actorId: user.id,
   });
   // Sign out every other device.
