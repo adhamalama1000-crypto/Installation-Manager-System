@@ -222,7 +222,7 @@ Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customer
 ## Testing
 
 ```bash
-npm test            # 118 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
+npm test            # 119 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
 npm run test:e2e    # 15 Playwright tests against a running, seeded app
 ```
 

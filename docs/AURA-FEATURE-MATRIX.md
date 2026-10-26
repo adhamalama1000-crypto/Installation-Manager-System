@@ -6,7 +6,7 @@ per table), logs in with 6-digit PINs and runs as the sheet owner. This app repl
 moves the app to Apps Script.
 
 **Status:** ✅ implemented · ◐ partial · ✗ missing · ⚠ conflicting (different design on purpose).
-**Plan:** **Now** = integrated in this round (see the end) · Later = worth doing next · No = not
+**Plan:** Done = integrated in this round (see the end) · Later = worth doing next · No = not
 porting (reason given).
 
 ## Booking and orders
@@ -85,15 +85,26 @@ porting (reason given).
 
 ## Integrated in this round
 
-1. Booking: visit type, customer confirmation (+ dashboard alert), closed weekdays, follow-up visits.
-2. Technician outcome: done / unable to complete / needs another visit with a mandatory report;
-   Sales and Admin are notified.
-3. Technician leave: requests, approval, booking blocked on leave days, conflicts flagged.
-4. Payments: price, deposit, collection by the technician, extra fee; cash custody and accountant
-   receipt; monthly finance report and CSV.
-5. Inventory: product models with warranty, serial stock with custody and history, serials
-   installed on an appointment with warranty end date.
-6. Day plan with WhatsApp links.
+Each phase is a separate commit with its own additive migration (rollback notes inside), integration
+tests against PostgreSQL and a browser test of the main flow. Each was checked with lint, typecheck,
+the test suite, a production build and the browser tests while it was built; the final state of all
+six together was verified end to end (results in the README's Testing section and the final report).
+
+| # | Phase | What it adds | Migrations |
+|---|---|---|---|
+| 1 | Booking details | Visit type; customer confirmation with a dashboard alert for today/tomorrow; configurable closed weekdays (Admin override only); follow-up visits linked both ways | `20261026090000_booking_details` |
+| 2 | Visit outcome | Assigned technician starts the job and records done / unable / needs another visit with a mandatory report; the Sales creator and other technicians are notified; dashboard asks for a follow-up after "needs another visit" | `20261026100000_status_needs_revisit`, `20261026100100_visit_reports` |
+| 3 | Technician leave | Requests, approval / rejection, Admin-recorded leave; approved leave blocks bookings on those days, shows "On leave" in the form, lists and flags existing bookings | `20261026110000_technician_leaves` |
+| 4 | Payments | Price, deposit, extra fee; collection recorded with the outcome; cash custody until the Accountant receives it; monthly finance page and CSV; Accountant role | `20261026120000_role_accountant`, `20261026120100_payments` |
+| 5 | Inventory | Models with warranty months; stock by serial with custody, returns, faulty units and append-only history; serials installed at the visit with warranty end date; Store keeper role | `20261026130000_role_store`, `20261026130100_stock` |
+| 6 | Day plan | One WhatsApp message per technician for a day, customer reminder links, company name setting | none (setting stored in the existing settings row) |
 
 Every new action is permission-checked on the server and audited, every schema change is an
-additive migration, and the new screens use the same query patterns as the rest of the app.
+additive migration, and the new screens use the same query patterns as the rest of the app (one
+parallel wave of queries per page, server-side filtering and pagination, no caching of business
+data).
+
+Partially done, on purpose: payment proofs, photos and signatures (need file storage); the
+repeat-visit fee is typed by Sales instead of being set from a check-in; serials are optional when
+finishing a visit (no "serial required" setting); messages are in English and are never sent
+automatically.

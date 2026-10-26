@@ -113,10 +113,14 @@ export async function appointmentListRows(
   options: { orderedByCustomer?: boolean } = {},
 ): Promise<AppointmentListItem[]> {
   // `page` only picks the ids, so the per-row work is done for the rows returned, not for every
-  // row skipped by OFFSET or cut by LIMIT, and `techs` collects the technicians of the whole page
-  // at once. The joins in `page` are LEFT JOINs so PostgreSQL drops the ones the filter and order
-  // do not use (the foreign keys are NOT NULL, so this returns the same rows as inner joins). When
-  // sorting by customer name that join is INNER, so the planner can walk the name index instead.
+  // row skipped by OFFSET or cut by LIMIT. The joins in `page` are LEFT JOINs so PostgreSQL drops
+  // the ones the filter and order do not use (the foreign keys are NOT NULL, so this returns the
+  // same rows as inner joins). When sorting by customer name that join is INNER, so the planner can
+  // walk the name index instead.
+  // Technicians are read per returned row through the (appointmentId, technicianId) primary key.
+  // Joining a separately aggregated set instead looked faster with a custom plan, but once Prisma's
+  // prepared statement switched to PostgreSQL's generic plan (after 5 runs) the planner assumed
+  // ~6 rows and nested-looped the two sets: 1,334 x 1,334 comparisons, 80 ms instead of 30 ms.
   const customerJoin = Prisma.raw(options.orderedByCustomer ? "JOIN" : "LEFT JOIN");
   const rows = await prisma.$queryRaw<ListRow[]>`
     WITH page AS (
@@ -128,11 +132,6 @@ export async function appointmentListRows(
       WHERE ${where}
       ORDER BY ${orderBy}
       LIMIT ${limit} OFFSET ${offset}
-    ), techs AS (
-      SELECT at."appointmentId" AS id, json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name, t.id) AS list
-      FROM appointment_technicians at JOIN users t ON t.id = at."technicianId"
-      WHERE at."appointmentId" IN (SELECT id FROM page)
-      GROUP BY at."appointmentId"
     )
     SELECT a.id, a.number, a."startsAt", a."endsAt", a."durationMinutes", a."productCategory", a."categoryOther", a.brand, a.model,
            a."visitType", a."customerConfirmation",
@@ -140,14 +139,18 @@ export async function appointmentListRows(
            l.area, l.building, (l."mapUrl" IS NOT NULL OR l.latitude IS NOT NULL) AS "hasLocation",
            s.id AS "statusId", s.name AS "statusName", s.kind AS "statusKind", s.color AS "statusColor",
            u.id AS "creatorId", u.name AS "creatorName", u.color AS "creatorColor", u."isActive" AS "creatorActive",
-           COALESCE(techs.list, '[]'::json) AS technicians
+           COALESCE(tl.list, '[]'::json) AS technicians
     FROM page
     JOIN appointments a ON a.id = page.id
     JOIN customers c ON c.id = a."customerId"
     JOIN customer_locations l ON l.id = a."locationId"
     JOIN appointment_statuses s ON s.id = a."statusId"
     JOIN users u ON u.id = a."createdById"
-    LEFT JOIN techs ON techs.id = a.id
+    LEFT JOIN LATERAL (
+      SELECT json_agg(json_build_object('id', t.id, 'name', t.name) ORDER BY t.name, t.id) AS list
+      FROM appointment_technicians at JOIN users t ON t.id = at."technicianId"
+      WHERE at."appointmentId" = a.id
+    ) tl ON TRUE
     ORDER BY ${orderBy}`;
   const canContact = hasPermission(user, "customers.contact");
   const canLocation = hasPermission(user, "location.view");
@@ -218,26 +221,25 @@ export type ExportRow = {
 /** Flat rows for CSV exports. Callers decide which columns the user may see. */
 export async function appointmentExportRows(where: Prisma.Sql, dir: "asc" | "desc", limit = 20_000): Promise<ExportRow[]> {
   const order = Prisma.sql`a."startsAt" ${Prisma.raw(dir === "asc" ? "ASC" : "DESC")}, a.number`;
-  // Technician names are aggregated once for all exported rows (not by a sub-query per row).
+  // Technician names are joined straight onto the picked rows and grouped by primary key, so every
+  // join is an index lookup whatever row count the (generic) plan assumes; joining a separately
+  // aggregated set could degrade into comparing every exported row with every other one.
   return prisma.$queryRaw<ExportRow[]>`
     WITH picked AS (
       SELECT a.id FROM appointments a WHERE ${where} ORDER BY ${order} LIMIT ${limit}
-    ), techs AS (
-      SELECT at."appointmentId" AS id, string_agg(t.name, '; ' ORDER BY t.name) AS names
-      FROM appointment_technicians at JOIN users t ON t.id = at."technicianId"
-      WHERE at."appointmentId" IN (SELECT id FROM picked)
-      GROUP BY at."appointmentId"
     )
     SELECT a.number, a."startsAt", a."endsAt", a."durationMinutes", a."productCategory", a."categoryOther", a.brand, a.model,
            s.name AS "statusName", c.name AS "customerName", c.phone, c."secondaryPhone",
            l.area, l."streetAddress", l.building, l.apartment, l.floor, l."mapUrl", u.name AS "creatorName",
-           techs.names AS "technicianNames"
+           string_agg(t.name, '; ' ORDER BY t.name) AS "technicianNames"
     FROM picked
     JOIN appointments a ON a.id = picked.id
     JOIN customers c ON c.id = a."customerId"
     JOIN customer_locations l ON l.id = a."locationId"
     JOIN appointment_statuses s ON s.id = a."statusId"
     JOIN users u ON u.id = a."createdById"
-    LEFT JOIN techs ON techs.id = a.id
+    LEFT JOIN appointment_technicians at ON at."appointmentId" = a.id
+    LEFT JOIN users t ON t.id = at."technicianId"
+    GROUP BY a.id, c.id, l.id, s.id, u.id
     ORDER BY ${order}`;
 }
