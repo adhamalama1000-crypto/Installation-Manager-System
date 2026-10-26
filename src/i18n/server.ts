@@ -5,7 +5,7 @@ import { DEFAULT_TIMEZONE } from "@/lib/constants";
 import { getCurrentUser } from "@/server/auth/session";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, dirOf, isLocale, localeFromAcceptLanguage, type Locale } from "./config";
 import { createFormatter } from "./format";
-import { translate, translateMessage, type MessageKey, type Params } from "./translate";
+import { enumLabel, localName, translate, translateMessage, type EnumType, type MessageKey, type Params } from "./translate";
 
 /**
  * The reader's language: the language saved on their account, else this device's choice (cookie),
@@ -46,6 +46,8 @@ export const getI18n = cache(async () => {
     t: (key: MessageKey, params?: Params) => translate(locale, key, params, tz),
     tm: (text: string | null | undefined) => translateMessage(text, locale, tz),
     f: createFormatter(locale, tz),
+    label: (type: EnumType, value: string) => enumLabel(locale, type, value),
+    sn: (item: { name: string; nameAr?: string | null }) => localName(locale, item),
   };
 });
 

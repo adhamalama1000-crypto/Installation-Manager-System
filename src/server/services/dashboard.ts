@@ -1,5 +1,6 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
+import type { MessageKey } from "@/i18n/translate";
 import { addDaysToKey, dayRangeUtc, startOfMonthKey, addMonthsToKey, todayKey } from "@/lib/time";
 import { prisma } from "../db";
 import { appointmentScopeSql, assertCan, hasPermission } from "../access";
@@ -12,7 +13,8 @@ export type AttentionItem = {
   code: string;
   customerName: string;
   startsAt: string;
-  reason: string;
+  /** Message key of the reason (translated by the page). */
+  reason: MessageKey;
 };
 
 export async function dashboardSummary(user: CurrentUser, now: Date = new Date()) {
@@ -98,19 +100,19 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
 
   const attention: AttentionItem[] = [];
   const seen = new Set<string>();
-  const push = (rows: typeof overdue, reason: string) => {
+  const push = (rows: typeof overdue, reason: MessageKey) => {
     for (const a of rows) {
       if (seen.has(a.id)) continue;
       seen.add(a.id);
       attention.push({ id: a.id, code: a.code, customerName: a.customerName, startsAt: a.startsAt, reason });
     }
   };
-  push(overdue, "Past end time - status not updated");
-  push(unassigned, "No technician assigned");
-  push(onLeave, "Technician on approved leave - assign someone else");
-  push(noLocation, "No map location saved");
-  push(unconfirmed, "Customer has not confirmed - call before the visit");
-  push(revisit, "Needs another visit - no follow-up booked");
+  push(overdue, "dash.reason.overdue");
+  push(unassigned, "dash.reason.unassigned");
+  push(onLeave, "dash.reason.onLeave");
+  push(noLocation, "dash.reason.noLocation");
+  push(unconfirmed, "dash.reason.unconfirmed");
+  push(revisit, "dash.reason.revisit");
 
   return {
     today,

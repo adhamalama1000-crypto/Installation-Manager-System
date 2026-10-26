@@ -129,6 +129,7 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     status: {
       id: a.status.id,
       name: a.status.name,
+      nameAr: a.status.nameAr,
       kind: a.status.kind,
       color: a.status.color,
       blocksSchedule: a.status.blocksSchedule,
@@ -330,7 +331,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
       : Promise.resolve(null),
     prisma.appointment.findMany({
       where: { AND: [{ followUpOfId: appt.id }, scope] },
-      select: { id: true, number: true, startsAt: true, status: { select: { name: true, color: true, kind: true } } },
+      select: { id: true, number: true, startsAt: true, status: { select: { name: true, nameAr: true, color: true, kind: true } } },
       orderBy: { startsAt: "asc" },
       take: 20,
     }),

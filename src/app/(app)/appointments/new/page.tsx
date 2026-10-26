@@ -1,6 +1,8 @@
+import type { Metadata } from "next";
 import { AppointmentForm, type SavedLocation } from "@/components/appointments/appointment-form";
 import { emptyValues } from "@/components/appointments/form-values";
 import { PageHeader } from "@/components/ui/misc";
+import { getI18n } from "@/i18n/server";
 import { isValidDateString, todayKey, TIME_RE } from "@/lib/time";
 import { prisma } from "@/server/db";
 import { requirePagePermission } from "@/server/auth/session";
@@ -9,12 +11,15 @@ import { getAppointment } from "@/server/services/appointments";
 import { activeTechnicians, salesPeople } from "@/server/services/users";
 import { listStatuses } from "@/server/services/statuses";
 
-export const metadata = { title: "New appointment" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getI18n()).t("form.newTitle") };
+}
 
 export default async function NewAppointmentPage({ searchParams }: { searchParams: Promise<{ date?: string; time?: string; followUp?: string }> }) {
   const user = await requirePagePermission("appointments.manage");
   const sp = await searchParams;
   const tz = user.settings.timezone;
+  const { t } = await getI18n();
   const [technicians, statuses, sales, original] = await Promise.all([
     activeTechnicians(),
     listStatuses(),
@@ -75,8 +80,8 @@ export default async function NewAppointmentPage({ searchParams }: { searchParam
   return (
     <>
       <PageHeader
-        title={original ? `Follow-up visit for ${original.code}` : "New appointment"}
-        description="Book an installation and assign available technicians."
+        title={original ? t("form.followUpTitle", { code: original.code }) : t("form.newTitle")}
+        description={t("form.newDesc")}
       />
       <AppointmentForm
         mode="create"

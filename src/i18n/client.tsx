@@ -3,7 +3,7 @@
 import { createContext, useContext, useMemo } from "react";
 import { dirOf, type Locale } from "./config";
 import { createFormatter } from "./format";
-import { translate, translateMessage, type MessageKey, type Params } from "./translate";
+import { enumLabel, localName, translate, translateMessage, type EnumType, type MessageKey, type Params } from "./translate";
 
 const I18nContext = createContext<{ locale: Locale; tz: string }>({ locale: "en", tz: "UTC" });
 
@@ -24,6 +24,10 @@ export function useI18n() {
       /** Translates a message descriptor from the server or a validation schema; other text unchanged. */
       tm: (text: string | null | undefined) => translateMessage(text, locale, tz),
       f: createFormatter(locale, tz),
+      /** Label of a database enum value, e.g. label("role", "ADMIN"). */
+      label: (type: EnumType, value: string) => enumLabel(locale, type, value),
+      /** Status (or other configurable) name in the current language. */
+      sn: (item: { name: string; nameAr?: string | null }) => localName(locale, item),
     }),
     [locale, tz],
   );

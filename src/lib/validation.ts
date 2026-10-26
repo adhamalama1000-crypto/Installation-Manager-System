@@ -348,6 +348,8 @@ export const userUpdateSchema = z.object({
 
 export const statusInputSchema = z.object({
   name: requiredText(60),
+  /** Arabic name; blank = show the English name in Arabic too. */
+  nameAr: optionalText(60).optional(),
   kind: z.enum(STATUS_KINDS as [string, ...string[]]),
   color: z.string().regex(HEX_COLOR_RE, msg("v.hexColor")),
   blocksSchedule: z.boolean(),

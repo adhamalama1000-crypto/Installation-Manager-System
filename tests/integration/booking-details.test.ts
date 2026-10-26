@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
+import { translate } from "@/i18n/translate";
 import type { User } from "@prisma/client";
 import {
   createAppointment,
@@ -67,7 +68,7 @@ describe("visit type and customer confirmation", () => {
     const later = await createAppointment(asCurrent(sales), appointmentPayload({ technicianIds: [tech.id], date: "2030-03-12", startTime: "10:00" }));
     const confirmed = await createAppointment(asCurrent(sales), appointmentPayload({ technicianIds: [otherTech.id], date: "2030-03-10", startTime: "12:00", customerConfirmation: "CONFIRMED" }));
     const summary = await dashboardSummary(asCurrent(sales), now);
-    const flagged = summary.attention.filter((x) => x.reason.startsWith("Customer has not confirmed")).map((x) => x.id);
+    const flagged = summary.attention.filter((x) => translate("en", x.reason).startsWith("Customer has not confirmed")).map((x) => x.id);
     expect(flagged).toEqual([tomorrow.id]);
     expect(flagged).not.toContain(later.id);
     expect(flagged).not.toContain(confirmed.id);

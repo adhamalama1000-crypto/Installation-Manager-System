@@ -1,15 +1,19 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 import { AppointmentForm } from "@/components/appointments/appointment-form";
 import { valuesFromAppointment } from "@/components/appointments/form-values";
 import { PageHeader } from "@/components/ui/misc";
+import { getI18n } from "@/i18n/server";
 import { prisma } from "@/server/db";
 import { requirePagePermission } from "@/server/auth/session";
 import { getAppointment } from "@/server/services/appointments";
 import { listStatuses } from "@/server/services/statuses";
 import { loadOr404 } from "../load";
 
-export const metadata = { title: "Edit appointment" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getI18n()).t("act.edit") };
+}
 
 export default async function EditAppointmentPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await requirePagePermission("appointments.manage");
@@ -17,6 +21,7 @@ export default async function EditAppointmentPage({ params }: { params: Promise<
   const appt = await loadOr404(() => getAppointment(user, id));
   if (!appt.canManage) redirect("/access-denied");
   const tz = user.settings.timezone;
+  const { t } = await getI18n();
   const [technicians, statuses, locations] = await Promise.all([
     prisma.user.findMany({
       where: { role: "TECHNICIAN", OR: [{ isActive: true }, { id: { in: appt.technicians.map((t) => t.id) } }] },
@@ -29,13 +34,13 @@ export default async function EditAppointmentPage({ params }: { params: Promise<
   return (
     <>
       <PageHeader
-        title={`Edit ${appt.code}`}
+        title={t("form.editTitle", { code: appt.code })}
         breadcrumb={
           <Link href={`/appointments/${appt.id}`} className="hover:text-fg">
-            ← Back to appointment
+            {t("form.backToAppointment")}
           </Link>
         }
-        description="Changes are checked against technician schedules and recorded in the history."
+        description={t("form.editDesc")}
       />
       <AppointmentForm
         mode="edit"

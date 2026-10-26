@@ -109,4 +109,28 @@ export function translateFieldErrors(errors: Record<string, string>, locale: Loc
   return Object.fromEntries(Object.entries(errors).map(([k, v]) => [k, translateMessage(v, locale, tz)]));
 }
 
+/** Database enums whose values have labels ("enum.<type>.<VALUE>"). */
+export type EnumType =
+  | "role"
+  | "stockStatus"
+  | "paymentMethod"
+  | "custody"
+  | "category"
+  | "visitType"
+  | "confirmation"
+  | "leaveType"
+  | "leaveStatus"
+  | "statusKind"
+  | "outcome";
+
+export function enumLabel(locale: Locale, type: EnumType, value: string): string {
+  const key = `enum.${type}.${value}`;
+  return isMessageKey(key) ? translate(locale, key) : value;
+}
+
+/** A configurable name with an optional Arabic version (statuses). */
+export function localName(locale: Locale, item: { name: string; nameAr?: string | null }): string {
+  return locale === "ar" && item.nameAr ? item.nameAr : item.name;
+}
+
 export type { MessageKey };

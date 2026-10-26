@@ -1,3 +1,4 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ArrowDown, ArrowUp, Download, MapPinOff, Plus } from "lucide-react";
 import { AgendaItem } from "@/components/appointments/agenda-item";
@@ -6,8 +7,10 @@ import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { ButtonLink, buttonClasses } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Pagination } from "@/components/ui/pagination";
+import { Ltr } from "@/components/ui/ltr";
 import { EmptyState, PageHeader, SalesTag, StatusBadge } from "@/components/ui/misc";
-import { productLine, shortDate, timeRange } from "@/lib/format";
+import { getI18n } from "@/i18n/server";
+import { productLine } from "@/lib/format";
 import { colorOrFallback } from "@/lib/colors";
 import { requirePagePermission } from "@/server/auth/session";
 import { listAppointments, parseAppointmentFilters } from "@/server/services/appointments";
@@ -16,7 +19,9 @@ import { prisma } from "@/server/db";
 import { salesPeople } from "@/server/services/users";
 import { ValidationError } from "@/server/errors";
 
-export const metadata = { title: "Appointments" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getI18n()).t("list.title") };
+}
 
 type SP = Record<string, string | string[] | undefined>;
 
@@ -32,7 +37,7 @@ function first(v: string | string[] | undefined) {
 export default async function AppointmentsPage({ searchParams }: { searchParams: Promise<SP> }) {
   const user = await requirePagePermission("appointments.view");
   const sp = await searchParams;
-  const tz = user.settings.timezone;
+  const { t, f, label, sn } = await getI18n();
   let filters;
   try {
     filters = parseAppointmentFilters(sp);
@@ -61,22 +66,22 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
   const exportHref = `/api/appointments/export?${new URLSearchParams(Object.entries(values).filter(([, v]) => v) as [string, string][]).toString()}`;
   const showLocation = user.permissions.includes("location.view");
   const showPhone = user.permissions.includes("customers.contact");
-  const th = "px-4 py-3 text-left text-xs font-semibold uppercase tracking-wide text-fg-subtle";
+  const th = "px-4 py-3 text-start text-xs font-semibold uppercase tracking-wide text-fg-subtle";
 
   return (
     <>
       <AutoRefresh />
       <PageHeader
-        title={tech ? "My appointments" : "Appointments"}
-        description={tech ? "Installations assigned to you." : "Search, filter and open any installation appointment."}
+        title={tech ? t("list.titleTech") : t("list.title")}
+        description={tech ? t("list.descTech") : t("list.desc")}
         actions={
           <>
             <a href={exportHref} className={buttonClasses("outline")}>
-              <Download className="h-4 w-4" /> Export CSV
+              <Download className="h-4 w-4" /> {t("common.exportCsv")}
             </a>
             {user.permissions.includes("appointments.manage") && (
               <ButtonLink href="/appointments/new">
-                <Plus className="h-4 w-4" /> New appointment
+                <Plus className="h-4 w-4" /> {t("nav.newAppointment")}
               </ButtonLink>
             )}
           </>
@@ -91,19 +96,19 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
           technicians={technicians}
           showLocation={showLocation}
           showTechnicianFilter={!tech}
-          searchPlaceholder={`Search by ID, customer${showPhone ? ", phone" : ""}${showLocation ? ", address, compound" : ""}, brand or model`}
+          searchPlaceholder={t(showPhone ? (showLocation ? "list.searchFull" : "list.searchPhone") : showLocation ? "list.searchLocation" : "list.searchBase")}
         />
       </Card>
 
       <Card className="overflow-hidden">
         {result.rows.length === 0 ? (
-          <EmptyState title="No appointments found" description="Try a different search or clear the filters." />
+          <EmptyState title={t("list.empty")} description={t("list.emptyHint")} />
         ) : (
           <>
             {/* Mobile / tablet: cards */}
             <div className="space-y-2 p-3 lg:hidden">
               {result.rows.map((a) => (
-                <AgendaItem key={a.id} a={a} tz={tz} showDate={shortDate(a.startsAt, tz)} />
+                <AgendaItem key={a.id} a={a} showDate />
               ))}
             </div>
             {/* Desktop: table */}
@@ -112,19 +117,19 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
                 <thead className="border-b border-line bg-surface-muted/60">
                   <tr>
                     <th className={th}>
-                      <Link href={sortLink("number")} className="inline-flex items-center gap-1 hover:text-fg">ID <SortIcon active={filters.sort === "number"} dir={filters.dir} /></Link>
+                      <Link href={sortLink("number")} className="inline-flex items-center gap-1 hover:text-fg">{t("list.colId")} <SortIcon active={filters.sort === "number"} dir={filters.dir} /></Link>
                     </th>
                     <th className={th}>
-                      <Link href={sortLink("startsAt")} className="inline-flex items-center gap-1 hover:text-fg">Date & time <SortIcon active={filters.sort === "startsAt"} dir={filters.dir} /></Link>
+                      <Link href={sortLink("startsAt")} className="inline-flex items-center gap-1 hover:text-fg">{t("list.colDateTime")} <SortIcon active={filters.sort === "startsAt"} dir={filters.dir} /></Link>
                     </th>
                     <th className={th}>
-                      <Link href={sortLink("customer")} className="inline-flex items-center gap-1 hover:text-fg">Customer <SortIcon active={filters.sort === "customer"} dir={filters.dir} /></Link>
+                      <Link href={sortLink("customer")} className="inline-flex items-center gap-1 hover:text-fg">{t("list.colCustomer")} <SortIcon active={filters.sort === "customer"} dir={filters.dir} /></Link>
                     </th>
-                    {showLocation && <th className={th}>Location</th>}
-                    <th className={th}>Installation</th>
-                    <th className={th}>Sales</th>
-                    <th className={th}>Technicians</th>
-                    <th className={th}>Status</th>
+                    {showLocation && <th className={th}>{t("list.colLocation")}</th>}
+                    <th className={th}>{t("list.colInstallation")}</th>
+                    <th className={th}>{t("list.colSales")}</th>
+                    <th className={th}>{t("list.colTechnicians")}</th>
+                    <th className={th}>{t("list.colStatus")}</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-line">
@@ -132,28 +137,34 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
                     <tr key={a.id} className="group relative hover:bg-surface-muted/60">
                       <td className="whitespace-nowrap px-4 py-3">
                         <Link href={`/appointments/${a.id}`} prefetch={false} className="font-medium text-brand-text after:absolute after:inset-0 hover:underline">
-                          {a.code}
+                          <Ltr>{a.code}</Ltr>
                         </Link>
                       </td>
                       <td className="whitespace-nowrap px-4 py-3">
-                        <div className="font-medium text-fg">{shortDate(a.startsAt, tz)}</div>
-                        <div className="tabular-nums text-fg-muted">{timeRange(a.startsAt, a.endsAt, tz)}</div>
+                        <div className="font-medium text-fg">{f.shortDate(a.startsAt)}</div>
+                        <div className="tabular-nums text-fg-muted">
+                          <Ltr>{f.timeRange(a.startsAt, a.endsAt)}</Ltr>
+                        </div>
                       </td>
                       <td className="px-4 py-3">
                         <div className="font-medium text-fg">{a.customerName}</div>
-                        {a.customerPhone && <div className="whitespace-nowrap text-fg-muted">{a.customerPhone}</div>}
+                        {a.customerPhone && (
+                          <div className="whitespace-nowrap text-fg-muted">
+                            <Ltr>{a.customerPhone}</Ltr>
+                          </div>
+                        )}
                       </td>
                       {showLocation && (
                         <td className="px-4 py-3">
                           <div className="text-fg">{a.building ?? "—"}</div>
                           <div className="flex items-center gap-1 text-fg-muted">
                             {a.area ?? ""}
-                            {a.hasLocation === false && <MapPinOff className="h-3.5 w-3.5 text-warning" aria-label="No map location" />}
+                            {a.hasLocation === false && <MapPinOff className="h-3.5 w-3.5 text-warning" aria-label={t("list.noMapLocation")} />}
                           </div>
                         </td>
                       )}
                       <td className="max-w-[220px] px-4 py-3 text-fg-muted">
-                        <span className="line-clamp-2">{productLine(a)}</span>
+                        <span className="line-clamp-2">{productLine(a, label)}</span>
                       </td>
                       <td className="px-4 py-3">
                         <span className="flex items-center gap-2">
@@ -161,9 +172,9 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
                           <SalesTag name={a.createdBy.name} color={a.createdBy.color} className="[&>span:first-child]:hidden" />
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-fg-muted">{a.technicians.map((t) => t.name).join(", ") || <span className="text-warning">Unassigned</span>}</td>
+                      <td className="px-4 py-3 text-fg-muted">{f.join(a.technicians.map((x) => x.name)) || <span className="text-warning">{t("list.unassigned")}</span>}</td>
                       <td className="px-4 py-3">
-                        <StatusBadge name={a.status.name} color={a.status.color} />
+                        <StatusBadge name={sn(a.status)} color={a.status.color} />
                       </td>
                     </tr>
                   ))}

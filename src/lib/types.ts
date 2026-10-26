@@ -3,6 +3,8 @@ import type { CustodyStatus, CustomerConfirmation, LeaveStatus, LeaveType, Payme
 export type StatusDTO = {
   id: string;
   name: string;
+  /** Arabic name (shown in the Arabic interface when set). */
+  nameAr: string | null;
   kind: StatusKind;
   color: string;
   blocksSchedule: boolean;
@@ -38,7 +40,7 @@ export type AppointmentDTO = {
   customerConfirmation: CustomerConfirmation;
   /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
   followUpOf: { id: string; code: string } | null;
-  followUps: { id: string; code: string; startsAt: string; status: { name: string; color: string; kind: StatusKind } }[];
+  followUps: { id: string; code: string; startsAt: string; status: { name: string; nameAr: string | null; color: string; kind: StatusKind } }[];
   brand: string | null;
   model: string | null;
   description: string | null;
@@ -52,7 +54,7 @@ export type AppointmentDTO = {
   startsAt: string;
   endsAt: string;
   durationMinutes: number;
-  status: Pick<StatusDTO, "id" | "name" | "kind" | "color" | "blocksSchedule">;
+  status: Pick<StatusDTO, "id" | "name" | "nameAr" | "kind" | "color" | "blocksSchedule">;
   createdBy: UserRef;
   updatedBy: { id: string; name: string } | null;
   technicians: UserRef[];
@@ -114,7 +116,7 @@ export type AppointmentListItem = {
   customerConfirmation: CustomerConfirmation;
   brand: string | null;
   model: string | null;
-  status: Pick<StatusDTO, "id" | "name" | "kind" | "color">;
+  status: Pick<StatusDTO, "id" | "name" | "nameAr" | "kind" | "color">;
   createdBy: UserRef;
   technicians: { id: string; name: string }[];
   hasLocation?: boolean;

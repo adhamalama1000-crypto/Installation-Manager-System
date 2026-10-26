@@ -10,7 +10,7 @@ const forms = (e: Entry) => (typeof e === "string" ? [e] : Object.values(e).filt
 const other = (e: Entry) => (typeof e === "string" ? e : e.other);
 
 /** Entries that are the same in both languages on purpose (brand names, examples, symbols). */
-const SAME_IN_BOTH = new Set(["auth.emailPlaceholder", "common.dash"]);
+const SAME_IN_BOTH = new Set(["auth.emailPlaceholder", "common.dash", "fin.csv"]);
 
 describe("translation completeness", () => {
   const entries = Object.entries(messages);
@@ -46,7 +46,7 @@ describe("translation completeness", () => {
     for (const [key, pair] of entries) {
       if (SAME_IN_BOTH.has(key)) continue;
       const ar = other(pair.ar);
-      expect(/[؀-ۿ]/.test(ar) || /^[\p{P}\p{S}\s\d{}\w-]*$/u.test(ar) === false, `${key} looks untranslated: ${ar}`).toBe(true);
+      expect(/[\u0600-\u06FF]/.test(ar), `${key} looks untranslated: ${ar}`).toBe(true);
     }
   });
 });
@@ -115,5 +115,27 @@ describe("locale negotiation", () => {
     expect(localeFromAcceptLanguage("fr-FR,ar;q=0.8,en;q=0.5")).toBe("ar");
     expect(localeFromAcceptLanguage("fr-FR")).toBeNull();
     expect(localeFromAcceptLanguage(null)).toBeNull();
+  });
+});
+
+describe("enum labels", () => {
+  it("labels every value of every database enum in both languages", async () => {
+    const { $Enums } = await import("@prisma/client");
+    const { isMessageKey } = await import("@/i18n/translate");
+    const map: Record<string, Record<string, string>> = {
+      role: $Enums.Role,
+      stockStatus: $Enums.StockStatus,
+      paymentMethod: $Enums.PaymentMethod,
+      custody: $Enums.CustodyStatus,
+      category: $Enums.ProductCategory,
+      visitType: $Enums.VisitType,
+      confirmation: $Enums.CustomerConfirmation,
+      leaveType: $Enums.LeaveType,
+      leaveStatus: $Enums.LeaveStatus,
+      statusKind: $Enums.StatusKind,
+    };
+    for (const [type, values] of Object.entries(map)) {
+      for (const v of Object.values(values)) expect(isMessageKey(`enum.${type}.${v}`), `enum.${type}.${v}`).toBe(true);
+    }
   });
 });

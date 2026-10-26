@@ -37,6 +37,8 @@ export function createFormatter(locale: Locale, tz: string) {
   const f = {
     locale,
     tz,
+    /** The language's list comma with its space. */
+    sep,
     /** 14:30 */
     time: (d: Date | string) => (en ? fmt(d, tz, "HH:mm") : dtf(locale, tz, TIME).format(toDate(d))),
     /** 14:30–16:30 */
@@ -65,6 +67,8 @@ export function createFormatter(locale: Locale, tz: string) {
       const s = new Intl.NumberFormat(intl, { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 }).format(n);
       return locale === "ar" ? `${s} ج.م` : `${s} EGP`;
     },
+    /** Joins parts with the language's comma ("a, b" / "a، b"). */
+    join: (items: (string | null | undefined | false)[]) => items.filter(Boolean).join(sep),
     list: (items: string[]) => new Intl.ListFormat(intl, { style: "long", type: "conjunction" }).format(items),
     minutes: (total: number) => {
       const h = Math.floor(total / 60);

@@ -91,6 +91,7 @@ type ListRow = {
   hasLocation: boolean;
   statusId: string;
   statusName: string;
+  statusNameAr: string | null;
   statusKind: StatusKind;
   statusColor: string;
   creatorId: string;
@@ -137,7 +138,7 @@ export async function appointmentListRows(
            a."visitType", a."customerConfirmation",
            c.name AS "customerName", c.phone AS "customerPhone",
            l.area, l.building, (l."mapUrl" IS NOT NULL OR l.latitude IS NOT NULL) AS "hasLocation",
-           s.id AS "statusId", s.name AS "statusName", s.kind AS "statusKind", s.color AS "statusColor",
+           s.id AS "statusId", s.name AS "statusName", s."nameAr" AS "statusNameAr", s.kind AS "statusKind", s.color AS "statusColor",
            u.id AS "creatorId", u.name AS "creatorName", u.color AS "creatorColor", u."isActive" AS "creatorActive",
            COALESCE(tl.list, '[]'::json) AS technicians
     FROM page
@@ -169,7 +170,7 @@ export async function appointmentListRows(
     customerConfirmation: r.customerConfirmation,
     brand: r.brand,
     model: r.model,
-    status: { id: r.statusId, name: r.statusName, kind: r.statusKind, color: r.statusColor },
+    status: { id: r.statusId, name: r.statusName, nameAr: r.statusNameAr, kind: r.statusKind, color: r.statusColor },
     createdBy: { id: r.creatorId, name: r.creatorName, color: r.creatorColor, isActive: r.creatorActive },
     technicians: r.technicians,
   }));
@@ -205,6 +206,7 @@ export type ExportRow = {
   brand: string | null;
   model: string | null;
   statusName: string;
+  statusNameAr: string | null;
   customerName: string;
   phone: string;
   secondaryPhone: string | null;
@@ -229,7 +231,7 @@ export async function appointmentExportRows(where: Prisma.Sql, dir: "asc" | "des
       SELECT a.id FROM appointments a WHERE ${where} ORDER BY ${order} LIMIT ${limit}
     )
     SELECT a.number, a."startsAt", a."endsAt", a."durationMinutes", a."productCategory", a."categoryOther", a.brand, a.model,
-           s.name AS "statusName", c.name AS "customerName", c.phone, c."secondaryPhone",
+           s.name AS "statusName", s."nameAr" AS "statusNameAr", c.name AS "customerName", c.phone, c."secondaryPhone",
            l.area, l."streetAddress", l.building, l.apartment, l.floor, l."mapUrl", u.name AS "creatorName",
            string_agg(t.name, '; ' ORDER BY t.name) AS "technicianNames"
     FROM picked

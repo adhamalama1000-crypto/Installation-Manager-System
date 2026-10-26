@@ -9,16 +9,19 @@ import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/misc";
+import { Ltr } from "@/components/ui/ltr";
+import { useI18n } from "@/i18n/client";
+import type { MessageKey } from "@/i18n/translate";
 import { api, ApiError } from "@/lib/api-client";
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, money, parseSerials } from "@/lib/constants";
+import { PAYMENT_METHODS, parseSerials } from "@/lib/constants";
 import type { PaymentDTO } from "@/lib/types";
 import { outcomeSchema, fieldErrorsFromZod, type VisitOutcome } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
-const CHOICES: { value: Exclude<VisitOutcome, "IN_PROGRESS">; label: string; icon: typeof CheckCircle2; tone: string }[] = [
-  { value: "COMPLETED", label: "Done", icon: CheckCircle2, tone: "text-success" },
-  { value: "NEEDS_REVISIT", label: "Needs another visit", icon: RotateCcw, tone: "text-warning" },
-  { value: "UNABLE_TO_COMPLETE", label: "Unable to complete", icon: XCircle, tone: "text-danger" },
+const CHOICES: { value: Exclude<VisitOutcome, "IN_PROGRESS">; label: MessageKey; icon: typeof CheckCircle2; tone: string }[] = [
+  { value: "COMPLETED", label: "enum.outcome.COMPLETED", icon: CheckCircle2, tone: "text-success" },
+  { value: "NEEDS_REVISIT", label: "enum.outcome.NEEDS_REVISIT", icon: RotateCcw, tone: "text-warning" },
+  { value: "UNABLE_TO_COMPLETE", label: "enum.outcome.UNABLE_TO_COMPLETE", icon: XCircle, tone: "text-danger" },
 ];
 
 /** How the visit went, recorded by the assigned technician (or a manager) with a visit report. */
@@ -38,6 +41,7 @@ export function OutcomePanel({
   /** Items the technician holds, offered as quick picks. */
   myStock: { serial: string; model: string }[];
 }) {
+  const { t, f, tm, label: enumLabel } = useI18n();
   const router = useRouter();
   const current = CHOICES.some((c) => c.value === statusKind) ? (statusKind as (typeof CHOICES)[number]["value"]) : null;
   const [outcome, setOutcome] = useState<(typeof CHOICES)[number]["value"] | null>(current);
@@ -61,11 +65,11 @@ export function OutcomePanel({
     setErrors({});
     try {
       await api(`/api/appointments/${id}/outcome`, { method: "POST", body: { ...body, version } });
-      toast.success(body.outcome === "IN_PROGRESS" ? "Job started" : "Visit outcome saved");
+      toast.success(body.outcome === "IN_PROGRESS" ? t("out.started") : t("out.saved"));
       if (body.serials) setSerials("");
       router.refresh();
     } catch (e) {
-      const err = e instanceof ApiError ? e : new ApiError("Could not save", 0, "UNKNOWN");
+      const err = e instanceof ApiError ? e : new ApiError(t("act.couldNotSave"), 0, "UNKNOWN");
       setErrors(err.fieldErrors);
       toast.error(err.message);
       if (err.code === "STALE_RECORD") router.refresh();
@@ -76,14 +80,14 @@ export function OutcomePanel({
 
   return (
     <Card className="border-brand/40">
-      <CardHeader title="Visit outcome" description="Record how the visit went. The report is shown to Sales and kept in the history." icon={<ClipboardCheck className="h-4 w-4" />} />
+      <CardHeader title={t("out.title")} description={t("out.desc")} icon={<ClipboardCheck className="h-4 w-4" />} />
       <div className="space-y-4 p-5">
         {statusKind === "SCHEDULED" && (
           <Button variant="outline" className="w-full sm:w-auto" loading={busy === "IN_PROGRESS"} onClick={() => send({ outcome: "IN_PROGRESS" })}>
-            <PlayCircle className="h-4 w-4" /> Start job
+            <PlayCircle className="h-4 w-4" /> {t("out.startJob")}
           </Button>
         )}
-        <div role="radiogroup" aria-label="Outcome" className="grid gap-2 sm:grid-cols-3">
+        <div role="radiogroup" aria-label={t("out.outcome")} className="grid gap-2 sm:grid-cols-3">
           {CHOICES.map(({ value, label, icon: Icon, tone }) => (
             <button
               key={value}
@@ -92,25 +96,25 @@ export function OutcomePanel({
               aria-checked={outcome === value}
               onClick={() => setOutcome(value)}
               className={cn(
-                "flex items-center gap-2 rounded-lg border px-3 py-3 text-left text-sm font-medium transition-colors",
+                "flex items-center gap-2 rounded-lg border px-3 py-3 text-start text-sm font-medium transition-colors",
                 outcome === value ? "border-brand bg-brand-soft text-fg" : "border-line text-fg-muted hover:bg-surface-muted",
               )}
             >
-              <Icon className={cn("h-5 w-5 shrink-0", tone)} /> {label}
+              <Icon className={cn("h-5 w-5 shrink-0", tone)} /> {t(label)}
             </button>
           ))}
         </div>
-        {errors.outcome && <Alert tone="danger">{errors.outcome}</Alert>}
-        <Field label="Visit report" required error={errors.report} hint="What was installed or done, what is missing, anything the next visit needs to know.">
+        {errors.outcome && <Alert tone="danger">{tm(errors.outcome)}</Alert>}
+        <Field label={t("out.report")} required error={errors.report} hint={t("out.reportHint")}>
           {(p) => <Textarea {...p} rows={4} value={text} onChange={(e) => setText(e.target.value)} />}
         </Field>
         {outcome === "COMPLETED" && (
           <div className="space-y-2">
-            <Field label="Serial numbers installed" error={errors.serials} hint="One per line. Installed items leave your custody; their warranty runs from the visit date.">
-              {(p) => <Textarea {...p} rows={2} className="font-mono" value={serials} onChange={(e) => setSerials(e.target.value)} />}
+            <Field label={t("out.serials")} error={errors.serials} hint={t("out.serialsHint")}>
+              {(p) => <Textarea {...p} rows={2} dir="ltr" className="font-mono" value={serials} onChange={(e) => setSerials(e.target.value)} />}
             </Field>
             {myStock.length > 0 && (
-              <div className="flex flex-wrap gap-1.5" aria-label="Items in your custody">
+              <div className="flex flex-wrap gap-1.5" aria-label={t("out.myCustody")}>
                 {myStock.map((i) => (
                   <button
                     key={i.serial}
@@ -120,7 +124,7 @@ export function OutcomePanel({
                     className="rounded-full border border-line px-2.5 py-1 font-mono text-xs text-fg-muted hover:bg-surface-muted disabled:opacity-50"
                     title={i.model}
                   >
-                    + {i.serial}
+                    <Ltr>{`+ ${i.serial}`}</Ltr>
                   </button>
                 ))}
               </div>
@@ -130,18 +134,18 @@ export function OutcomePanel({
         {payment && (
           <div className="grid gap-3 sm:grid-cols-2">
             <Field
-              label="Collected from the customer (EGP)"
+              label={t("out.collected")}
               error={errors.collectedAmount}
-              hint={payment.due !== null ? `To collect: ${money(payment.due)}. Enter 0 if nothing was paid.` : "Leave empty if no payment was taken."}
+              hint={payment.due !== null ? t("out.toCollectHint", { amount: f.money(payment.due) }) : t("out.noPaymentHint")}
             >
               {(p) => <Input {...p} inputMode="decimal" value={collected} onChange={(e) => setCollected(e.target.value)} />}
             </Field>
-            <Field label="Paid by" error={errors.collectedMethod}>
+            <Field label={t("out.paidBy")} error={errors.collectedMethod}>
               {(p) => (
                 <Select {...p} value={method} disabled={!Number(collected.replace(/[,\s]/g, ""))} onChange={(e) => setMethod(e.target.value as PaymentMethod)}>
                   {PAYMENT_METHODS.map((m) => (
                     <option key={m} value={m}>
-                      {PAYMENT_METHOD_LABELS[m]}
+                      {enumLabel("paymentMethod", m)}
                     </option>
                   ))}
                 </Select>
@@ -165,7 +169,7 @@ export function OutcomePanel({
             });
           }}
         >
-          Save outcome
+          {t("out.save")}
         </Button>
       </div>
     </Card>

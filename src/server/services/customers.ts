@@ -138,7 +138,7 @@ export async function getCustomer(user: CurrentUser, id: string) {
       code: a.code,
       startsAt: a.startsAt,
       endsAt: a.endsAt,
-      status: { name: a.status.name, color: a.status.color, kind: a.status.kind },
+      status: { name: a.status.name, nameAr: a.status.nameAr, color: a.status.color, kind: a.status.kind },
       productCategory: a.productCategory,
       categoryOther: a.categoryOther,
       brand: a.brand,

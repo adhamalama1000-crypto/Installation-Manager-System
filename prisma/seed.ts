@@ -23,14 +23,14 @@ function rand() {
 }
 const pick = <T,>(arr: readonly T[]): T => arr[Math.floor(rand() * arr.length)]!;
 
-const STATUSES: { name: string; kind: StatusKind; color: string; blocksSchedule: boolean; isDefault?: boolean }[] = [
-  { name: "Scheduled", kind: "SCHEDULED", color: "#2563EB", blocksSchedule: true, isDefault: true },
-  { name: "In Progress", kind: "IN_PROGRESS", color: "#CA8A04", blocksSchedule: true },
-  { name: "Completed", kind: "COMPLETED", color: "#059669", blocksSchedule: true },
-  { name: "Postponed/Rescheduled", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
-  { name: "Cancelled", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
-  { name: "Unable to Complete", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
-  { name: "Needs another visit", kind: "NEEDS_REVISIT", color: "#EA580C", blocksSchedule: true },
+const STATUSES: { name: string; nameAr: string; kind: StatusKind; color: string; blocksSchedule: boolean; isDefault?: boolean }[] = [
+  { name: "Scheduled", nameAr: "مجدول", kind: "SCHEDULED", color: "#2563EB", blocksSchedule: true, isDefault: true },
+  { name: "In Progress", nameAr: "قيد التنفيذ", kind: "IN_PROGRESS", color: "#CA8A04", blocksSchedule: true },
+  { name: "Completed", nameAr: "تم التنفيذ", kind: "COMPLETED", color: "#059669", blocksSchedule: true },
+  { name: "Postponed/Rescheduled", nameAr: "مؤجل", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
+  { name: "Cancelled", nameAr: "ملغي", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
+  { name: "Unable to Complete", nameAr: "تعذّر الإكمال", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
+  { name: "Needs another visit", nameAr: "يحتاج زيارة أخرى", kind: "NEEDS_REVISIT", color: "#EA580C", blocksSchedule: true },
 ];
 
 const USERS: { name: string; email: string; role: Role; color?: string; isActive?: boolean; phone?: string; viewerPermissions?: string[] }[] = [

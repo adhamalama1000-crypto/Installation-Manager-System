@@ -23,26 +23,13 @@ import type { CustomerConfirmation, LeaveType, PaymentMethod, ProductCategory, V
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Ltr } from "@/components/ui/ltr";
 import { Alert, Badge, SalesTag } from "@/components/ui/misc";
+import { useI18n } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
 import { colorOrFallback } from "@/lib/colors";
-import {
-  CONFIRMATIONS,
-  CONFIRMATION_LABELS,
-  DURATION_PRESETS,
-  LEAVE_TYPE_LABELS,
-  PAYMENT_METHODS,
-  PAYMENT_METHOD_LABELS,
-  PRODUCT_CATEGORIES,
-  PRODUCT_CATEGORY_LABELS,
-  VISIT_TYPES,
-  VISIT_TYPE_LABELS,
-  WEEKDAY_NAMES,
-  minutesLabel,
-  money,
-} from "@/lib/constants";
-import { dayRangeLabel, weekdayOfKey } from "@/lib/time";
-import { timeRange } from "@/lib/format";
+import { CONFIRMATIONS, DURATION_PRESETS, PAYMENT_METHODS, PRODUCT_CATEGORIES, VISIT_TYPES } from "@/lib/constants";
+import { weekdayOfKey } from "@/lib/time";
 import { checkMapUrl, extractCoordinates } from "@/lib/maps";
 import type { AppointmentDTO, ConflictDTO, StatusDTO } from "@/lib/types";
 import type { FormValues } from "./form-values";
@@ -114,6 +101,7 @@ export function AppointmentForm({
   /** Code of the visit this one follows up (create only). */
   followUpOf?: { id: string; code: string };
 }) {
+  const { t, tm, f, label, sn } = useI18n();
   const router = useRouter();
   const [v, setV] = useState<FormValues>(initial);
   const [errors, setErrors] = useState<Record<string, string>>({});
@@ -255,7 +243,7 @@ export function AppointmentForm({
     if (!check.success) {
       const errs = fieldErrorsFromZod(check.error);
       setErrors(errs);
-      toast.error("Please correct the highlighted fields.");
+      toast.error(t("e.validation"));
       focusFirstError(errs);
       return;
     }
@@ -266,14 +254,14 @@ export function AppointmentForm({
           ? await api<{ appointment: AppointmentDTO }>("/api/appointments", { method: "POST", body })
           : await api<{ appointment: AppointmentDTO }>(`/api/appointments/${appointmentId}`, { method: "PATCH", body });
       setDirty(false);
-      toast.success(mode === "create" ? `Appointment ${res.appointment.code} created` : `Appointment ${res.appointment.code} updated`);
+      toast.success(t(mode === "create" ? "form.created" : "form.updated", { code: res.appointment.code }));
       router.push(`/appointments/${res.appointment.id}`);
       router.refresh();
     } catch (err) {
-      const apiErr = err instanceof ApiError ? err : new ApiError("Unexpected error", 0, "UNKNOWN");
+      const apiErr = err instanceof ApiError ? err : new ApiError(t("act.unexpected"), 0, "UNKNOWN");
       if (apiErr.code === "SCHEDULING_CONFLICT") {
         setConflicts(apiErr.conflicts);
-        toast.error("Scheduling conflict - your entries are kept. Choose another technician or time.");
+        toast.error(t("form.conflictToast"));
         techSection.current?.scrollIntoView({ behavior: "smooth", block: "center" });
       } else if (apiErr.code === "VALIDATION_ERROR") {
         setErrors(apiErr.fieldErrors);
@@ -296,23 +284,23 @@ export function AppointmentForm({
     <form onSubmit={submit} noValidate className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_400px]">
       <div className="space-y-6">
         {followUpOf && (
-          <Alert tone="info" title={`Follow-up visit for ${followUpOf.code}`}>
-            The customer, site and installation details were copied from the earlier visit. The two appointments are linked.
+          <Alert tone="info" title={t("form.followUpAlert", { code: followUpOf.code })}>
+            {t("form.followUpText")}
           </Alert>
         )}
         {formError && (
-          <Alert tone="danger" title="Could not save">
+          <Alert tone="danger" title={t("form.couldNotSave")}>
             {formError}
-            {formError.includes("someone else") && (
-              <button type="button" className="ml-2 font-medium text-brand-text underline" onClick={() => window.location.reload()}>
-                Reload
+            {formError === t("e.stale") && (
+              <button type="button" className="ms-2 font-medium text-brand-text underline" onClick={() => window.location.reload()}>
+                {t("form.reload")}
               </button>
             )}
           </Alert>
         )}
 
         <Card>
-          <CardHeader title="Customer" description="Search to reuse an existing customer, or enter a new one." icon={<UserIcon className="h-4 w-4" />} />
+          <CardHeader title={t("form.customer")} description={t("form.customerDesc")} icon={<UserIcon className="h-4 w-4" />} />
           <div className="space-y-4 p-5">
             <CustomerLookup
               selectedId={v.customer.id}
@@ -342,22 +330,22 @@ export function AppointmentForm({
               }}
             />
             {v.customer.id && (
-              <p className="text-xs text-fg-subtle">Editing these fields updates the existing customer record.</p>
+              <p className="text-xs text-fg-subtle">{t("form.editingExisting")}</p>
             )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div data-field="customer.name" className="sm:col-span-2">
-                <Field label="Customer full name" required error={err("customer.name")}>
+                <Field label={t("form.customerName")} required error={err("customer.name")}>
                   {(p) => <Input {...p} value={v.customer.name} onChange={(e) => setCustomer({ name: e.target.value })} autoComplete="off" />}
                 </Field>
               </div>
               <div data-field="customer.phone">
-                <Field label="Primary phone" required error={err("customer.phone")}>
-                  {(p) => <Input {...p} type="tel" inputMode="tel" value={v.customer.phone} onChange={(e) => setCustomer({ phone: e.target.value })} placeholder="+20 100 000 0000" />}
+                <Field label={t("form.primaryPhone")} required error={err("customer.phone")}>
+                  {(p) => <Input {...p} type="tel" dir="ltr" inputMode="tel" value={v.customer.phone} onChange={(e) => setCustomer({ phone: e.target.value })} placeholder="+20 100 000 0000" />}
                 </Field>
               </div>
               <div data-field="customer.secondaryPhone">
-                <Field label="Secondary phone" error={err("customer.secondaryPhone")} hint="Optional">
-                  {(p) => <Input {...p} type="tel" inputMode="tel" value={v.customer.secondaryPhone} onChange={(e) => setCustomer({ secondaryPhone: e.target.value })} />}
+                <Field label={t("form.secondaryPhone")} error={err("customer.secondaryPhone")} hint={t("common.optional")}>
+                  {(p) => <Input {...p} type="tel" dir="ltr" inputMode="tel" value={v.customer.secondaryPhone} onChange={(e) => setCustomer({ secondaryPhone: e.target.value })} />}
                 </Field>
               </div>
             </div>
@@ -365,7 +353,7 @@ export function AppointmentForm({
         </Card>
 
         <Card>
-          <CardHeader title="Installation location" description="Entered by Sales. Shown to the assigned technicians." icon={<MapPin className="h-4 w-4" />} />
+          <CardHeader title={t("form.location")} description={t("form.locationDesc")} icon={<MapPin className="h-4 w-4" />} />
           <div className="space-y-4 p-5">
             <SavedLocationPicker
               locations={savedLocations}
@@ -391,72 +379,68 @@ export function AppointmentForm({
             />
             <div className="grid gap-4 sm:grid-cols-2">
               <div data-field="location.streetAddress" className="sm:col-span-2">
-                <Field label="Full written address" error={err("location.streetAddress")} hint="Street, number, landmarks">
+                <Field label={t("form.fullAddress")} error={err("location.streetAddress")} hint={t("form.fullAddressHint")}>
                   {(p) => <Input {...p} value={v.location.streetAddress} onChange={(e) => setLocation({ streetAddress: e.target.value })} />}
                 </Field>
               </div>
               <div data-field="location.area">
-                <Field label="Area / neighbourhood" error={err("location.area")}>
+                <Field label={t("form.area")} error={err("location.area")}>
                   {(p) => <Input {...p} value={v.location.area} onChange={(e) => setLocation({ area: e.target.value })} />}
                 </Field>
               </div>
               <div data-field="location.building">
-                <Field label="Compound / building" error={err("location.building")}>
+                <Field label={t("form.building")} error={err("location.building")}>
                   {(p) => <Input {...p} value={v.location.building} onChange={(e) => setLocation({ building: e.target.value })} />}
                 </Field>
               </div>
               <div data-field="location.apartment">
-                <Field label="Apartment / unit number" error={err("location.apartment")}>
+                <Field label={t("form.apartment")} error={err("location.apartment")}>
                   {(p) => <Input {...p} value={v.location.apartment} onChange={(e) => setLocation({ apartment: e.target.value })} />}
                 </Field>
               </div>
               <div data-field="location.floor">
-                <Field label="Floor number" error={err("location.floor")}>
+                <Field label={t("form.floor")} error={err("location.floor")}>
                   {(p) => <Input {...p} value={v.location.floor} onChange={(e) => setLocation({ floor: e.target.value })} />}
                 </Field>
               </div>
               <div data-field="location.accessInstructions" className="sm:col-span-2">
-                <Field label="Access instructions" error={err("location.accessInstructions")} hint="Optional - gate, parking, who to call on arrival">
+                <Field label={t("form.access")} error={err("location.accessInstructions")} hint={t("form.accessHint")}>
                   {(p) => <Textarea {...p} rows={2} value={v.location.accessInstructions} onChange={(e) => setLocation({ accessInstructions: e.target.value })} />}
                 </Field>
               </div>
               <div data-field="location.mapUrl" className="sm:col-span-2">
                 <Field
-                  label="Map link"
+                  label={t("form.mapLink")}
                   error={err("location.mapUrl")}
-                  hint={
-                    mapCheck && mapCheck.ok && !mapCheck.knownHost
-                      ? `Link to ${mapCheck.host} - not a recognised maps site, double-check it.`
-                      : "Paste a Google Maps (or other maps app) link. It is saved exactly as entered."
-                  }
+                  hint={mapCheck && mapCheck.ok && !mapCheck.knownHost ? t("form.mapUnknownHost", { host: mapCheck.host }) : t("form.mapHint")}
                 >
                   {(p) => (
                     <div className="flex gap-2">
-                      <Input {...p} type="url" inputMode="url" value={v.location.mapUrl} onChange={(e) => setLocation({ mapUrl: e.target.value })} placeholder="https://maps.app.goo.gl/..." />
+                      <Input {...p} type="url" dir="ltr" inputMode="url" value={v.location.mapUrl} onChange={(e) => setLocation({ mapUrl: e.target.value })} placeholder="https://maps.app.goo.gl/..." />
                       <Button
                         type="button"
                         variant="outline"
                         size="icon"
                         className="h-10 w-10"
-                        title="Test link"
+                        title={t("form.testLink")}
                         disabled={!mapCheck?.ok}
                         onClick={() => mapCheck?.ok && window.open(mapCheck.url, "_blank", "noopener,noreferrer")}
                       >
                         <ExternalLink className="h-4 w-4" />
-                        <span className="sr-only">Test link</span>
+                        <span className="sr-only">{t("form.testLink")}</span>
                       </Button>
                     </div>
                   )}
                 </Field>
               </div>
               <div data-field="location.latitude">
-                <Field label="Latitude" error={err("location.latitude")} hint="Optional">
-                  {(p) => <Input {...p} inputMode="decimal" value={v.location.latitude} onChange={(e) => setLocation({ latitude: e.target.value })} placeholder="30.0444" />}
+                <Field label={t("form.latitude")} error={err("location.latitude")} hint={t("common.optional")}>
+                  {(p) => <Input {...p} dir="ltr" inputMode="decimal" value={v.location.latitude} onChange={(e) => setLocation({ latitude: e.target.value })} placeholder="30.0444" />}
                 </Field>
               </div>
               <div data-field="location.longitude">
-                <Field label="Longitude" error={err("location.longitude")} hint="Optional">
-                  {(p) => <Input {...p} inputMode="decimal" value={v.location.longitude} onChange={(e) => setLocation({ longitude: e.target.value })} placeholder="31.2357" />}
+                <Field label={t("form.longitude")} error={err("location.longitude")} hint={t("common.optional")}>
+                  {(p) => <Input {...p} dir="ltr" inputMode="decimal" value={v.location.longitude} onChange={(e) => setLocation({ longitude: e.target.value })} placeholder="31.2357" />}
                 </Field>
               </div>
             </div>
@@ -469,29 +453,29 @@ export function AppointmentForm({
                   const c = extractCoordinates(v.location.mapUrl);
                   if (c) {
                     setLocation({ latitude: String(c.latitude), longitude: String(c.longitude) });
-                    toast.success("Coordinates filled in from the link.");
+                    toast.success(t("form.coordsFilled"));
                   } else {
-                    toast.info("This link does not contain coordinates (short links can't be read). The link itself is enough.");
+                    toast.info(t("form.coordsMissing"));
                   }
                 }}
               >
-                <Crosshair className="h-4 w-4" /> Fill coordinates from link
+                <Crosshair className="h-4 w-4" /> {t("form.fillCoords")}
               </Button>
             )}
           </div>
         </Card>
 
         <Card>
-          <CardHeader title="Installation & product" icon={<Package className="h-4 w-4" />} />
+          <CardHeader title={t("form.product")} icon={<Package className="h-4 w-4" />} />
           <div className="grid gap-4 p-5 sm:grid-cols-2">
             <div data-field="productCategory">
-              <Field label="Product category" required error={err("productCategory")}>
+              <Field label={t("form.category")} required error={err("productCategory")}>
                 {(p) => (
                   <Select {...p} value={v.productCategory} onChange={(e) => set("productCategory", e.target.value as ProductCategory)}>
-                    <option value="">Choose…</option>
+                    <option value="">{t("form.choose")}</option>
                     {PRODUCT_CATEGORIES.map((c) => (
                       <option key={c} value={c}>
-                        {PRODUCT_CATEGORY_LABELS[c]}
+                        {label("category", c)}
                       </option>
                     ))}
                   </Select>
@@ -499,13 +483,13 @@ export function AppointmentForm({
               </Field>
             </div>
             <div data-field="visitType">
-              <Field label="Visit type" error={err("visitType")}>
+              <Field label={t("form.visitType")} error={err("visitType")}>
                 {(p) => (
                   <Select {...p} value={v.visitType} onChange={(e) => set("visitType", e.target.value as VisitType | "")}>
-                    <option value="">Not specified</option>
-                    {VISIT_TYPES.map((t) => (
-                      <option key={t} value={t}>
-                        {VISIT_TYPE_LABELS[t]}
+                    <option value="">{t("form.notSpecified")}</option>
+                    {VISIT_TYPES.map((vt) => (
+                      <option key={vt} value={vt}>
+                        {label("visitType", vt)}
                       </option>
                     ))}
                   </Select>
@@ -514,39 +498,39 @@ export function AppointmentForm({
             </div>
             {v.productCategory === "OTHER" ? (
               <div data-field="categoryOther">
-                <Field label="Describe the category" required error={err("categoryOther")}>
+                <Field label={t("form.describeCategory")} required error={err("categoryOther")}>
                   {(p) => <Input {...p} value={v.categoryOther} onChange={(e) => set("categoryOther", e.target.value)} />}
                 </Field>
               </div>
             ) : null}
             <div data-field="brand">
-              <Field label="Brand" error={err("brand")}>
+              <Field label={t("form.brand")} error={err("brand")}>
                 {(p) => <Input {...p} value={v.brand} onChange={(e) => set("brand", e.target.value)} />}
               </Field>
             </div>
             <div data-field="model">
-              <Field label="Model" error={err("model")}>
+              <Field label={t("form.model")} error={err("model")}>
                 {(p) => <Input {...p} value={v.model} onChange={(e) => set("model", e.target.value)} />}
               </Field>
             </div>
             <div data-field="description" className="sm:col-span-2">
-              <Field label="Installation description" error={err("description")}>
+              <Field label={t("form.description")} error={err("description")}>
                 {(p) => <Textarea {...p} rows={3} value={v.description} onChange={(e) => set("description", e.target.value)} />}
               </Field>
             </div>
             <div data-field="requiredEquipment" className="sm:col-span-2">
-              <Field label="Required equipment / accessories" error={err("requiredEquipment")}>
+              <Field label={t("form.equipment")} error={err("requiredEquipment")}>
                 {(p) => <Textarea {...p} rows={2} value={v.requiredEquipment} onChange={(e) => set("requiredEquipment", e.target.value)} />}
               </Field>
             </div>
             <div data-field="additionalNotes" className="sm:col-span-2">
-              <Field label="Additional installation notes" error={err("additionalNotes")} hint="Visible to the assigned technicians">
+              <Field label={t("form.notes")} error={err("additionalNotes")} hint={t("form.notesHint")}>
                 {(p) => <Textarea {...p} rows={2} value={v.additionalNotes} onChange={(e) => set("additionalNotes", e.target.value)} />}
               </Field>
             </div>
             {canSeeInternalNotes && (
               <div data-field="internalNotes" className="sm:col-span-2">
-                <Field label="Internal company notes" error={err("internalNotes")} hint="Not shown to technicians or to viewers without permission">
+                <Field label={t("form.internal")} error={err("internalNotes")} hint={t("form.internalHint")}>
                   {(p) => <Textarea {...p} rows={2} value={v.internalNotes} onChange={(e) => set("internalNotes", e.target.value)} />}
                 </Field>
               </div>
@@ -556,33 +540,33 @@ export function AppointmentForm({
 
         <Card>
           <CardHeader
-            title="Price & payment"
-            description="Optional. Technicians only see the amount to collect, not the price."
+            title={t("form.price")}
+            description={t("form.priceDesc")}
             icon={<Banknote className="h-4 w-4" />}
           />
           <div className="grid gap-4 p-5 sm:grid-cols-2">
             <div data-field="totalPrice">
-              <Field label="Total price (EGP)" error={err("totalPrice")}>
-                {(p) => <Input {...p} inputMode="decimal" value={v.totalPrice} onChange={(e) => set("totalPrice", e.target.value)} placeholder="e.g. 4500" />}
+              <Field label={t("form.totalPrice")} error={err("totalPrice")}>
+                {(p) => <Input {...p} inputMode="decimal" value={v.totalPrice} onChange={(e) => set("totalPrice", e.target.value)} placeholder={t("form.pricePlaceholder")} />}
               </Field>
             </div>
             <div data-field="extraFee">
-              <Field label="Extra fee (EGP)" error={err("extraFee")} hint="e.g. a repeat visit the customer caused">
+              <Field label={t("form.extraFee")} error={err("extraFee")} hint={t("form.extraFeeHint")}>
                 {(p) => <Input {...p} inputMode="decimal" value={v.extraFee} onChange={(e) => set("extraFee", e.target.value)} />}
               </Field>
             </div>
             <div data-field="depositAmount">
-              <Field label="Deposit paid (EGP)" error={err("depositAmount")}>
+              <Field label={t("form.deposit")} error={err("depositAmount")}>
                 {(p) => <Input {...p} inputMode="decimal" value={v.depositAmount} onChange={(e) => set("depositAmount", e.target.value)} />}
               </Field>
             </div>
             <div data-field="depositMethod">
-              <Field label="Deposit paid by" error={err("depositMethod")}>
+              <Field label={t("form.depositMethod")} error={err("depositMethod")}>
                 {(p) => (
                   <Select {...p} value={v.depositMethod} disabled={!v.depositAmount.trim()} onChange={(e) => set("depositMethod", e.target.value as PaymentMethod)}>
                     {PAYMENT_METHODS.map((m) => (
                       <option key={m} value={m}>
-                        {PAYMENT_METHOD_LABELS[m]}
+                        {label("paymentMethod", m)}
                       </option>
                     ))}
                   </Select>
@@ -591,7 +575,7 @@ export function AppointmentForm({
             </div>
             {toCollect !== null && (
               <p className="text-sm text-fg-muted sm:col-span-2">
-                To collect at the visit: <strong className="text-fg">{money(toCollect)}</strong>
+                {t("form.toCollect")} <strong className="text-fg">{f.money(toCollect)}</strong>
               </p>
             )}
           </div>
@@ -600,34 +584,34 @@ export function AppointmentForm({
 
       <div className="space-y-6 xl:sticky xl:top-20 xl:self-start">
         <Card id="schedule" className="scroll-mt-20">
-          <CardHeader title="Schedule" description={`Times are in ${tz}`} icon={<CalendarClock className="h-4 w-4" />} />
+          <CardHeader title={t("form.schedule")} description={t("form.timesIn", { tz })} icon={<CalendarClock className="h-4 w-4" />} />
           <div className="grid gap-4 p-5 sm:grid-cols-2">
             <div data-field="date">
-              <Field label="Date" required error={err("date")}>
+              <Field label={t("form.date")} required error={err("date")}>
                 {(p) => <Input {...p} type="date" value={v.date} onChange={(e) => set("date", e.target.value)} />}
               </Field>
             </div>
             {closedDay && (
               <div className="sm:col-span-2">
-                <Alert tone="warning" title={`${WEEKDAY_NAMES[weekdayOfKey(v.date)]} is a closed day`}>
+                <Alert tone="warning" title={t("form.closedDay", { day: f.weekday(weekdayOfKey(v.date)) })}>
                   {isAdmin ? (
                     <label className="mt-1 flex items-center gap-2">
                       <input type="checkbox" checked={allowClosedDay} onChange={(e) => setAllowClosedDay(e.target.checked)} className="h-4 w-4 accent-[var(--brand-strong)]" />
-                      Book on a closed day anyway
+                      {t("form.bookClosedDay")}
                     </label>
                   ) : (
-                    "Choose another date."
+                    t("form.chooseAnotherDate")
                   )}
                 </Alert>
               </div>
             )}
             <div data-field="startTime">
-              <Field label="Start time" required error={err("startTime")}>
+              <Field label={t("form.startTime")} required error={err("startTime")}>
                 {(p) => <Input {...p} type="time" step={300} value={v.startTime} onChange={(e) => set("startTime", e.target.value)} />}
               </Field>
             </div>
             <div data-field="durationMinutes">
-              <Field label="Expected duration" required error={err("durationMinutes")}>
+              <Field label={t("form.duration")} required error={err("durationMinutes")}>
                 {(p) => (
                   <Select
                     {...p}
@@ -643,17 +627,17 @@ export function AppointmentForm({
                   >
                     {DURATION_PRESETS.map((d) => (
                       <option key={d} value={d}>
-                        {minutesLabel(d)}
+                        {f.minutes(d)}
                       </option>
                     ))}
-                    <option value="custom">Custom…</option>
+                    <option value="custom">{t("form.custom")}</option>
                   </Select>
                 )}
               </Field>
             </div>
             {customDuration ? (
               <div>
-                <Field label="Minutes" required>
+                <Field label={t("form.minutes")} required>
                   {(p) => (
                     <Input {...p} type="number" min={15} max={1440} step={15} value={v.durationMinutes || ""} onChange={(e) => set("durationMinutes", Number(e.target.value))} />
                   )}
@@ -661,28 +645,28 @@ export function AppointmentForm({
               </div>
             ) : (
               <div className="flex flex-col justify-end">
-                <p className="text-xs font-medium text-fg-muted">Ends at</p>
+                <p className="text-xs font-medium text-fg-muted">{t("form.endsAt")}</p>
                 <p className="mt-1 flex h-10 items-center rounded-lg bg-surface-muted px-3 text-sm font-semibold tabular-nums">
-                  {end.time}
-                  {end.nextDay > 0 && <span className="ml-1 text-xs font-normal text-warning">(+{end.nextDay} day)</span>}
+                  <Ltr>{end.time}</Ltr>
+                  {end.nextDay > 0 && <span className="ms-1 text-xs font-normal text-warning">{t("form.plusDay", { count: end.nextDay })}</span>}
                 </p>
               </div>
             )}
             {customDuration && (
               <p className="text-sm text-fg-muted sm:col-span-2">
-                Ends at <span className="font-semibold tabular-nums text-fg">{end.time}</span>
-                {end.nextDay > 0 && <span className="text-warning"> (next day)</span>}
+                {t("form.endsAt")} <Ltr className="font-semibold tabular-nums text-fg">{end.time}</Ltr>
+                {end.nextDay > 0 && <span className="text-warning"> {t("form.nextDay")}</span>}
               </p>
             )}
             <div data-field="statusId" className="sm:col-span-2">
-              <Field label="Status" error={err("statusId")}>
+              <Field label={t("form.status")} error={err("statusId")}>
                 {(p) => (
                   <Select {...p} value={v.statusId} onChange={(e) => set("statusId", e.target.value)}>
                     {statuses
                       .filter((st) => st.isActive || st.id === initial.statusId)
                       .map((st) => (
                         <option key={st.id} value={st.id}>
-                          {st.name}
+                          {sn(st)}
                         </option>
                       ))}
                   </Select>
@@ -690,12 +674,12 @@ export function AppointmentForm({
               </Field>
             </div>
             <div data-field="customerConfirmation" className="sm:col-span-2">
-              <Field label="Customer confirmation" error={err("customerConfirmation")}>
+              <Field label={t("form.confirmation")} error={err("customerConfirmation")}>
                 {(p) => (
                   <Select {...p} value={v.customerConfirmation} onChange={(e) => set("customerConfirmation", e.target.value as CustomerConfirmation)}>
                     {CONFIRMATIONS.map((c) => (
                       <option key={c} value={c}>
-                        {CONFIRMATION_LABELS[c]}
+                        {label("confirmation", c)}
                       </option>
                     ))}
                   </Select>
@@ -704,13 +688,13 @@ export function AppointmentForm({
             </div>
             {mode === "create" && salesOptions ? (
               <div data-field="salesUserId" className="sm:col-span-2">
-                <Field label="Sales employee (original creator)" error={err("salesUserId")} hint="Determines the appointment colour. Cannot be changed later.">
+                <Field label={t("form.salesEmployee")} error={err("salesUserId")} hint={t("form.salesHint")}>
                   {(p) => (
                     <Select {...p} value={v.salesUserId} onChange={(e) => set("salesUserId", e.target.value)}>
                       {salesOptions.map((so) => (
                         <option key={so.id} value={so.id}>
                           {so.name}
-                          {so.id === currentUserId ? " (me)" : ""}
+                          {so.id === currentUserId ? t("form.me") : ""}
                         </option>
                       ))}
                     </Select>
@@ -719,7 +703,7 @@ export function AppointmentForm({
               </div>
             ) : originalCreator ? (
               <div className="sm:col-span-2">
-                <p className="text-xs font-medium text-fg-muted">Original Sales creator</p>
+                <p className="text-xs font-medium text-fg-muted">{t("form.originalCreator")}</p>
                 <div className="mt-1.5">
                   <SalesTag name={originalCreator.name} color={originalCreator.color} inactive={!originalCreator.isActive} />
                 </div>
@@ -731,40 +715,45 @@ export function AppointmentForm({
         <div ref={techSection}>
         <Card>
           <CardHeader
-            title="Technicians"
-            description={checking ? "Checking availability…" : statusBlocks ? "Availability for the selected time" : "This status does not block schedules"}
+            title={t("form.technicians")}
+            description={checking ? t("form.checking") : statusBlocks ? t("form.availabilityFor") : t("form.statusNoBlock")}
             icon={checking ? <Loader2 className="h-4 w-4 animate-spin" /> : <Users className="h-4 w-4" />}
           />
           <div className="space-y-3 p-5" data-field="technicianIds">
             {conflicts.length > 0 && (
-              <Alert tone="danger" title="Scheduling conflict">
-                <ul className="mt-1 list-disc space-y-1 pl-4">
+              <Alert tone="danger" title={t("form.conflictTitle")}>
+                <ul className="mt-1 list-disc space-y-1 ps-4">
                   {conflicts.map((c) => (
                     <li key={`${c.technicianId}-${c.appointmentId}`}>
-                      <strong className="text-fg">{c.technicianName}</strong> is already booked {timeRange(c.startsAt, c.endsAt, tz)} ({c.appointmentCode}
-                      {c.customerName ? `, ${c.customerName}` : ""}).
+                      {t("form.conflictLine", {
+                        name: c.technicianName,
+                        time: f.timeRange(c.startsAt, c.endsAt),
+                        code: c.appointmentCode,
+                        customer: c.customerName ? `${f.sep}${c.customerName}` : "",
+                      })}
                     </li>
                   ))}
                 </ul>
-                <p className="mt-2">Choose another technician or change the time. Your other entries are kept.</p>
+                <p className="mt-2">{t("form.conflictHelp")}</p>
               </Alert>
             )}
             {busySelected.length > 0 && conflicts.length === 0 && (
               <Alert tone="warning">
-                {busySelected.map((id) => technicians.find((t) => t.id === id)?.name).join(", ")} {busySelected.length === 1 ? "is" : "are"}{" "}
-                {busySelected.every((id) => availability?.[id]?.leave) ? "on leave on this date" : "busy or on leave at this time"}.
+                {t(busySelected.every((id) => availability?.[id]?.leave) ? "form.busyOnLeave" : "form.busyOrLeave", {
+                  names: f.join(busySelected.map((id) => technicians.find((x) => x.id === id)?.name)),
+                })}
               </Alert>
             )}
-            {err("technicianIds") && <Alert tone="danger">{err("technicianIds")}</Alert>}
-            {activeTechs.length === 0 && <p className="text-sm text-fg-muted">No active technicians. An Admin can add technicians under Users.</p>}
+            {err("technicianIds") && <Alert tone="danger">{tm(err("technicianIds"))}</Alert>}
+            {activeTechs.length === 0 && <p className="text-sm text-fg-muted">{t("form.noTechnicians")}</p>}
             <ul className="space-y-2">
-              {activeTechs.map((t) => {
-                const a = availability?.[t.id];
-                const selected = v.technicianIds.includes(t.id);
+              {activeTechs.map((tech) => {
+                const a = availability?.[tech.id];
+                const selected = v.technicianIds.includes(tech.id);
                 const busy = statusBlocks && a && !a.available;
-                const conflicted = conflicts.some((c) => c.technicianId === t.id);
+                const conflicted = conflicts.some((c) => c.technicianId === tech.id);
                 return (
-                  <li key={t.id}>
+                  <li key={tech.id}>
                     <label
                       className={cn(
                         "flex cursor-pointer items-start gap-3 rounded-lg border p-3 transition-colors",
@@ -777,37 +766,37 @@ export function AppointmentForm({
                         type="checkbox"
                         className="mt-0.5 h-4 w-4 accent-[var(--brand-strong)]"
                         checked={selected}
-                        disabled={(busy && !selected) || (!t.isActive && !selected)}
-                        onChange={() => toggleTech(t.id)}
+                        disabled={(busy && !selected) || (!tech.isActive && !selected)}
+                        onChange={() => toggleTech(tech.id)}
                       />
                       <span className="min-w-0 flex-1">
                         <span className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium text-fg">{t.name}</span>
-                          {!t.isActive && <Badge>inactive</Badge>}
+                          <span className="text-sm font-medium text-fg">{tech.name}</span>
+                          {!tech.isActive && <Badge>{t("form.inactive")}</Badge>}
                           {a &&
                             (busy && a.leave ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
-                                <CalendarOff className="h-3.5 w-3.5" /> On leave
+                                <CalendarOff className="h-3.5 w-3.5" /> {t("form.onLeave")}
                               </span>
                             ) : busy ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
-                                <XCircle className="h-3.5 w-3.5" /> Busy
+                                <XCircle className="h-3.5 w-3.5" /> {t("form.busy")}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-success">
-                                <CheckCircle2 className="h-3.5 w-3.5" /> Available
+                                <CheckCircle2 className="h-3.5 w-3.5" /> {t("form.available")}
                               </span>
                             ))}
                         </span>
                         {busy && a!.leave && (
                           <span className="mt-0.5 block text-xs text-fg-muted">
-                            {LEAVE_TYPE_LABELS[a!.leave.type]} · {dayRangeLabel(a!.leave.startDate, a!.leave.endDate)}
+                            {label("leaveType", a!.leave.type)} · {f.dayRange(a!.leave.startDate, a!.leave.endDate)}
                           </span>
                         )}
                         {busy &&
                           a!.conflicts.map((c) => (
                             <span key={c.appointmentId} className="mt-0.5 block text-xs text-fg-muted">
-                              {timeRange(c.startsAt, c.endsAt, tz)} · {c.appointmentCode}
+                              <Ltr>{f.timeRange(c.startsAt, c.endsAt)}</Ltr> · <Ltr>{c.appointmentCode}</Ltr>
                               {c.customerName ? ` · ${c.customerName}` : ""}
                             </span>
                           ))}
@@ -817,7 +806,7 @@ export function AppointmentForm({
                 );
               })}
             </ul>
-            {v.technicianIds.length === 0 && <p className="text-xs text-fg-subtle">You can save without a technician; it will be flagged as needing attention.</p>}
+            {v.technicianIds.length === 0 && <p className="text-xs text-fg-subtle">{t("form.saveWithout")}</p>}
           </div>
         </Card>
         </div>
@@ -825,10 +814,10 @@ export function AppointmentForm({
         <div className="sticky bottom-0 z-10 -mx-4 border-t border-line bg-surface/95 p-4 backdrop-blur sm:mx-0 sm:rounded-xl sm:border xl:static xl:border-0 xl:bg-transparent xl:p-0">
           <div className="flex gap-2">
             <Button type="button" variant="outline" className="flex-1" onClick={() => router.back()} disabled={saving}>
-              Cancel
+              {t("common.cancel")}
             </Button>
             <Button type="submit" className="flex-[2]" loading={saving}>
-              {mode === "create" ? "Create appointment" : "Save changes"}
+              {mode === "create" ? t("form.create") : t("form.saveChanges")}
             </Button>
           </div>
         </div>
@@ -846,6 +835,7 @@ function CustomerLookup({
   onSelect: (c: CustomerMatch) => void;
   onClear: () => void;
 }) {
+  const { t, f } = useI18n();
   const [q, setQ] = useState("");
   const [results, setResults] = useState<CustomerMatch[]>([]);
   const [loading, setLoading] = useState(false);
@@ -880,21 +870,21 @@ function CustomerLookup({
     <div className="relative">
       <div className="flex gap-2">
         <div className="relative flex-1">
-          <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
+          <Search className="pointer-events-none absolute start-3 top-1/2 h-4 w-4 -translate-y-1/2 text-fg-subtle" aria-hidden />
           <Input
             value={q}
             onChange={(e) => setQ(e.target.value)}
             onFocus={() => results.length && setOpen(true)}
             onBlur={() => setTimeout(() => setOpen(false), 150)}
-            placeholder="Find existing customer by name or phone"
-            aria-label="Find existing customer"
-            className="pl-9"
+            placeholder={t("form.findCustomer")}
+            aria-label={t("form.findCustomerLabel")}
+            className="ps-9"
           />
-          {loading && <Loader2 className="absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-fg-subtle" />}
+          {loading && <Loader2 className="absolute end-3 top-1/2 h-4 w-4 -translate-y-1/2 animate-spin text-fg-subtle" />}
         </div>
         {selectedId && (
-          <Button type="button" variant="outline" onClick={onClear} title="Enter a new customer instead">
-            <UserPlus className="h-4 w-4" /> <span className="hidden sm:inline">New customer</span>
+          <Button type="button" variant="outline" onClick={onClear} title={t("form.newCustomerTitle")}>
+            <UserPlus className="h-4 w-4" /> <span className="hidden sm:inline">{t("form.newCustomer")}</span>
           </Button>
         )}
       </div>
@@ -904,7 +894,7 @@ function CustomerLookup({
             <li key={c.id}>
               <button
                 type="button"
-                className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-left hover:bg-surface-muted"
+                className="flex w-full flex-col items-start gap-0.5 px-3 py-2 text-start hover:bg-surface-muted"
                 onMouseDown={(e) => e.preventDefault()}
                 onClick={() => {
                   onSelect(c);
@@ -914,9 +904,9 @@ function CustomerLookup({
               >
                 <span className="text-sm font-medium text-fg">{c.name}</span>
                 <span className="text-xs text-fg-muted">
-                  {c.phone}
-                  {c.locations[0] ? ` · ${[c.locations[0].building, c.locations[0].area].filter(Boolean).join(", ")}` : ""}
-                  {c.locations.length > 1 ? ` · ${c.locations.length} locations` : ""}
+                  <Ltr>{c.phone}</Ltr>
+                  {c.locations[0] ? ` · ${f.join([c.locations[0].building, c.locations[0].area])}` : ""}
+                  {c.locations.length > 1 ? ` · ${t("form.locationsCount", { count: c.locations.length })}` : ""}
                 </span>
               </button>
             </li>
@@ -924,7 +914,7 @@ function CustomerLookup({
         </ul>
       )}
       {open && !loading && q.trim().length >= 2 && results.length === 0 && (
-        <p className="mt-1 text-xs text-fg-subtle">No existing customer found - fill in the details below to add a new one.</p>
+        <p className="mt-1 text-xs text-fg-subtle">{t("form.noCustomerFound")}</p>
       )}
     </div>
   );
@@ -939,10 +929,11 @@ function SavedLocationPicker({
   selectedId: string | null;
   onPick: (loc: SavedLocation | null) => void;
 }) {
+  const { t, f } = useI18n();
   if (!locations.length) return null;
   return (
     <div>
-      <p className="mb-2 text-xs font-medium text-fg-muted">Saved locations for this customer</p>
+      <p className="mb-2 text-xs font-medium text-fg-muted">{t("form.savedLocations")}</p>
       <div className="flex flex-wrap gap-2">
         {locations.map((l) => (
           <button
@@ -950,12 +941,12 @@ function SavedLocationPicker({
             type="button"
             onClick={() => onPick(l)}
             className={cn(
-              "rounded-lg border px-3 py-2 text-left text-xs",
+              "rounded-lg border px-3 py-2 text-start text-xs",
               selectedId === l.id ? "border-brand bg-brand-soft text-fg" : "border-line text-fg-muted hover:bg-surface-muted",
             )}
           >
-            <span className="block font-medium text-fg">{[l.building, l.area].filter(Boolean).join(", ") || "Location"}</span>
-            {[l.apartment && `Apt ${l.apartment}`, l.floor && `Floor ${l.floor}`].filter(Boolean).join(" · ")}
+            <span className="block font-medium text-fg">{f.join([l.building, l.area]) || t("form.locationFallback")}</span>
+            {[l.apartment && t("form.aptShort", { value: l.apartment }), l.floor && t("form.floorShort", { value: l.floor })].filter(Boolean).join(" · ")}
           </button>
         ))}
         <button
@@ -966,7 +957,7 @@ function SavedLocationPicker({
             selectedId === null ? "border-brand bg-brand-soft text-fg" : "border-line-strong text-fg-muted hover:bg-surface-muted",
           )}
         >
-          + New location
+          {t("form.newLocation")}
         </button>
       </div>
     </div>

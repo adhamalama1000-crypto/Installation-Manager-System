@@ -1,9 +1,13 @@
 import "server-only";
-import { CONFIRMATION_LABELS, VISIT_TYPE_LABELS, appointmentCode } from "@/lib/constants";
+import type { CustomerConfirmation } from "@prisma/client";
+import type { Locale } from "@/i18n/config";
+import { createFormatter } from "@/i18n/format";
+import { enumLabel, translate } from "@/i18n/translate";
+import { appointmentCode } from "@/lib/constants";
 import { customerReminder, technicianMessage, whatsappLink, type PlanVisit } from "@/lib/day-plan";
 import { productLine } from "@/lib/format";
 import { resolveLocationLink } from "@/lib/maps";
-import { dayRangeUtc, fmt, formatKey } from "@/lib/time";
+import { dayRangeUtc } from "@/lib/time";
 import { prisma } from "../db";
 import { appointmentScope, assertCan } from "../access";
 import type { CurrentUser } from "../auth/session";
@@ -11,17 +15,18 @@ import { amountDue } from "./payments";
 
 export type DayPlanVisit = PlanVisit & {
   id: string;
-  status: { name: string; color: string };
-  confirmation: string;
+  status: { name: string; nameAr: string | null; color: string };
+  confirmation: CustomerConfirmation;
   confirmed: boolean;
   reminderLink: string | null;
 };
 
 /**
  * Aura's day plan: per technician, the visits of one day as a ready-to-send WhatsApp message, plus
- * a reminder link for each customer. Cancelled and postponed visits are left out.
+ * a reminder link for each customer. Cancelled and postponed visits are left out. `lang` is the
+ * language of the messages (Arabic or English), independent of the reader's interface.
  */
-export async function dayPlan(user: CurrentUser, date: string) {
+export async function dayPlan(user: CurrentUser, date: string, lang: Locale = "en") {
   assertCan(user, "appointments.manage");
   const tz = user.settings.timezone;
   const range = dayRangeUtc(date, date, tz);
@@ -46,7 +51,7 @@ export async function dayPlan(user: CurrentUser, date: string) {
       depositAmount: true,
       extraFee: true,
       collectedAmount: true,
-      status: { select: { name: true, color: true } },
+      status: { select: { name: true, nameAr: true, color: true } },
       customer: { select: { name: true, phone: true } },
       location: { select: { area: true, building: true, streetAddress: true, apartment: true, floor: true, mapUrl: true, latitude: true, longitude: true } },
       technicians: { select: { technician: { select: { id: true, name: true, phone: true } } }, orderBy: { technician: { name: "asc" } } },
@@ -54,14 +59,16 @@ export async function dayPlan(user: CurrentUser, date: string) {
     orderBy: [{ startsAt: "asc" }, { number: "asc" }],
   });
 
-  const dayLabel = formatKey(date, { weekday: "long", day: "numeric", month: "long" });
-  const company = user.settings.companyName || "your installation team";
+  const f = createFormatter(lang, tz);
+  const label = (type: Parameters<typeof enumLabel>[1], value: string) => enumLabel(lang, type, value);
+  const dayLabel = f.day(date, { weekday: "long", day: "numeric", month: "long" });
+  const company = user.settings.companyName || translate(lang, "wa.cust.companyFallback");
 
   const visit = (a: (typeof rows)[number], forTechnician?: string): DayPlanVisit => {
     const l = a.location;
     const due = amountDue(a);
-    const time = `${fmt(a.startsAt, tz, "HH:mm")}–${fmt(a.endsAt, tz, "HH:mm")}`;
-    const what = productLine(a);
+    const time = f.timeRange(a.startsAt, a.endsAt);
+    const what = productLine(a, label);
     return {
       id: a.id,
       code: appointmentCode(a.number),
@@ -69,7 +76,13 @@ export async function dayPlan(user: CurrentUser, date: string) {
       what,
       customerName: a.customer.name,
       customerPhone: a.customer.phone,
-      address: [l.area, l.building, l.streetAddress, l.apartment && `Apt ${l.apartment}`, l.floor && `Floor ${l.floor}`].filter(Boolean).join(", "),
+      address: f.join([
+        l.area,
+        l.building,
+        l.streetAddress,
+        l.apartment && translate(lang, "wa.address.apt", { value: l.apartment }),
+        l.floor && translate(lang, "wa.address.floor", { value: l.floor }),
+      ]),
       mapLink: resolveLocationLink({ mapUrl: l.mapUrl, latitude: l.latitude?.toNumber() ?? null, longitude: l.longitude?.toNumber() ?? null }),
       equipment: a.requiredEquipment,
       notes: a.additionalNotes,
@@ -77,10 +90,21 @@ export async function dayPlan(user: CurrentUser, date: string) {
       toCollect: due !== null && a.collectedAmount === null ? due : null,
       withOthers: a.technicians.map((t) => t.technician.name).filter((n) => n !== forTechnician),
       status: a.status,
-      confirmation: CONFIRMATION_LABELS[a.customerConfirmation],
+      confirmation: a.customerConfirmation,
       confirmed: a.customerConfirmation === "CONFIRMED",
       reminderLink: a.customer.phone
-        ? whatsappLink(a.customer.phone, customerReminder(a.customer.name, dayLabel, fmt(a.startsAt, tz, "HH:mm"), a.visitType ? VISIT_TYPE_LABELS[a.visitType] : "installation", company))
+        ? whatsappLink(
+            a.customer.phone,
+            customerReminder(
+              a.customer.name,
+              dayLabel,
+              f.time(a.startsAt),
+              a.visitType ? label("visitType", a.visitType) : translate(lang, "wa.cust.visitFallback"),
+              company,
+              lang,
+              a.productCategory === "SMART_LOCK" ? "lock" : a.productCategory === "SMART_HOME" ? "smart" : undefined,
+            ),
+          )
         : null,
     };
   };
@@ -98,8 +122,8 @@ export async function dayPlan(user: CurrentUser, date: string) {
   const technicians = [...byTech.values()]
     .sort((x, y) => x.name.localeCompare(y.name))
     .map((t) => {
-      const message = technicianMessage(t.name, dayLabel, t.visits);
+      const message = technicianMessage(t.name, dayLabel, t.visits, lang);
       return { ...t, message, link: whatsappLink(t.phone, message) };
     });
-  return { date, dayLabel, visits: rows.length, technicians, unassigned };
+  return { date, lang, dayLabel, visits: rows.length, technicians, unassigned };
 }

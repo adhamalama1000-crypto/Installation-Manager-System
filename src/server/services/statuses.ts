@@ -13,6 +13,7 @@ export function toStatusDTO(s: AppointmentStatus): StatusDTO {
   return {
     id: s.id,
     name: s.name,
+    nameAr: s.nameAr,
     kind: s.kind,
     color: s.color,
     blocksSchedule: s.blocksSchedule,
