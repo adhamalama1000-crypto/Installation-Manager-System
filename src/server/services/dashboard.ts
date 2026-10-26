@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { addDaysToKey, dayRangeUtc, startOfMonthKey, addMonthsToKey, todayKey } from "@/lib/time";
 import { prisma } from "../db";
-import { appointmentScope, appointmentScopeSql, assertCan, hasPermission } from "../access";
+import { appointmentScopeSql, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { calendarAppointments } from "./appointments";
 import { appointmentListRows } from "./appointment-reads";
@@ -24,21 +24,30 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   const monthRange = dayRangeUtc(monthStart, addDaysToKey(addMonthsToKey(monthStart, 1), -1), tz);
   const weekAhead = dayRangeUtc(today, addDaysToKey(today, 7), tz).end;
   const endOfTomorrow = dayRangeUtc(today, addDaysToKey(today, 1), tz).end;
-  const scope = appointmentScope(user);
   const scopeSql = appointmentScopeSql(user);
-  const notCancelled: Prisma.AppointmentWhereInput = { status: { kind: { not: "CANCELLED" } } };
-  const count = (where: Prisma.AppointmentWhereInput) => prisma.appointment.count({ where: { AND: [scope, where] } });
   const soonest = Prisma.sql`a."startsAt" ASC, a.number ASC`;
   const upcomingWeek = Prisma.sql`${scopeSql} AND s.kind <> 'CANCELLED' AND a."startsAt" >= ${now} AND a."startsAt" < ${weekAhead}`;
 
-  // Everything is independent, so it all runs in a single round trip.
-  const [todayCount, upcoming, scheduled, completed, postponed, cancelled, overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, todays] = await Promise.all([
-    count({ ...notCancelled, startsAt: { gte: todayRange.start, lt: todayRange.end } }),
-    count({ ...notCancelled, startsAt: { gte: now }, status: { kind: { notIn: ["CANCELLED", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"] } } }),
-    count({ status: { kind: "SCHEDULED" }, startsAt: { gte: todayRange.start } }),
-    count({ status: { kind: "COMPLETED" }, startsAt: { gte: monthRange.start, lt: monthRange.end } }),
-    count({ status: { kind: "POSTPONED" } }),
-    count({ status: { kind: "CANCELLED" }, startsAt: { gte: monthRange.start, lt: monthRange.end } }),
+  // Everything is independent, so it all runs in one wave. The six counters are a single statement:
+  // with six separate ones the page needed more statements than the connection pool (9 by default)
+  // has connections, which costs an extra round trip to the database.
+  const [[counts], overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, todays] = await Promise.all([
+    prisma.$queryRaw<{ today: number; upcoming: number; scheduled: number; completed: number; postponed: number; cancelled: number }[]>`
+      SELECT
+        count(*) FILTER (WHERE x.kind <> 'CANCELLED' AND x."startsAt" >= ${todayRange.start} AND x."startsAt" < ${todayRange.end})::int AS today,
+        count(*) FILTER (WHERE x."startsAt" >= ${now} AND x.kind NOT IN ('CANCELLED', 'COMPLETED', 'UNABLE_TO_COMPLETE', 'NEEDS_REVISIT'))::int AS upcoming,
+        count(*) FILTER (WHERE x.kind = 'SCHEDULED' AND x."startsAt" >= ${todayRange.start})::int AS scheduled,
+        count(*) FILTER (WHERE x.kind = 'COMPLETED' AND x."startsAt" >= ${monthRange.start} AND x."startsAt" < ${monthRange.end})::int AS completed,
+        count(*) FILTER (WHERE x.kind = 'POSTPONED')::int AS postponed,
+        count(*) FILTER (WHERE x.kind = 'CANCELLED' AND x."startsAt" >= ${monthRange.start} AND x."startsAt" < ${monthRange.end})::int AS cancelled
+      FROM (
+        -- Every counter is about this month onwards, except postponed (any date); each part uses an index.
+        SELECT a."startsAt", s.kind FROM appointments a JOIN appointment_statuses s ON s.id = a."statusId"
+        WHERE ${scopeSql} AND a."startsAt" >= ${monthRange.start}
+        UNION ALL
+        SELECT a."startsAt", s.kind FROM appointments a JOIN appointment_statuses s ON s.id = a."statusId"
+        WHERE ${scopeSql} AND s.kind = 'POSTPONED' AND a."startsAt" < ${monthRange.start}
+      ) x`,
     // "Needs attention": overdue status updates, unassigned or location-less upcoming jobs.
     appointmentListRows(
       user,
@@ -105,7 +114,7 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
 
   return {
     today,
-    counts: { today: todayCount, upcoming, scheduled, completed, postponed, cancelled, attention: attention.length },
+    counts: { ...counts!, attention: attention.length },
     attention: attention.slice(0, 15),
     todays,
   };

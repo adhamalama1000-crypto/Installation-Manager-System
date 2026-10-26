@@ -150,6 +150,43 @@ and `npm run test:e2e` (9 Playwright tests against the production build) all pas
 - The large data set is synthetic; real data may stress other paths. Run `scripts/perf/measure.ts`
   against a copy of production data to confirm.
 
+## Re-check after the Aura features (October 2026)
+
+Same 33k-appointment data set, warm servers (60 requests per page before 20 measured), median of
+the 20, admin user. "Old" is the build from before the Aura features (commit `e531063`), "new"
+is this branch. Both read identical data: the old build gets a copy of the database without the
+"Needs another visit" status row, which its generated client cannot read.
+
+| Page / API | Local, old | Local, new | 20 ms to DB, old | 20 ms to DB, new |
+|---|---|---|---|---|
+| Dashboard | 32.8 ms | 42.7 ms | 122.3 ms | 87.1 ms |
+| Appointments list | 271.2 ms | 31.1 ms | 297.9 ms | 74.3 ms |
+| List search "Ahmed" | 260.5 ms | 68.9 ms | 321.4 ms | 112.7 ms |
+| Appointment page | 14.0 ms | 19.5 ms | 76.8 ms | 80.7 ms |
+| Calendar page | 246.8 ms | 13.3 ms | 278.6 ms | 54.7 ms |
+| Customers | 13.2 ms | 13.3 ms | 57.1 ms | 54.0 ms |
+| Reports | 30.5 ms | 33.3 ms | 95.6 ms | 68.3 ms |
+| Calendar week API | 15.8 ms | 16.8 ms | 64.9 ms | 66.3 ms |
+
+What changed to get there:
+
+- The list of Sales people (calendar legend, Sales filter, booking form, settings) took 190–250 ms
+  once PostgreSQL's statistics led it to scan all appointments for every user who never booked. It
+  now walks the distinct creators through an index (0.5 ms).
+- List, calendar and dashboard reads no longer degrade under PostgreSQL's generic plans (technicians
+  are read per row through the primary key instead of joining a separately aggregated set).
+- The dashboard's six counters are one statement. With six separate ones the page sent 14
+  statements at once through a pool of 9 connections, which costs an extra database round trip.
+
+Correction: the first pull request reported the dashboard and appointment page as slower than before
+the Aura features at 20 ms. That comparison was wrong: the old build was answering those pages with
+HTTP 500 (it could not read the new status row) and therefore looked fast. The table above compares
+two builds that both return the full pages.
+
+Measuring note: Prisma prepares each statement once per pooled connection. After a restart a page
+needs a few dozen requests before every connection has every statement prepared; cold numbers include
+an extra round trip per unprepared statement.
+
 ## Reproducing
 
 ```bash
