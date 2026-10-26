@@ -102,7 +102,7 @@ export default async function DayPlanPage({ searchParams }: { searchParams: Prom
         </Card>
       )}
 
-      <div className="grid gap-6 xl:grid-cols-2">
+      <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         {plan.technicians.map((tech) => (
           <Card key={tech.id} className="overflow-hidden" data-testid="day-plan-technician">
             <div className="flex flex-wrap items-center gap-3 border-b border-line px-5 py-4">

@@ -95,7 +95,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
         </Alert>
       )}
 
-      <div className="mt-6 grid gap-6 lg:grid-cols-2">
+      <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
         <Card className="overflow-hidden">
           <CardHeader title={t("fin.depositsByMethod")} />
           <MethodList rows={s.depositsByMethod} i18n={i18n} />

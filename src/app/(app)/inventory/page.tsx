@@ -102,7 +102,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
       )}
 
       {manage && (
-        <div className="mb-6 grid gap-6 lg:grid-cols-2">
+        <div className="mb-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
           <GoodsInForm models={models.filter((m) => m.isActive)} />
           <ModelsManager models={models} />
         </div>
