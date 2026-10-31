@@ -1,8 +1,11 @@
 import Link from "next/link";
-import { Boxes, CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, MapPinOff, Navigation, Package, Phone, User } from "lucide-react";
+import { Boxes, CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, MapPinOff, MessageSquareWarning, Navigation, Package, Phone, User } from "lucide-react";
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
 import { DeliveryCard } from "@/components/appointments/delivery-card";
+import { FeedbackCard } from "@/components/after-sales/feedback-card";
+import { ComplaintBadge } from "@/components/complaints/complaint-badge";
+import { OpenComplaintButton } from "@/components/complaints/complaint-forms";
 import { OutcomePanel } from "@/components/appointments/outcome-panel";
 import { PaymentCard } from "@/components/appointments/payment-card";
 import { HistoryList } from "@/components/appointments/history-list";
@@ -17,6 +20,8 @@ import { categoryText, dateTime, longDate, shortDate, timeRange } from "@/lib/fo
 import { requirePagePermission } from "@/server/auth/session";
 import { getAppointment, getAppointmentHistory } from "@/server/services/appointments";
 import { listAttachments } from "@/server/services/attachments";
+import { getFeedback } from "@/server/services/after-sales";
+import { canOpenComplaint, complaintsForAppointment } from "@/server/services/complaints";
 import { listStatuses } from "@/server/services/statuses";
 import { heldBy } from "@/server/services/stock";
 import { loadOr404 } from "./load";
@@ -36,13 +41,15 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const L = t.locale;
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [a, history, allStatuses, myStock, files] = await Promise.all([
+  const [a, history, allStatuses, myStock, files, feedback, complaints] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
     canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
     user.permissions.includes("appointments.manage") ? listStatuses(L) : Promise.resolve([]),
     // A technician's own custody, offered as quick picks for the installed serial numbers.
     user.role === "TECHNICIAN" ? heldBy(user.id) : Promise.resolve([]),
     loadOr404(() => listAttachments(user, id)),
+    loadOr404(() => getFeedback(user, id)),
+    complaintsForAppointment(user, id),
   ]);
   const today = todayKey(tz);
   const statuses = a.canManage ? allStatuses : [];
@@ -208,6 +215,41 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
             <p className="-mt-4 text-xs text-fg-subtle">
               {t("appointment.reportBy", { name: a.reportedBy.name, when: dateTime(a.reportedAt, tz, L) })}
             </p>
+          )}
+
+          <FeedbackCard appointmentId={a.id} feedback={feedback} tz={tz} />
+
+          {(complaints.length > 0 || canOpenComplaint(user, { createdById: a.createdBy.id })) && (
+            <Card>
+              <CardHeader
+                title={t("complaints.onVisit")}
+                description={t("complaints.onVisitText")}
+                icon={<MessageSquareWarning className="h-4 w-4" />}
+                actions={canOpenComplaint(user, { createdById: a.createdBy.id }) ? <OpenComplaintButton appointmentId={a.id} code={a.code} /> : undefined}
+              />
+              {complaints.length > 0 ? (
+                <ul className="divide-y divide-line">
+                  {complaints.map((c) => (
+                    <li key={c.id}>
+                      <Link href={`/complaints/${c.id}`} className="block px-5 py-3 hover:bg-surface-muted">
+                        <span className="flex flex-wrap items-center gap-2">
+                          <bdi className="font-mono text-sm font-semibold text-fg">{c.code}</bdi>
+                          <ComplaintBadge status={c.status} label={t.dyn(`enums.complaintStatus.${c.status}`)} />
+                          {c.visit?.id === a.id && <span className="text-xs text-fg-muted">{t("complaints.forVisit", { code: c.appointment.code })}</span>}
+                        </span>
+                        <span dir="auto" className="mt-0.5 line-clamp-2 block text-start text-sm text-fg-muted">
+                          {c.description}
+                        </span>
+                      </Link>
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <CardBody>
+                  <p className="text-sm text-fg-subtle">{t("complaints.none")}</p>
+                </CardBody>
+              )}
+            </Card>
           )}
 
           {history && (

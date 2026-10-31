@@ -39,6 +39,12 @@ export const PERMISSIONS = [
   "settings.manage",
   /** System-wide audit log. */
   "audit.view",
+  /** Customer complaints. Technicians only see the ones assigned to them. */
+  "complaints.view",
+  /** Assign complaints to a technician and link the maintenance visit (head of installations). */
+  "complaints.manage",
+  /** Grade the quality of finished work (head of installations). */
+  "quality.grade",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -52,6 +58,7 @@ export const VIEWER_GRANTABLE: Permission[] = [
   "notes.internal",
   "history.view",
   "reports.view",
+  "complaints.view",
 ];
 
 export const DEFAULT_VIEWER_PERMISSIONS: Permission[] = ["appointments.view"];
@@ -82,12 +89,13 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
         "location.view",
         "notes.internal",
         "history.view",
+        "complaints.view",
       ];
       if (settings.salesCanViewReports) p.push("reports.view");
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }

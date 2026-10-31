@@ -52,6 +52,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 - **Audit log** (Admin): append-only record of appointment, user, permission, status and settings changes. A database trigger blocks updates and deletes.
 - **In-app notifications** for technicians when they are assigned, unassigned, or a job is rescheduled, updated or cancelled.
 - **Photos and delivery proof**: Sales add before photos and deposit proofs; the assigned technician adds after photos (up to 20 per kind), the customer's on-screen signature and the transfer proof, and ticks the delivery checklist for locks or smart-home systems. Photos are shrunk in the browser (which also strips their location metadata) and served only through a permission-checked route; transfer and deposit proofs are visible only to people who see money and to the visit's technicians. Removing a file only hides it. An Admin can require the proof, and the installed serial number, before a technician marks a visit done.
+- **Complaints and after-sales** (from Aura): complaints on a visit get Aura's number (`C2610-007`) and the warranty status; the head of installations (Admin) assigns them to a technician and links the maintenance visit, whose completion resolves them; Sales close or reopen them after calling the customer. Customer satisfaction ratings (1–5 stars and their words), quality grades by the head of installations, and maintenance reminder calls 6 and 12 months after an installation, each with a work list (**After-sales**) and a dashboard counter.
 - **Arabic first, with English**: the app opens in Arabic, right to left, and every page, form, validation message, notification, audit entry, CSV export and WhatsApp text can be switched to English (sidebar, sign-in page or profile). The choice is kept in a cookie and on the user's account.
 - **Responsive UI** (phone, tablet, desktop) with light, dark and system themes, accessible focus states, empty/error states and toast feedback.
 
@@ -213,7 +214,7 @@ e2e/                       Playwright browser tests
 
 ## Database
 
-Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`.
+Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`, `complaints`, `maintenance_calls`.
 
 Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads`), with their type, size and SHA-256 recorded in `attachments`. Back up that folder together with the database.
 
@@ -221,7 +222,7 @@ Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads
 - `appointments.createdById` is the permanent original Sales creator; `updatedById` is the last editor.
 - Users are never deleted, only deactivated, so historical references survive. Foreign keys use `ON DELETE RESTRICT` for appointment data, and appointments are cancelled, never deleted.
 - Check constraints for time ranges, durations and colour formats; indexes for the common filters (dates, status, creator, technician, customer, area, building, phone digits).
-- Audit rows are append-only (trigger). Attachment rows can only be marked removed, never changed or deleted (trigger).
+- Audit rows are append-only (trigger). Attachment rows can only be marked removed, never changed or deleted (trigger). Complaints cannot be deleted (trigger); ratings and grades are 1–5 and always stored with who gave them and when (check constraints).
 
 ## Testing
 
@@ -245,6 +246,7 @@ What is covered:
 - **API**: login/logout with cookies, generic login errors, rate limiting, cross-origin rejection, malformed JSON, 401/403/404/409 responses, server-assigned creator.
 - **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), a technician collecting cash that the Admin then receives on the finance page, the store handing serials to a technician who installs one at the visit (warranty shown, custody updated), Sales opening the day plan with a WhatsApp link per technician, and the Arabic interface (right-to-left layout, switching languages, Arabic statuses and validation messages, phone layout, drawer opening from the right).
 - **Photos and delivery proof**: who may add, see and remove each kind (Sales, the assigned technician, other technicians, viewers, finance), real file-type checks (no SVG or renamed files), one current signature, the 20-photo limit, append-only rows (trigger), the checklist limited to the product's items without bumping the booking version, the delivery rules off by default, and when on: the missing items listed, the transfer proof for non-cash collections, managers never blocked, the serial-required rule; through the API: raw uploads, private caching headers, 401/404 for other readers, oversized and cross-site uploads refused.
+- **Complaints and after-sales**: Aura's monthly numbering, the warranty snapshot, who may open, assign, resolve, close and reopen (technicians only see their own open complaints), notifications, optimistic locking, the full audit trail, the delete trigger, resolution by finishing the linked maintenance visit; ratings and grades (range, who, finished visits only, booking version untouched, database checks); maintenance calls once per milestone on installations; the satisfaction, quality and maintenance lists with Aura's windows and the dashboard counts; through the API: 201 on opening, 403 for technicians, translated validation, 409 on a stale version.
 - **Localization**: both dictionaries have the same keys and placeholders, every stored enum value has a name in both languages, Arabic plural forms, encoded server messages, Arabic dates and amounts; the API answers in Arabic by default and keeps a browser's chosen language at sign-in.
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
@@ -315,4 +317,4 @@ Judge speed on `npm run build && npm start`, not `npm run dev`: the development 
 - Two languages only (Arabic and English). Numbers use Western digits in both. Admin-defined names (statuses have an optional Arabic name; product models, areas and people do not) are shown as entered.
 - WhatsApp messages are never sent automatically: the day plan opens WhatsApp with the text filled in (no WhatsApp Business API or e-mail provider is connected). Numbers without a country code are treated as Egyptian.
 - The repeat-visit fee is entered by Sales rather than set automatically.
-- Not ported from Aura yet: GPS check-ins and the live technician board, attendance and points, complaints, ratings and maintenance reminders, transport expenses, the company car route, slot holds and quotation parsing. See [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+- Not ported from Aura yet: GPS check-ins and the live technician board, attendance and points, transport expenses, the company car route, slot holds and quotation parsing. See [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).

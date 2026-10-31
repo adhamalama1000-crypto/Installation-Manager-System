@@ -19,6 +19,9 @@ import { GET as exportCsv } from "@/app/api/reports/export/route";
 import { GET as listFiles, POST as uploadFile } from "@/app/api/appointments/[id]/attachments/route";
 import { DELETE as removeFile, GET as getFile } from "@/app/api/attachments/[id]/route";
 import { PUT as putChecklist } from "@/app/api/appointments/[id]/checklist/route";
+import { POST as openComplaintRoute } from "@/app/api/appointments/[id]/complaints/route";
+import { PATCH as patchComplaint } from "@/app/api/complaints/[id]/route";
+import { PUT as putRating } from "@/app/api/appointments/[id]/rating/route";
 import { MAX_UPLOAD_BYTES } from "@/server/storage";
 import { hashPassword } from "@/server/auth/password";
 import { appointmentPayload, makeUser, prisma, resetDb, seedStatuses } from "../helpers";
@@ -282,5 +285,31 @@ describe("visit photos through the API", () => {
     expect((await removeFile(req(attachment.url, { method: "DELETE", cookie: otherCookie }), idParams(attachment.id))).status).toBe(404);
     expect((await removeFile(req(attachment.url, { method: "DELETE", cookie }), idParams(attachment.id))).status).toBe(200);
     expect((await getFile(req(attachment.url, { cookie }), idParams(attachment.id))).status).toBe(404);
+  });
+});
+
+describe("complaints and ratings through the API", () => {
+  it("opens a complaint (201), refuses technicians, and answers in the reader's language", async () => {
+    const salesCookie = await signIn("sales@test.local");
+    const appt = (await (await createAppt(req("/api/appointments", { method: "POST", cookie: salesCookie, body: appointmentPayload({ technicianIds: [tech.id] }) }), noParams)).json()).appointment;
+
+    const opened = await openComplaintRoute(req(`/api/appointments/${appt.id}/complaints`, { method: "POST", cookie: salesCookie, body: { description: "Lock beeps" } }), idParams(appt.id));
+    expect(opened.status).toBe(201);
+    const { complaint } = await opened.json();
+    expect(complaint.code).toMatch(/^C\d{4}-001$/);
+
+    const techCookie = await signIn("tech@test.local");
+    expect((await openComplaintRoute(req(`/api/appointments/${appt.id}/complaints`, { method: "POST", cookie: techCookie, body: { description: "x" } }), idParams(appt.id))).status).toBe(403);
+    const empty = await openComplaintRoute(req(`/api/appointments/${appt.id}/complaints`, { method: "POST", cookie: salesCookie, body: { description: "" } }), idParams(appt.id));
+    expect(empty.status).toBe(422);
+    expect((await empty.json()).error.fieldErrors.description).toMatch(/مطلوب|required/);
+
+    const close = await patchComplaint(req(`/api/complaints/${complaint.id}`, { method: "PATCH", cookie: salesCookie, body: { action: "close", version: complaint.version } }), idParams(complaint.id));
+    expect((await close.json()).complaint.status).toBe("CLOSED");
+    const stale = await patchComplaint(req(`/api/complaints/${complaint.id}`, { method: "PATCH", cookie: salesCookie, body: { action: "reopen", version: complaint.version } }), idParams(complaint.id));
+    expect(stale.status).toBe(409);
+
+    // The visit has not happened yet: no rating.
+    expect((await putRating(req(`/api/appointments/${appt.id}/rating`, { method: "PUT", cookie: salesCookie, body: { rating: 5, note: null } }), idParams(appt.id))).status).toBe(422);
   });
 });

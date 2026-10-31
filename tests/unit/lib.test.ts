@@ -107,7 +107,11 @@ describe("permissions", () => {
     expect(sales.has("settings.manage")).toBe(false);
     expect(permissionsFor({ role: "SALES" }, { ...settings, salesCanViewReports: false }).has("reports.view")).toBe(false);
     const tech = permissionsFor({ role: "TECHNICIAN" }, settings);
-    expect([...tech].sort()).toEqual(["appointments.view", "customers.contact", "leaves.request", "location.view", "stock.view", "visits.report"]);
+    expect([...tech].sort()).toEqual(["appointments.view", "complaints.view", "customers.contact", "leaves.request", "location.view", "stock.view", "visits.report"]);
+    // Complaints: Sales open and close them, technicians see their own; only the head (Admin) assigns and grades.
+    expect(sales.has("complaints.view")).toBe(true);
+    expect(sales.has("complaints.manage") || sales.has("quality.grade")).toBe(false);
+    expect(admin.has("complaints.manage") && admin.has("quality.grade")).toBe(true);
     expect(tech.has("appointments.manage")).toBe(false);
     const accountant = permissionsFor({ role: "ACCOUNTANT" }, settings);
     expect([...accountant].sort()).toEqual(["appointments.view", "cash.receive", "customers.contact", "customers.view", "finance.view", "stock.view"]);
