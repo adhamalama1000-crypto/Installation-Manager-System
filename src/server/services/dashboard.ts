@@ -7,6 +7,7 @@ import { appointmentScopeSql, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { calendarAppointments } from "./appointments";
 import { appointmentListRows } from "./appointment-reads";
+import { afterSalesCountColumns } from "./after-sales";
 
 export type AttentionItem = {
   id: string;
@@ -28,13 +29,16 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   const scopeSql = appointmentScopeSql(user);
   const soonest = Prisma.sql`a."startsAt" ASC, a.number ASC`;
   const upcomingWeek = Prisma.sql`${scopeSql} AND s.kind <> 'CANCELLED' AND a."startsAt" >= ${now} AND a."startsAt" < ${weekAhead}`;
+  const afterSales = afterSalesCountColumns(user, now);
 
   // Everything is independent, so it all runs in one wave. The six counters are a single statement:
   // with six separate ones the page needed more statements than the connection pool (9 by default)
   // has connections, which costs an extra round trip to the database.
   const [[counts], overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, todays] = await Promise.all([
-    prisma.$queryRaw<{ today: number; upcoming: number; scheduled: number; completed: number; postponed: number; cancelled: number }[]>`
-      SELECT
+    prisma.$queryRaw<
+      { today: number; upcoming: number; scheduled: number; completed: number; postponed: number; cancelled: number; complaints: number; satisfaction: number; quality: number; maintenance: number }[]
+    >`
+      SELECT ${afterSales.sql},
         count(*) FILTER (WHERE x.kind <> 'CANCELLED' AND x."startsAt" >= ${todayRange.start} AND x."startsAt" < ${todayRange.end})::int AS today,
         count(*) FILTER (WHERE x."startsAt" >= ${now} AND x.kind NOT IN ('CANCELLED', 'COMPLETED', 'UNABLE_TO_COMPLETE', 'NEEDS_REVISIT'))::int AS upcoming,
         count(*) FILTER (WHERE x.kind = 'SCHEDULED' AND x."startsAt" >= ${todayRange.start})::int AS scheduled,
@@ -114,9 +118,11 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   push(unconfirmed, msg("dashboard.reasons.unconfirmed"));
   push(revisit, msg("dashboard.reasons.revisit"));
 
+  const { complaints, satisfaction, quality, maintenance, ...rest } = counts!;
   return {
     today,
-    counts: { ...counts!, attention: attention.length },
+    counts: { ...rest, attention: attention.length },
+    afterSales: afterSales.lists.length || afterSales.complaints ? { complaints: afterSales.complaints ? complaints : null, satisfaction, quality, maintenance, lists: afterSales.lists } : null,
     attention: attention.slice(0, 15),
     todays,
   };

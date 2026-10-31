@@ -17,7 +17,7 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 | Phase | Scope | Branch | State |
 |---|---|---|---|
 | A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Done, pull request open (stacked on #3) |
-| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | — | Not started |
+| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Done, pull request open (stacked on phase A) |
 | C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | — | Not started |
 | D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | — | Not started |
 | E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | — | Not started |
@@ -39,3 +39,20 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 Found and fixed while testing:
 - Quick taps on the checklist could lose a tick, because a page refresh started before a save could arrive after it. Saves now run one at a time, and the checklist keeps the ticks of the page.
 - Dialogs had no accessible name. All dialogs are now named by their title.
+
+### Phase B: after-sales (2026-10-31)
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 18 files, **148 / 148 passed** (8 new: 7 service tests, 1 API test; the role test was updated for the new complaint permissions) |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **22 / 22 passed** on a freshly migrated and seeded database; the two new tests also passed two repeated runs |
+| Overflow sweep | **0 problems** on the complaints list and detail, the three after-sales lists, the dashboard and a visit with a complaint, for an Admin and a technician, at 320–1024 px in Arabic and English |
+| Migration on the development database | `20261029090000_after_sales` applied with `migrate deploy`; row counts unchanged; schema and migrations match (`migrate diff`: no difference) |
+
+Found and fixed while testing:
+- English text typed on an Arabic page showed its punctuation on the wrong side. Complaint texts, resolutions and customer notes now take their own direction (`dir="auto"`).
+- The after-sales dashboard counts are extra columns of the existing counter statement, so the dashboard does not need more database connections than before.
+

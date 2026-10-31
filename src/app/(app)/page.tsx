@@ -9,8 +9,12 @@ import {
   CalendarX,
   CheckCircle2,
   Clock,
+  HeartHandshake,
+  MessageSquareWarning,
   PauseCircle,
+  PhoneCall,
   Plus,
+  Star,
 } from "lucide-react";
 import type { StatusKind } from "@prisma/client";
 import { AgendaItem } from "@/components/appointments/agenda-item";
@@ -108,6 +112,36 @@ export default async function DashboardPage() {
           </Link>
         ))}
       </section>
+
+      {summary.afterSales && (
+        <section aria-label={t("dashboard.afterSales.title")} className="mt-4 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4">
+          {[
+            ...(summary.afterSales.complaints !== null
+              ? [{ key: "complaints", label: t("dashboard.afterSales.complaints"), value: summary.afterSales.complaints, icon: MessageSquareWarning, href: "/complaints", hint: t("dashboard.afterSales.title") }]
+              : []),
+            ...summary.afterSales.lists.map((l) => ({
+              key: l,
+              label: t.dyn(`dashboard.afterSales.${l}`),
+              value: summary.afterSales![l],
+              icon: l === "satisfaction" ? HeartHandshake : l === "quality" ? Star : PhoneCall,
+              href: `/after-sales?list=${l}`,
+              hint: t.dyn(`dashboard.afterSales.${l}Hint`),
+            })),
+          ].map(({ key, label, value, icon: Icon, href, hint }) => (
+            <Link key={key} href={href} className="group rounded-xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-line-strong">
+              <div className="flex items-center justify-between">
+                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-text">
+                  <Icon className="h-4 w-4" />
+                </span>
+                <ArrowRight className="h-4 w-4 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 rtl:rotate-180" aria-hidden />
+              </div>
+              <p className="mt-3 text-2xl font-semibold tabular-nums text-fg">{value}</p>
+              <p className="text-sm font-medium text-fg">{label}</p>
+              <p className="text-xs text-fg-subtle">{hint}</p>
+            </Link>
+          ))}
+        </section>
+      )}
 
       <div className="mt-6 grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]">
         <Card>
