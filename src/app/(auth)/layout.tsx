@@ -5,7 +5,7 @@ import { getT } from "@/i18n/server";
 export default async function AuthLayout({ children }: { children: React.ReactNode }) {
   const t = await getT();
   return (
-    <div className="grid min-h-dvh lg:grid-cols-[1.05fr_1fr]">
+    <div className="grid grid-cols-1 min-h-dvh lg:grid-cols-[1.05fr_1fr]">
       <section className="relative hidden flex-col justify-between overflow-hidden border-e border-line bg-white p-12 lg:flex">
         <div aria-hidden className="absolute -end-24 -top-24 h-72 w-72 rounded-full bg-[#E55823]/10" />
         <div aria-hidden className="absolute -bottom-32 -start-20 h-80 w-80 rounded-full bg-[#E55823]/[0.07]" />

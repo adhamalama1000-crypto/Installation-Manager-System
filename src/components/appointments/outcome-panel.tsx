@@ -86,7 +86,7 @@ export function OutcomePanel({
             <PlayCircle className="h-4 w-4" /> {t("outcome.start")}
           </Button>
         )}
-        <div role="radiogroup" aria-label={t("outcome.label")} className="grid gap-2 sm:grid-cols-3">
+        <div role="radiogroup" aria-label={t("outcome.label")} className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           {CHOICES.map(({ value, label, icon: Icon, tone }) => (
             <button
               key={value}
@@ -131,7 +131,7 @@ export function OutcomePanel({
           </div>
         )}
         {payment && (
-          <div className="grid gap-3 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field
               label={t("outcome.collected")}
               error={errors.collectedAmount}

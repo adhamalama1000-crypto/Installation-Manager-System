@@ -42,7 +42,7 @@ export function LeavesManager({
   const t = useT();
   const [clashes, setClashes] = useState<{ name: string; items: LeaveClash[] } | null>(null);
   return (
-    <div className="grid gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
+    <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
       <div className="min-w-0 space-y-6 xl:col-start-2 xl:row-start-1">
         <LeaveForm overview={overview} technicians={technicians} manage={manage} onClashes={setClashes} />
       </div>

@@ -101,7 +101,7 @@ export function StatusesManager({ statuses }: { statuses: StatusDTO[] }) {
         {draft && (
           <div className="space-y-4">
             {errors._form && <Alert tone="danger">{t.msg(errors._form)}</Alert>}
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label={t("settings.statusName")} required error={errors.name}>
                 {(p) => <Input {...p} value={draft.name} onChange={(e) => upd({ name: e.target.value })} />}
               </Field>

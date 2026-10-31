@@ -332,7 +332,7 @@ export function AppointmentForm({
             {v.customer.id && (
               <p className="text-xs text-fg-subtle">{t("form.editingCustomer")}</p>
             )}
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div data-field="customer.name" className="sm:col-span-2">
                 <Field label={t("form.customerName")} required error={err("customer.name")}>
                   {(p) => <Input {...p} value={v.customer.name} onChange={(e) => setCustomer({ name: e.target.value })} autoComplete="off" />}
@@ -377,7 +377,7 @@ export function AppointmentForm({
                 )
               }
             />
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <div data-field="location.streetAddress" className="sm:col-span-2">
                 <Field label={t("form.address")} error={err("location.streetAddress")} hint={t("form.addressHint")}>
                   {(p) => <Input {...p} value={v.location.streetAddress} onChange={(e) => setLocation({ streetAddress: e.target.value })} />}
@@ -471,7 +471,7 @@ export function AppointmentForm({
 
         <Card>
           <CardHeader title={t("form.productTitle")} icon={<Package className="h-4 w-4" />} />
-          <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
             <div data-field="productCategory">
               <Field label={t("form.category")} required error={err("productCategory")}>
                 {(p) => (
@@ -548,7 +548,7 @@ export function AppointmentForm({
             description={t("form.priceText")}
             icon={<Banknote className="h-4 w-4" />}
           />
-          <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
             <div data-field="totalPrice">
               <Field label={t("form.totalPrice")} error={err("totalPrice")}>
                 {(p) => <Input {...p} inputMode="decimal" value={v.totalPrice} onChange={(e) => set("totalPrice", e.target.value)} placeholder={t("form.totalPricePlaceholder")} />}
@@ -589,7 +589,7 @@ export function AppointmentForm({
       <div className="space-y-6 xl:sticky xl:top-20 xl:self-start">
         <Card id="schedule" className="scroll-mt-20">
           <CardHeader title={t("appointment.schedule")} description={t("form.timesIn", { tz })} icon={<CalendarClock className="h-4 w-4" />} />
-          <div className="grid gap-4 p-5 sm:grid-cols-2">
+          <div className="grid grid-cols-1 gap-4 p-5 sm:grid-cols-2">
             <div data-field="date">
               <Field label={t("common.date")} required error={err("date")}>
                 {(p) => <Input {...p} type="date" value={v.date} onChange={(e) => set("date", e.target.value)} />}

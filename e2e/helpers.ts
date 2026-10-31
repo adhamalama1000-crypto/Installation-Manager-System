@@ -12,10 +12,16 @@ export async function login(page: Page, email: string) {
   await page.waitForURL((u) => !u.pathname.startsWith("/login"));
 }
 
-/** Unique 2031 date per run so tests never collide with each other or the seed data. */
+/**
+ * Unique future date per run so tests never collide with each other or the seed data. The base
+ * moves in whole weeks from a Saturday, so an offset always lands on the same weekday; the seed
+ * closes Fridays, and a Friday is moved to the Saturday after it.
+ */
 export function futureDate(offsetDays = 0) {
-  const base = Date.UTC(2031, 0, 1) + ((Date.now() / 1000) % 300) * 86_400_000;
-  return new Date(base + offsetDays * 86_400_000).toISOString().slice(0, 10);
+  const base = Date.UTC(2031, 0, 4) + Math.floor((Date.now() / 1000) % 300) * 7 * 86_400_000;
+  const day = new Date(base + offsetDays * 86_400_000);
+  if (day.getUTCDay() === 5) day.setUTCDate(day.getUTCDate() + 1);
+  return day.toISOString().slice(0, 10);
 }
 
 export async function technicianIds(request: APIRequestContext) {

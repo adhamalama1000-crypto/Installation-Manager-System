@@ -43,7 +43,7 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
 
   return (
     <form onSubmit={save} className="space-y-6">
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
         <Field label={t("settings.companyName")} error={errors.companyName} hint={t("settings.companyNameHint")}>
           {(p) => <Input {...p} maxLength={80} value={v.companyName} onChange={(e) => upd({ companyName: e.target.value })} />}
         </Field>
@@ -103,7 +103,7 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
         </div>
         {errors.closedWeekdays && <p className="mt-1 text-xs text-danger">{t.msg(errors.closedWeekdays)}</p>}
       </fieldset>
-      <div className="grid gap-2 sm:grid-cols-3">
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
         <Checkbox label={t("settings.salesReports")} checked={v.salesCanViewReports} onChange={(e) => upd({ salesCanViewReports: e.target.checked })} />
         <Checkbox
           label={t("settings.salesEditAll")}

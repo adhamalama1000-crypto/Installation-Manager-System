@@ -245,7 +245,7 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
         {draft && (
           <div className="space-y-5">
             {errors._form && <Alert tone="danger">{t.msg(errors._form)}</Alert>}
-            <div className="grid gap-4 sm:grid-cols-2">
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
               <Field label={t("fields.fullName")} required error={errors.name}>
                 {(p) => <Input {...p} value={draft.name} onChange={(e) => upd({ name: e.target.value })} />}
               </Field>
@@ -278,7 +278,7 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
             {draft.role === "VIEWER" && (
               <div>
                 <p className="mb-1 text-sm font-medium">{t("users.viewerSees")}</p>
-                <div className="grid gap-1 sm:grid-cols-2">
+                <div className="grid grid-cols-1 gap-1 sm:grid-cols-2">
                   {VIEWER_GRANTABLE.map((perm) => (
                     <Checkbox
                       key={perm}

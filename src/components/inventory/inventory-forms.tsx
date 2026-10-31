@@ -133,7 +133,7 @@ export function ModelsManager({ models }: { models: Model[] }) {
             ))}
           </ul>
         )}
-        <form className="grid gap-3 sm:grid-cols-2" onSubmit={save} noValidate>
+        <form className="grid grid-cols-1 gap-3 sm:grid-cols-2" onSubmit={save} noValidate>
           <Field label={draft.id ? t("inventory.modelNameEditing") : t("inventory.newModelName")} required error={errors.name} className="sm:col-span-2">
             {(p) => <Input {...p} value={draft.name} maxLength={120} onChange={(e) => setDraft({ ...draft, name: e.target.value })} />}
           </Field>
