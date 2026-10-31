@@ -8,6 +8,7 @@ import {
   parseAppointmentCode,
   phoneDigits,
 } from "@/lib/constants";
+import { deliveryMissing } from "@/lib/delivery";
 import { statusName } from "@/lib/format";
 import { resolveLocationLink } from "@/lib/maps";
 import { type Permission } from "@/lib/permissions";
@@ -77,7 +78,7 @@ type AppointmentView = Omit<AppointmentFull, "technicians"> & {
 /** Statuses from which the outcome of a visit can be recorded (not cancelled or postponed). */
 const REPORTABLE_KINDS: StatusKind[] = ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"];
 
-function canReportVisit(user: CurrentUser, a: { createdById: string; technicians: { technician: { id: string } }[] }): boolean {
+export function canReportVisit(user: CurrentUser, a: { createdById: string; technicians: { technician: { id: string } }[] }): boolean {
   if (hasPermission(user, "visits.report") && a.technicians.some((t) => t.technician.id === user.id)) return true;
   return canManageAppointment(user, a);
 }
@@ -120,6 +121,7 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     additionalNotes: a.additionalNotes,
     ...(canNotes ? { internalNotes: a.internalNotes } : {}),
     visitReport: a.visitReport,
+    deliveryChecklist: a.deliveryChecklist,
     reportedAt: a.reportedAt?.toISOString() ?? null,
     reportedBy: a.reportedBy,
     startsAt: a.startsAt.toISOString(),
@@ -989,6 +991,38 @@ export async function cancelAppointment(user: CurrentUser, id: string, raw: unkn
   return applyStatusChange(user, id, { kind: "CANCELLED" }, parsed.data.version, parsed.data.reason);
 }
 
+/** Refuses "Done" while the delivery checklist, photos, signature, transfer proof or serials are missing. */
+async function assertDelivered(
+  tx: Tx,
+  a: { id: string; productCategory: ProductCategory; visitType: VisitType | null; deliveryChecklist: string[]; collectedAmount: Prisma.Decimal | null; collectedMethod: PaymentMethod | null },
+  rules: { requireDeliveryProof: boolean; serialRequired: boolean },
+  collected: { collectedAmount: number | null; collectedMethod: PaymentMethod | null } | null,
+) {
+  if (!rules.requireDeliveryProof && !rules.serialRequired) return;
+  const [kinds, serials] = await Promise.all([
+    tx.attachment.groupBy({ by: ["kind"], where: { appointmentId: a.id, deletedAt: null }, _count: { _all: true } }),
+    tx.stockItem.count({ where: { appointmentId: a.id, status: "INSTALLED" } }),
+  ]);
+  const count = (k: string) => kinds.find((x) => x.kind === k)?._count._all ?? 0;
+  const missing = deliveryMissing(
+    {
+      productCategory: a.productCategory,
+      visitType: a.visitType,
+      checklist: a.deliveryChecklist,
+      afterPhotos: count("AFTER_PHOTO"),
+      hasSignature: count("SIGNATURE") > 0,
+      hasPaymentProof: count("PAYMENT_PROOF") > 0,
+      collectedAmount: collected ? collected.collectedAmount : decimalToNumber(a.collectedAmount),
+      collectedMethod: collected ? collected.collectedMethod : a.collectedMethod,
+      installedSerials: serials,
+    },
+    rules,
+  );
+  if (!missing.length) return;
+  // One line per missing item (t.msg translates each line).
+  throw new ValidationError({ outcome: missing.map((m) => msg(m.key, m.count ? { count: m.count } : undefined)).join("\n") }, msg("delivery.notReady"));
+}
+
 /**
  * The assigned technician (or a manager) records how the visit went: started, done, unable to
  * complete or needs another visit, with a report for every outcome except "started".
@@ -1022,6 +1056,11 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
       const now = new Date();
       const collection = await prepareCollection(tx, user, existing, input.collectedAmount, input.collectedMethod, now);
       const installed = await installSerials(tx, user, existing, input.serials ?? [], settings.timezone, now);
+      // Delivery rules from Settings apply when a technician marks the visit done (managers may
+      // record a finished visit afterwards, as in Aura).
+      if (input.outcome === "COMPLETED" && existing.status.kind !== "COMPLETED" && !hasPermission(user, "appointments.manage")) {
+        await assertDelivered(tx, existing, settings, collection?.data ?? null);
+      }
       if (status.id === existing.statusId && report === existing.visitReport && !collection && !installed.length) return;
       const techIds = existing.technicians.map((t) => t.technicianId);
       Object.assign(ctx, { techIds, startsAt: existing.startsAt, endsAt: existing.endsAt });

@@ -91,6 +91,20 @@ enum LeaveStatus {
   CANCELLED
 }
 
+/// What an uploaded file is (Aura: صور السيلز / صور الفني / توقيع العميل / صورة التحويل / صورة العربون).
+enum AttachmentKind {
+  /// Site photos sent before the visit (by Sales or the customer).
+  BEFORE_PHOTO
+  /// Photos of the finished work, taken by the technician.
+  AFTER_PHOTO
+  /// The customer's signature on handover (one current signature per visit).
+  SIGNATURE
+  /// Screenshot of a transfer collected at the visit (one current proof per visit).
+  PAYMENT_PROOF
+  /// Screenshot of the deposit transfer (one current proof per visit).
+  DEPOSIT_PROOF
+}
+
 /// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
 /// reports so admins can rename or add statuses without breaking the statistics.
 enum StatusKind {
@@ -146,6 +160,8 @@ model User {
   auditLogs             AuditLog[]
   notifications         Notification[]
   settingsUpdated       Setting[]
+  attachmentsUploaded   Attachment[]            @relation("AttachmentUploader")
+  attachmentsDeleted    Attachment[]            @relation("AttachmentDeleter")
 
   @@index([role, isActive])
   @@map("users")
@@ -309,20 +325,23 @@ model Appointment {
   reportedBy           User?                @relation("AppointmentReporter", fields: [reportedById], references: [id], onDelete: Restrict)
 
   /// Price agreed with the customer (EGP). Null when not recorded.
-  totalPrice      Decimal?        @db.Decimal(12, 2)
-  depositAmount   Decimal?        @db.Decimal(12, 2)
-  depositMethod   PaymentMethod?
+  totalPrice        Decimal?        @db.Decimal(12, 2)
+  depositAmount     Decimal?        @db.Decimal(12, 2)
+  depositMethod     PaymentMethod?
   /// Charged on top of the price, e.g. for a repeat visit the customer caused.
-  extraFee        Decimal?        @db.Decimal(12, 2)
+  extraFee          Decimal?        @db.Decimal(12, 2)
   /// Collected from the customer at the visit, recorded with the visit outcome.
-  collectedAmount Decimal?        @db.Decimal(12, 2)
-  collectedMethod PaymentMethod?
-  collectedAt     DateTime?       @db.Timestamptz(3)
-  collectedById   String?
-  collectedBy     User?           @relation("AppointmentCollector", fields: [collectedById], references: [id], onDelete: Restrict)
-  custody         CashCustody?
-  stockItems      StockItem[]
-  stockMovements  StockMovement[]
+  collectedAmount   Decimal?        @db.Decimal(12, 2)
+  collectedMethod   PaymentMethod?
+  collectedAt       DateTime?       @db.Timestamptz(3)
+  collectedById     String?
+  collectedBy       User?           @relation("AppointmentCollector", fields: [collectedById], references: [id], onDelete: Restrict)
+  custody           CashCustody?
+  /// Delivery checklist items ticked by the technician (ids from src/lib/delivery.ts).
+  deliveryChecklist String[]        @default([])
+  attachments       Attachment[]
+  stockItems        StockItem[]
+  stockMovements    StockMovement[]
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -545,4 +564,29 @@ model StockMovement {
 
   @@index([itemId, createdAt])
   @@map("stock_movements")
+}
+
+/// A file attached to a visit (photos, signature, transfer proofs). The bytes live in file storage
+/// (UPLOAD_DIR); this row is the record of who uploaded what. Removing a file only marks the row
+/// deleted, so the history stays complete.
+model Attachment {
+  id            String         @id @default(cuid())
+  appointmentId String
+  appointment   Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  kind          AttachmentKind
+  /// image/jpeg, image/png or image/webp (checked against the file's own bytes).
+  contentType   String
+  byteSize      Int
+  sha256        String
+  /// Path inside the storage directory; never derived from user input.
+  storageKey    String         @unique
+  uploadedById  String
+  uploadedBy    User           @relation("AttachmentUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  deletedAt     DateTime?      @db.Timestamptz(3)
+  deletedById   String?
+  deletedBy     User?          @relation("AttachmentDeleter", fields: [deletedById], references: [id], onDelete: Restrict)
+
+  @@index([appointmentId, kind, createdAt])
+  @@map("attachments")
 }

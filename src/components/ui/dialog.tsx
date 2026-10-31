@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useId, useRef } from "react";
 import { X } from "lucide-react";
 import { useT } from "@/i18n/client";
 import { cn } from "@/lib/utils";
@@ -25,6 +25,8 @@ export function Dialog({
 }) {
   const t = useT();
   const ref = useRef<HTMLDialogElement>(null);
+  const titleId = useId();
+  const descriptionId = useId();
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
@@ -34,6 +36,8 @@ export function Dialog({
   return (
     <dialog
       ref={ref}
+      aria-labelledby={titleId}
+      aria-describedby={description ? descriptionId : undefined}
       onClose={onClose}
       onCancel={(e) => {
         e.preventDefault();
@@ -53,8 +57,14 @@ export function Dialog({
         <div className="flex max-h-[90dvh] flex-col">
           <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
             <div>
-              <h2 className="text-base font-semibold">{title}</h2>
-              {description && <p className="mt-0.5 text-sm text-fg-muted">{description}</p>}
+              <h2 id={titleId} className="text-base font-semibold">
+                {title}
+              </h2>
+              {description && (
+                <p id={descriptionId} className="mt-0.5 text-sm text-fg-muted">
+                  {description}
+                </p>
+              )}
             </div>
             <button type="button" onClick={onClose} className="rounded-md p-1 text-fg-subtle hover:bg-surface-muted hover:text-fg" aria-label={t("common.close")}>
               <X className="h-5 w-5" />

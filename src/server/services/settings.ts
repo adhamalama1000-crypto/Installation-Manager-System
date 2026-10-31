@@ -22,6 +22,9 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   technicianCanSeeContacts: true,
   closedWeekdays: [],
   companyName: "",
+  // Off by default so existing workflows keep working; an Admin turns them on in Settings.
+  requireDeliveryProof: false,
+  serialRequired: false,
 };
 
 /** Stored settings JSON (or null when never saved) merged over the defaults. */

@@ -81,6 +81,8 @@ export type AppointmentDTO = {
   payment: PaymentDTO | null;
   /** Serial-numbered items installed at this visit, each with its warranty end date. */
   installed: { serial: string; model: string; warrantyUntil: string | null }[];
+  /** Ticked delivery checklist items (see lib/delivery). */
+  deliveryChecklist: string[];
 };
 
 /**
@@ -191,3 +193,17 @@ export type LeaveClash = {
   startsAt: string;
   createdById: string;
 };
+
+/** A file attached to a visit, as shown in the browser (the bytes come from /api/attachments/[id]). */
+export type AttachmentDTO = {
+  id: string;
+  kind: "BEFORE_PHOTO" | "AFTER_PHOTO" | "SIGNATURE" | "PAYMENT_PROOF" | "DEPOSIT_PROOF";
+  url: string;
+  uploadedBy: { id: string; name: string };
+  createdAt: string;
+  /** The reader may remove it (their own upload, or a manager of the booking). */
+  canDelete: boolean;
+};
+
+/** Which kinds the reader may add to a visit. */
+export type AttachmentRights = Record<AttachmentDTO["kind"], boolean>;
