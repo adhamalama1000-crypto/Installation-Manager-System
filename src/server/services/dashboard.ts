@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translator";
 import { Prisma } from "@prisma/client";
 import { addDaysToKey, dayRangeUtc, startOfMonthKey, addMonthsToKey, todayKey } from "@/lib/time";
 import { prisma } from "../db";
@@ -105,12 +106,13 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
       attention.push({ id: a.id, code: a.code, customerName: a.customerName, startsAt: a.startsAt, reason });
     }
   };
-  push(overdue, "Past end time - status not updated");
-  push(unassigned, "No technician assigned");
-  push(onLeave, "Technician on approved leave - assign someone else");
-  push(noLocation, "No map location saved");
-  push(unconfirmed, "Customer has not confirmed - call before the visit");
-  push(revisit, "Needs another visit - no follow-up booked");
+  // Reasons are message keys; the page shows them in the reader's language.
+  push(overdue, msg("dashboard.reasons.overdue"));
+  push(unassigned, msg("dashboard.reasons.unassigned"));
+  push(onLeave, msg("dashboard.reasons.onLeave"));
+  push(noLocation, msg("dashboard.reasons.noLocation"));
+  push(unconfirmed, msg("dashboard.reasons.unconfirmed"));
+  push(revisit, msg("dashboard.reasons.revisit"));
 
   return {
     today,

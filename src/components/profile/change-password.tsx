@@ -4,9 +4,11 @@ import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
+import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
 
 export function ChangePasswordForm() {
+  const t = useT();
   const [current, setCurrent] = useState("");
   const [next, setNext] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -16,14 +18,14 @@ export function ChangePasswordForm() {
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (next !== confirm) {
-      setErrors({ confirm: "Passwords do not match" });
+      setErrors({ confirm: t("auth.passwordsDontMatch") });
       return;
     }
     setSaving(true);
     setErrors({});
     try {
       await api("/api/me/password", { method: "POST", body: { currentPassword: current, newPassword: next } });
-      toast.success("Password changed. Other devices were signed out.");
+      toast.success(t("profile.passwordChanged"));
       setCurrent("");
       setNext("");
       setConfirm("");
@@ -37,16 +39,18 @@ export function ChangePasswordForm() {
 
   return (
     <form onSubmit={submit} className="max-w-md space-y-4" noValidate>
-      <Field label="Current password" error={errors.currentPassword}>
+      <Field label={t("profile.currentPassword")} error={errors.currentPassword}>
         {(p) => <Input {...p} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />}
       </Field>
-      <Field label="New password" error={errors.newPassword} hint="At least 10 characters with letters and numbers">
+      <Field label={t("auth.newPassword")} error={errors.newPassword} hint={t("auth.passwordRule")}>
         {(p) => <Input {...p} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />}
       </Field>
-      <Field label="Confirm new password" error={errors.confirm}>
+      <Field label={t("profile.confirmNew")} error={errors.confirm}>
         {(p) => <Input {...p} type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />}
       </Field>
-      <Button type="submit" loading={saving}>Change password</Button>
+      <Button type="submit" loading={saving}>
+        {t("profile.changePassword")}
+      </Button>
     </form>
   );
 }

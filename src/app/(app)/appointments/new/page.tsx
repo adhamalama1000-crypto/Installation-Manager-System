@@ -8,16 +8,20 @@ import { NotFoundError } from "@/server/errors";
 import { getAppointment } from "@/server/services/appointments";
 import { activeTechnicians, salesPeople } from "@/server/services/users";
 import { listStatuses } from "@/server/services/statuses";
+import { getT } from "@/i18n/server";
+import type { Metadata } from "next";
 
-export const metadata = { title: "New appointment" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getT())("nav.newAppointment") };
+}
 
 export default async function NewAppointmentPage({ searchParams }: { searchParams: Promise<{ date?: string; time?: string; followUp?: string }> }) {
-  const user = await requirePagePermission("appointments.manage");
+  const [user, t] = await Promise.all([requirePagePermission("appointments.manage"), getT()]);
   const sp = await searchParams;
   const tz = user.settings.timezone;
   const [technicians, statuses, sales, original] = await Promise.all([
     activeTechnicians(),
-    listStatuses(),
+    listStatuses(t.locale),
     user.role === "ADMIN" ? salesPeople() : Promise.resolve(null),
     // A follow-up visit starts from the earlier appointment's customer, site and product.
     sp.followUp ? getAppointment(user, sp.followUp).catch((e) => (e instanceof NotFoundError ? null : Promise.reject(e))) : Promise.resolve(null),
@@ -75,8 +79,8 @@ export default async function NewAppointmentPage({ searchParams }: { searchParam
   return (
     <>
       <PageHeader
-        title={original ? `Follow-up visit for ${original.code}` : "New appointment"}
-        description="Book an installation and assign available technicians."
+        title={original ? t("form.followUpTitle", { code: original.code }) : t("nav.newAppointment")}
+        description={t("form.newText")}
       />
       <AppointmentForm
         mode="create"

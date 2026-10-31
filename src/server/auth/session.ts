@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { cache } from "react";
 import type { Role } from "@prisma/client";
+import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, type Locale } from "@/i18n/config";
 import { permissionsFor, type Permission } from "@/lib/permissions";
 import type { SettingsValues } from "@/lib/validation";
 import { prisma } from "../db";
@@ -22,6 +23,8 @@ export type CurrentUser = {
   permissions: Permission[];
   settings: SettingsValues;
   sessionId: string;
+  /** Interface language of this request: the language cookie, else the saved preference, else Arabic. */
+  locale: Locale;
 };
 
 function sessionTtlMs(): number {
@@ -83,7 +86,7 @@ type SessionRow = {
 };
 
 /** Validates a raw session token and loads the user with their effective permissions. */
-export async function userFromToken(token: string | undefined | null): Promise<CurrentUser | null> {
+export async function userFromToken(token: string | undefined | null, cookieLocale?: string | null): Promise<CurrentUser | null> {
   if (!token || token.length > 200) return null;
   const id = sha256(token);
   // Runs on every request, so session, user and settings come back in ONE round trip.
@@ -114,27 +117,30 @@ export async function userFromToken(token: string | undefined | null): Promise<C
     permissions: [...permissionsFor(u, settings)],
     settings,
     sessionId: id,
+    // The cookie decides (sign-in sets it from the saved preference), so pages and APIs agree.
+    locale: isLocale(cookieLocale) ? cookieLocale : DEFAULT_LOCALE,
   };
 }
 
-function tokenFromCookieHeader(header: string | null): string | null {
+export function cookieFromHeader(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const [k, ...rest] = part.trim().split("=");
-    if (k === SESSION_COOKIE) return decodeURIComponent(rest.join("="));
+    if (k === name) return decodeURIComponent(rest.join("="));
   }
   return null;
 }
 
-/** For API route handlers: reads the session cookie from the incoming request. */
+/** For API route handlers: reads the session and language cookies from the incoming request. */
 export function getUserFromRequest(req: Request): Promise<CurrentUser | null> {
-  return userFromToken(tokenFromCookieHeader(req.headers.get("cookie")));
+  const header = req.headers.get("cookie");
+  return userFromToken(cookieFromHeader(header, SESSION_COOKIE), cookieFromHeader(header, LOCALE_COOKIE));
 }
 
 /** For server components and layouts (cached per request). */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const store = await cookies();
-  return userFromToken(store.get(SESSION_COOKIE)?.value);
+  return userFromToken(store.get(SESSION_COOKIE)?.value, store.get(LOCALE_COOKIE)?.value);
 });
 
 export async function requireUser(): Promise<CurrentUser> {

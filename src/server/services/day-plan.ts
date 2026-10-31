@@ -1,7 +1,8 @@
 import "server-only";
-import { CONFIRMATION_LABELS, VISIT_TYPE_LABELS, appointmentCode } from "@/lib/constants";
+import { createT } from "@/i18n/translator";
+import { appointmentCode } from "@/lib/constants";
 import { customerReminder, technicianMessage, whatsappLink, type PlanVisit } from "@/lib/day-plan";
-import { productLine } from "@/lib/format";
+import { productLine, statusName } from "@/lib/format";
 import { resolveLocationLink } from "@/lib/maps";
 import { dayRangeUtc, fmt, formatKey } from "@/lib/time";
 import { prisma } from "../db";
@@ -46,7 +47,7 @@ export async function dayPlan(user: CurrentUser, date: string) {
       depositAmount: true,
       extraFee: true,
       collectedAmount: true,
-      status: { select: { name: true, color: true } },
+      status: { select: { name: true, nameAr: true, color: true } },
       customer: { select: { name: true, phone: true } },
       location: { select: { area: true, building: true, streetAddress: true, apartment: true, floor: true, mapUrl: true, latitude: true, longitude: true } },
       technicians: { select: { technician: { select: { id: true, name: true, phone: true } } }, orderBy: { technician: { name: "asc" } } },
@@ -54,14 +55,15 @@ export async function dayPlan(user: CurrentUser, date: string) {
     orderBy: [{ startsAt: "asc" }, { number: "asc" }],
   });
 
-  const dayLabel = formatKey(date, { weekday: "long", day: "numeric", month: "long" });
-  const company = user.settings.companyName || "your installation team";
+  const t = createT(user.locale);
+  const dayLabel = formatKey(date, { weekday: "long", day: "numeric", month: "long" }, user.locale);
+  const company = user.settings.companyName || t("dayPlanText.defaultCompany");
 
   const visit = (a: (typeof rows)[number], forTechnician?: string): DayPlanVisit => {
     const l = a.location;
     const due = amountDue(a);
     const time = `${fmt(a.startsAt, tz, "HH:mm")}–${fmt(a.endsAt, tz, "HH:mm")}`;
-    const what = productLine(a);
+    const what = productLine(a, t);
     return {
       id: a.id,
       code: appointmentCode(a.number),
@@ -69,18 +71,20 @@ export async function dayPlan(user: CurrentUser, date: string) {
       what,
       customerName: a.customer.name,
       customerPhone: a.customer.phone,
-      address: [l.area, l.building, l.streetAddress, l.apartment && `Apt ${l.apartment}`, l.floor && `Floor ${l.floor}`].filter(Boolean).join(", "),
+      address: [l.area, l.building, l.streetAddress, l.apartment && t("dayPlanText.apartment", { value: l.apartment }), l.floor && t("dayPlanText.floor", { value: l.floor })]
+        .filter(Boolean)
+        .join(t.locale === "ar" ? "، " : ", "),
       mapLink: resolveLocationLink({ mapUrl: l.mapUrl, latitude: l.latitude?.toNumber() ?? null, longitude: l.longitude?.toNumber() ?? null }),
       equipment: a.requiredEquipment,
       notes: a.additionalNotes,
       // What is still to be collected (nothing once a collection is recorded).
       toCollect: due !== null && a.collectedAmount === null ? due : null,
-      withOthers: a.technicians.map((t) => t.technician.name).filter((n) => n !== forTechnician),
-      status: a.status,
-      confirmation: CONFIRMATION_LABELS[a.customerConfirmation],
+      withOthers: a.technicians.map((x) => x.technician.name).filter((n) => n !== forTechnician),
+      status: { name: statusName(a.status, user.locale), color: a.status.color },
+      confirmation: t.dyn(`enums.confirmation.${a.customerConfirmation}`),
       confirmed: a.customerConfirmation === "CONFIRMED",
       reminderLink: a.customer.phone
-        ? whatsappLink(a.customer.phone, customerReminder(a.customer.name, dayLabel, fmt(a.startsAt, tz, "HH:mm"), a.visitType ? VISIT_TYPE_LABELS[a.visitType] : "installation", company))
+        ? whatsappLink(a.customer.phone, customerReminder(t, a.customer.name, dayLabel, fmt(a.startsAt, tz, "HH:mm"), t.dyn(`enums.visitType.${a.visitType ?? "INSTALLATION"}`), company))
         : null,
     };
   };
@@ -89,17 +93,17 @@ export async function dayPlan(user: CurrentUser, date: string) {
   const unassigned: DayPlanVisit[] = [];
   for (const a of rows) {
     if (!a.technicians.length) unassigned.push(visit(a));
-    for (const { technician: t } of a.technicians) {
-      const entry = byTech.get(t.id) ?? { id: t.id, name: t.name, phone: t.phone, visits: [] };
-      entry.visits.push(visit(a, t.name));
-      byTech.set(t.id, entry);
+    for (const { technician: tech } of a.technicians) {
+      const entry = byTech.get(tech.id) ?? { id: tech.id, name: tech.name, phone: tech.phone, visits: [] };
+      entry.visits.push(visit(a, tech.name));
+      byTech.set(tech.id, entry);
     }
   }
   const technicians = [...byTech.values()]
     .sort((x, y) => x.name.localeCompare(y.name))
-    .map((t) => {
-      const message = technicianMessage(t.name, dayLabel, t.visits);
-      return { ...t, message, link: whatsappLink(t.phone, message) };
+    .map((tech) => {
+      const message = technicianMessage(t, tech.name, dayLabel, tech.visits);
+      return { ...tech, message, link: whatsappLink(tech.phone, message) };
     });
   return { date, dayLabel, visits: rows.length, technicians, unassigned };
 }

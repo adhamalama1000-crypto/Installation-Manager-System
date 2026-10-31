@@ -51,6 +51,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 - **Reports**: appointments per day/month, by status, by Sales employee, by category, completed vs cancelled, technician workload (hours and jobs) - each exportable to CSV. Internal notes are never exported.
 - **Audit log** (Admin): append-only record of appointment, user, permission, status and settings changes. A database trigger blocks updates and deletes.
 - **In-app notifications** for technicians when they are assigned, unassigned, or a job is rescheduled, updated or cancelled.
+- **Arabic first, with English**: the app opens in Arabic, right to left, and every page, form, validation message, notification, audit entry, CSV export and WhatsApp text can be switched to English (sidebar, sign-in page or profile). The choice is kept in a cookie and on the user's account.
 - **Responsive UI** (phone, tablet, desktop) with light, dark and system themes, accessible focus states, empty/error states and toast feedback.
 
 ## Quick start (local development)
@@ -222,8 +223,8 @@ Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customer
 ## Testing
 
 ```bash
-npm test            # 119 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
-npm run test:e2e    # 15 Playwright tests against a running, seeded app
+npm test            # 129 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
+npm run test:e2e    # 19 Playwright tests against a running, seeded app
 ```
 
 What is covered:
@@ -239,7 +240,8 @@ What is covered:
 - **Day plan**: grouping of a day's active visits per technician (cancelled/postponed left out, unassigned listed separately), shared visits, amounts still to collect, WhatsApp number normalisation (local 0… numbers become 20…) and message text.
 - **SQL reads**: the hand-written list/calendar/export queries return exactly what the Prisma filters return (300 random filter combinations), including literal `%`/`_` in search terms.
 - **API**: login/logout with cookies, generic login errors, rate limiting, cross-origin rejection, malformed JSON, 401/403/404/409 responses, server-assigned creator.
-- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), a technician collecting cash that the Admin then receives on the finance page, the store handing serials to a technician who installs one at the visit (warranty shown, custody updated), and Sales opening the day plan with a WhatsApp link per technician.
+- **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), a technician collecting cash that the Admin then receives on the finance page, the store handing serials to a technician who installs one at the visit (warranty shown, custody updated), Sales opening the day plan with a WhatsApp link per technician, and the Arabic interface (right-to-left layout, switching languages, Arabic statuses and validation messages, phone layout, drawer opening from the right).
+- **Localization**: both dictionaries have the same keys and placeholders, every stored enum value has a name in both languages, Arabic plural forms, encoded server messages, Arabic dates and amounts; the API answers in Arabic by default and keeps a browser's chosen language at sign-in.
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
 
@@ -304,7 +306,7 @@ Judge speed on `npm run build && npm start`, not `npm run dev`: the development 
 - No map picker or geocoding: Sales paste a map link (or coordinates). Coordinates can be read automatically from full Google Maps URLs. Short links (`maps.app.goo.gl`) are saved and opened as-is.
 - Text search uses PostgreSQL `ILIKE` with `pg_trgm` indexes; search terms shorter than 3 characters cannot use them and scan instead.
 - Recurring appointments and file attachments (photos, documents) are not implemented.
-- The UI and the WhatsApp texts are in English. Dates use the `en-GB` format.
+- Two languages only (Arabic and English). Numbers use Western digits in both. Admin-defined names (statuses have an optional Arabic name; product models, areas and people do not) are shown as entered.
 - WhatsApp messages are never sent automatically: the day plan opens WhatsApp with the text filled in (no WhatsApp Business API or e-mail provider is connected). Numbers without a country code are treated as Egyptian.
 - Payment proofs (transfer screenshots), before/after photos and signatures need file storage and are not implemented; the repeat-visit fee is entered by Sales rather than set automatically.
 - Not ported from Aura yet: GPS check-ins and the live technician board, attendance and points, complaints, transport expenses, the company car route, slot holds and quotation parsing (see [docs/AURA-FEATURE-MATRIX.md](docs/AURA-FEATURE-MATRIX.md)).

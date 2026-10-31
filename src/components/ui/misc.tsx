@@ -1,6 +1,7 @@
 import { AlertTriangle, CheckCircle2, Info, Inbox, XCircle } from "lucide-react";
 import { chipColors, colorOrFallback } from "@/lib/colors";
 import { cn } from "@/lib/utils";
+import { Tr } from "./tr";
 
 export function PageHeader({
   title,
@@ -54,7 +55,11 @@ export function SalesTag({ name, color, inactive, className }: { name: string; c
     <span className={cn("inline-flex items-center gap-1.5 text-sm text-fg", className)}>
       <span className="h-3 w-3 shrink-0 rounded-full ring-1 ring-black/10 dark:ring-white/20" style={{ backgroundColor: colorOrFallback(color) }} aria-hidden />
       <span className="truncate">{name}</span>
-      {inactive && <span className="text-xs text-fg-subtle">(inactive)</span>}
+      {inactive && (
+        <span className="text-xs text-fg-subtle">
+          <Tr k="common.inactiveParen" />
+        </span>
+      )}
     </span>
   );
 }
@@ -109,6 +114,15 @@ export function DefinitionList({ items, className }: { items: { label: string; v
         </div>
       ))}
     </dl>
+  );
+}
+
+/** A "back" arrow that points the right way in both reading directions. */
+export function BackArrow() {
+  return (
+    <span aria-hidden className="inline-block rtl:-scale-x-100">
+      ←
+    </span>
   );
 }
 

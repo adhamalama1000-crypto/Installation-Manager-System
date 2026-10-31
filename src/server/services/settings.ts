@@ -1,4 +1,5 @@
 import "server-only";
+import { msg } from "@/i18n/translator";
 import { DEFAULT_TIMEZONE } from "@/lib/constants";
 import { settingsSchema, type SettingsValues, fieldErrorsFromZod } from "@/lib/validation";
 import { prisma, type Db } from "../db";
@@ -52,7 +53,7 @@ export async function updateSettings(actor: CurrentUser, input: unknown): Promis
         entityType: "SETTINGS",
         entityId: SETTINGS_KEY,
         action: "SETTINGS_UPDATED",
-        summary: `Updated system settings (${Object.keys(changes).join(", ")})`,
+        summary: msg("audit.settingsUpdated", { fields: Object.keys(changes).join(", ") }),
         changes,
         actorId: actor.id,
       });

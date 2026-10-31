@@ -1,10 +1,14 @@
 import "server-only";
 import { Prisma, type CustodyStatus, type PaymentMethod } from "@prisma/client";
-import { PAYMENT_METHODS, PAYMENT_METHOD_LABELS, STATUS_KIND_LABELS, appointmentCode, money } from "@/lib/constants";
+import type { StatusKind } from "@prisma/client";
+import { createT, msg } from "@/i18n/translator";
+import { PAYMENT_METHODS, appointmentCode } from "@/lib/constants";
+import { statusName } from "@/lib/format";
 import { addDaysToKey, addMonthsToKey, dateKey, dayRangeUtc, fmt, todayKey } from "@/lib/time";
 import type { PaymentDTO } from "@/lib/types";
 import { cashReceiveSchema, fieldErrorsFromZod } from "@/lib/validation";
 import { prisma, type Tx } from "../db";
+import { moneyParam } from "../i18n-params";
 import { assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
@@ -99,13 +103,13 @@ export async function prepareCollection(
   if (prevAmount === amount && existing.collectedMethod === nextMethod) return null;
   const due = amountDue(existing);
   if (amount && due !== null && amount > due + 1e-9) {
-    const msg = `That is more than the amount due (${money(due)}).`;
-    throw new ValidationError({ collectedAmount: msg }, msg);
+    const text = msg("paymentErrors.moreThanDue", moneyParam("due", due));
+    throw new ValidationError({ collectedAmount: text }, text);
   }
   const custody = await tx.cashCustody.findUnique({ where: { appointmentId: existing.id } });
   if (custody?.status === "RECEIVED") {
-    const msg = "This cash was already handed over to the accountant, so it can no longer be changed here.";
-    throw new ValidationError({ collectedAmount: msg }, msg);
+    const text = msg("paymentErrors.alreadyHandedOver");
+    throw new ValidationError({ collectedAmount: text }, text);
   }
   const changes: Record<string, { from: unknown; to: unknown }> = {};
   if (prevAmount !== amount) changes.collectedAmount = { from: prevAmount, to: amount };
@@ -138,7 +142,12 @@ export async function prepareCollection(
     }
   }
 
-  const summary = amount ? `collected ${money(amount)} (${PAYMENT_METHOD_LABELS[nextMethod!]})` : amount === 0 ? "collected nothing" : null;
+  // An encoded message, used as a part of the visit-outcome notification.
+  const summary = amount
+    ? msg("payments.collectedPart", { ...moneyParam("amount", amount), method: `@enums.paymentMethod.${nextMethod!}` })
+    : amount === 0
+      ? msg("payments.collectedNothingPart")
+      : null;
   return { data, changes, syncCustody, summary };
 }
 
@@ -160,26 +169,30 @@ export async function receiveCash(user: CurrentUser, raw: unknown, now: Date = n
       ORDER BY "collectedAt", id
       FOR UPDATE`;
     if (entryIds && rows.length !== new Set(entryIds).size) {
-      const msg = "Some of these amounts were already received. Refresh the page.";
-      throw new ValidationError({ _form: msg }, msg);
+      const text = msg("paymentErrors.someReceived");
+      throw new ValidationError({ _form: text }, text);
     }
     const holder = await tx.user.findUnique({ where: { id: technicianId }, select: { name: true } });
     if (!rows.length || !holder) {
-      const msg = `${holder?.name ?? "This technician"} is not holding any cash.`;
-      throw new ValidationError({ _form: msg }, msg);
+      const text = holder ? msg("paymentErrors.noCash", { name: holder.name }) : msg("paymentErrors.noCashUnknown");
+      throw new ValidationError({ _form: text }, text);
     }
     await tx.cashCustody.updateMany({ where: { id: { in: rows.map((r) => r.id) } }, data: { status: "RECEIVED", receivedById: user.id, receivedAt: now } });
     const total = round2(rows.reduce((s, r) => s + r.amount.toNumber(), 0));
-    const what = `${money(total)} cash from ${holder.name} (${rows.length} visit${rows.length === 1 ? "" : "s"})`;
     await recordAudit(tx, {
       entityType: "CASH",
       entityId: technicianId,
       action: "CASH_RECEIVED",
-      summary: `Received ${what}`,
+      summary: msg("audit.cashReceived", { ...moneyParam("amount", total), name: holder.name, visits: `@${msg("common.visits", { count: rows.length })}` }),
       changes: { amount: total, visits: rows.length, entries: rows.map((r) => r.id) },
       actorId: user.id,
     });
-    await notifyUsers(tx, [technicianId], { type: "CASH_RECEIVED", message: `${user.name} received ${money(total)} cash from you (${rows.length} visit${rows.length === 1 ? "" : "s"})` }, user.id);
+    await notifyUsers(
+      tx,
+      [technicianId],
+      { type: "CASH_RECEIVED", message: msg("notify.cashReceived", { name: user.name, ...moneyParam("amount", total), visits: `@${msg("common.visits", { count: rows.length })}` }) },
+      user.id,
+    );
     return { amount: total, count: rows.length };
   });
 }
@@ -335,7 +348,8 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
       phone: string;
       salesName: string;
       status: string;
-      kind: keyof typeof STATUS_KIND_LABELS;
+      statusAr: string | null;
+      kind: StatusKind;
       totalPrice: Prisma.Decimal | null;
       depositAmount: Prisma.Decimal | null;
       depositMethod: PaymentMethod | null;
@@ -346,7 +360,7 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
       custody: CustodyStatus | null;
     }[]
   >`
-    SELECT a.number, a."startsAt", c.name AS "customerName", c.phone, u.name AS "salesName", s.name AS status, s.kind,
+    SELECT a.number, a."startsAt", c.name AS "customerName", c.phone, u.name AS "salesName", s.name AS status, s."nameAr" AS "statusAr", s.kind,
            a."totalPrice", a."depositAmount", a."depositMethod", a."extraFee", a."collectedAmount", a."collectedMethod",
            cb.name AS "collectedBy", k.status AS custody
     FROM appointments a
@@ -358,24 +372,25 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
     WHERE a."startsAt" >= ${range.start} AND a."startsAt" < ${range.end} AND s.kind <> 'CANCELLED'
     ORDER BY a."startsAt", a.number
     LIMIT ${FINANCE_EXPORT_LIMIT}`;
-  const custodyLabel: Record<CustodyStatus, string> = { HELD: "With technician", RECEIVED: "Received", VOID: "" };
+  const t = createT(user.locale);
+  const custodyLabel = (c: CustodyStatus) => (c === "VOID" ? "" : t.dyn(`enums.custodyStatus.${c}`));
   const header = [
-    "Appointment",
-    "Date",
-    "Customer",
-    ...(canContact ? ["Phone"] : []),
-    "Sales",
-    "Status",
-    "Total price",
-    "Deposit",
-    "Deposit method",
-    "Extra fee",
-    "Due at visit",
-    "Collected",
-    "Collected method",
-    "Balance",
-    "Collected by",
-    "Cash",
+    t("csv.appointment"),
+    t("csv.date"),
+    t("csv.customer"),
+    ...(canContact ? [t("csv.phone")] : []),
+    t("csv.sales"),
+    t("csv.status"),
+    t("csv.totalPrice"),
+    t("csv.deposit"),
+    t("csv.depositMethod"),
+    t("csv.extraFee"),
+    t("csv.dueAtVisit"),
+    t("csv.collected"),
+    t("csv.collectedMethod"),
+    t("csv.balance"),
+    t("csv.collectedBy"),
+    t("csv.cash"),
   ];
   const lines = rows.map((r) => {
     const due = amountDue(r);
@@ -386,17 +401,17 @@ export async function financeCsv(user: CurrentUser, month: string): Promise<stri
       r.customerName,
       ...(canContact ? [r.phone] : []),
       r.salesName,
-      r.status,
+      statusName({ name: r.status, nameAr: r.statusAr }, user.locale),
       num(r.totalPrice),
       num(r.depositAmount),
-      r.depositMethod ? PAYMENT_METHOD_LABELS[r.depositMethod] : "",
+      r.depositMethod ? t.dyn(`enums.paymentMethod.${r.depositMethod}`) : "",
       num(r.extraFee),
       due,
       collected,
-      r.collectedMethod ? PAYMENT_METHOD_LABELS[r.collectedMethod] : "",
+      r.collectedMethod ? t.dyn(`enums.paymentMethod.${r.collectedMethod}`) : "",
       due === null || r.kind !== "COMPLETED" ? null : round2(Math.max(0, due - (collected ?? 0))),
       r.collectedBy ?? "",
-      r.custody ? custodyLabel[r.custody] : "",
+      r.custody ? custodyLabel(r.custody) : "",
     ];
   });
   return toCsv([header, ...lines]);

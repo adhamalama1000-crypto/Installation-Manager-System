@@ -2,50 +2,56 @@
  * Zod schemas shared by the browser (instant feedback) and the API (authoritative validation).
  */
 import { z } from "zod";
+import { msg, type MessageKey } from "@/i18n/translator";
 import { HEX_COLOR_RE } from "./colors";
 import { CONFIRMATIONS, LEAVE_TYPES, PAYMENT_METHODS, PRODUCT_CATEGORIES, ROLES, SERIAL_RE, STATUS_KINDS, VISIT_TYPES, parseSerials, phoneDigits } from "./constants";
 import { checkMapUrl, isValidLatitude, isValidLongitude } from "./maps";
 import { VIEWER_GRANTABLE } from "./permissions";
 import { TIME_RE, isValidDateString, isValidTimeZone } from "./time";
 
+// Messages are translation keys (see i18n/translator `msg`); forms and the API translate them.
+// Zod's own English texts only appear for input the UI cannot produce, so they become one generic message.
+z.config({ customError: () => msg("validation.invalid") });
+
+const maxChars = (max: number) => msg("validation.maxChars", { max });
+
 /** Optional free text: trims, turns "" into null, enforces a max length. */
 export const optionalText = (max: number) =>
   z.preprocess(
     (v) => (typeof v === "string" ? v.trim() || null : (v ?? null)),
-    z.string().max(max, `Must be at most ${max} characters`).nullable(),
+    z.string().max(max, maxChars(max)).nullable(),
   );
 
-const requiredText = (label: string, max: number) =>
-  z.preprocess(
-    (v) => (typeof v === "string" ? v.trim() : v),
-    z.string({ error: `${label} is required` }).min(1, `${label} is required`).max(max, `Must be at most ${max} characters`),
-  );
+const requiredText = (label: MessageKey, max: number) => {
+  const required = msg("validation.required", { field: `@${label}` });
+  return z.preprocess((v) => (typeof v === "string" ? v.trim() : v), z.string({ error: required }).min(1, required).max(max, maxChars(max)));
+};
 
-const phoneField = (label: string) =>
+const phoneField = (label: MessageKey) =>
   requiredText(label, 30)
-    .refine((v) => /^[+\d\s().-]+$/.test(v), "Use digits, spaces, +, -, ( ) only")
+    .refine((v) => /^[+\d\s().-]+$/.test(v), msg("validation.phoneChars"))
     .refine((v) => {
       const n = phoneDigits(v).length;
       return n >= 7 && n <= 15;
-    }, "Enter a valid phone number (7-15 digits)");
+    }, msg("validation.phoneDigits"));
 
 const optionalPhone = z.preprocess(
   (v) => (typeof v === "string" ? v.trim() || null : (v ?? null)),
   z
     .string()
     .max(30)
-    .refine((v) => /^[+\d\s().-]+$/.test(v), "Use digits, spaces, +, -, ( ) only")
+    .refine((v) => /^[+\d\s().-]+$/.test(v), msg("validation.phoneChars"))
     .refine((v) => {
       const n = phoneDigits(v).length;
       return n >= 7 && n <= 15;
-    }, "Enter a valid phone number (7-15 digits)")
+    }, msg("validation.phoneDigits"))
     .nullable(),
 );
 
 const optionalNumber = z.preprocess((v) => {
   if (v === "" || v === null || v === undefined) return null;
   return typeof v === "string" ? Number(v.trim()) : v;
-}, z.number({ error: "Must be a number" }).nullable());
+}, z.number({ error: msg("validation.number") }).nullable());
 
 const idField = z.string().min(1).max(64);
 
@@ -56,10 +62,10 @@ const moneyField = z.preprocess(
     return typeof v === "string" ? Number(v.replace(/[,\s]/g, "")) : v;
   },
   z
-    .number({ error: "Enter an amount" })
-    .min(0, "Cannot be negative")
-    .max(10_000_000, "Too large")
-    .refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, "At most two decimals")
+    .number({ error: msg("validation.amount") })
+    .min(0, msg("validation.negative"))
+    .max(10_000_000, msg("validation.tooLarge"))
+    .refine((n) => Math.abs(n * 100 - Math.round(n * 100)) < 1e-6, msg("validation.twoDecimals"))
     .nullable()
     .optional(),
 );
@@ -69,22 +75,22 @@ const serialsField = z.preprocess(
   (v) => (Array.isArray(v) ? parseSerials(v.join("\n")) : typeof v === "string" ? parseSerials(v) : v),
   z
     .array(z.string())
-    .max(200, "At most 200 serial numbers at once")
+    .max(200, msg("validation.maxSerials"))
     .superRefine((list, ctx) => {
       const bad = list.filter((s) => !SERIAL_RE.test(s));
-      if (bad.length) ctx.addIssue({ code: "custom", message: `Not a valid serial number: ${bad.slice(0, 5).join(", ")}` });
+      if (bad.length) ctx.addIssue({ code: "custom", message: msg("validation.badSerial", { list: bad.slice(0, 5).join(", ") }) });
     }),
 );
 
 const paymentMethodField = z.preprocess(
   (v) => (v === "" ? null : v),
-  z.enum(PAYMENT_METHODS as [string, ...string[]], { error: "Choose how it was paid" }).nullable().optional(),
+  z.enum(PAYMENT_METHODS as [string, ...string[]], { error: msg("validation.paymentMethod") }).nullable().optional(),
 );
 
 export const customerInputSchema = z.object({
   id: idField.optional().nullable(),
-  name: requiredText("Customer name", 120),
-  phone: phoneField("Primary phone number"),
+  name: requiredText("fields.customerName", 120),
+  phone: phoneField("fields.primaryPhone"),
   secondaryPhone: optionalPhone,
 });
 
@@ -98,17 +104,17 @@ export const locationInputSchema = z
     floor: optionalText(30),
     accessInstructions: optionalText(1000),
     mapUrl: optionalText(2048).refine((v) => v === null || checkMapUrl(v).ok, {
-      message: "Enter a valid map link starting with https://",
+      message: msg("validation.mapUrl"),
     }),
-    latitude: optionalNumber.refine((v) => v === null || isValidLatitude(v), "Latitude must be between -90 and 90"),
-    longitude: optionalNumber.refine((v) => v === null || isValidLongitude(v), "Longitude must be between -180 and 180"),
+    latitude: optionalNumber.refine((v) => v === null || isValidLatitude(v), msg("validation.latitude")),
+    longitude: optionalNumber.refine((v) => v === null || isValidLongitude(v), msg("validation.longitude")),
   })
   .superRefine((loc, ctx) => {
     if ((loc.latitude === null) !== (loc.longitude === null)) {
       ctx.addIssue({
         code: "custom",
         path: [loc.latitude === null ? "latitude" : "longitude"],
-        message: "Enter both latitude and longitude, or neither",
+        message: msg("validation.latLngPair"),
       });
     }
   });
@@ -121,8 +127,8 @@ export const appointmentInputSchema = z
     salesUserId: idField.optional().nullable(),
     customer: customerInputSchema,
     location: locationInputSchema,
-    productCategory: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: "Choose a product category" }),
-    visitType: z.preprocess((v) => (v === "" ? null : v), z.enum(VISIT_TYPES as [string, ...string[]], { error: "Choose a visit type" }).nullable().optional()),
+    productCategory: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: msg("validation.category") }),
+    visitType: z.preprocess((v) => (v === "" ? null : v), z.enum(VISIT_TYPES as [string, ...string[]], { error: msg("validation.visitType") }).nullable().optional()),
     customerConfirmation: z.enum(CONFIRMATIONS as [string, ...string[]]).optional(),
     /** Create only: the earlier appointment this visit follows up. */
     followUpOfId: idField.optional().nullable(),
@@ -135,17 +141,17 @@ export const appointmentInputSchema = z
     requiredEquipment: optionalText(2000),
     additionalNotes: optionalText(4000),
     internalNotes: optionalText(4000),
-    date: z.string({ error: "Date is required" }).refine(isValidDateString, "Enter a valid date"),
-    startTime: z.string({ error: "Start time is required" }).regex(TIME_RE, "Enter a valid time (HH:MM)"),
+    date: z.string({ error: msg("validation.dateRequired") }).refine(isValidDateString, msg("validation.date")),
+    startTime: z.string({ error: msg("validation.timeRequired") }).regex(TIME_RE, msg("validation.time")),
     durationMinutes: z.coerce
-      .number({ error: "Duration is required" })
-      .int("Duration must be whole minutes")
-      .min(15, "Minimum duration is 15 minutes")
-      .max(1440, "Maximum duration is 24 hours"),
+      .number({ error: msg("validation.durationRequired") })
+      .int(msg("validation.durationWhole"))
+      .min(15, msg("validation.durationMin"))
+      .max(1440, msg("validation.durationMax")),
     technicianIds: z
       .array(idField)
-      .max(10, "At most 10 technicians per appointment")
-      .refine((ids) => new Set(ids).size === ids.length, "A technician was selected twice"),
+      .max(10, msg("validation.maxTechnicians"))
+      .refine((ids) => new Set(ids).size === ids.length, msg("validation.technicianTwice")),
     statusId: idField.optional().nullable(),
     /** Money (left out = unchanged on edit, blank = not recorded). */
     totalPrice: moneyField,
@@ -155,12 +161,12 @@ export const appointmentInputSchema = z
   })
   .superRefine((a, ctx) => {
     if (a.productCategory === "OTHER" && !a.categoryOther) {
-      ctx.addIssue({ code: "custom", path: ["categoryOther"], message: "Describe the product category" });
+      ctx.addIssue({ code: "custom", path: ["categoryOther"], message: msg("validation.categoryOther") });
     }
     if (a.depositAmount) {
-      if (a.totalPrice === null || a.totalPrice === undefined) ctx.addIssue({ code: "custom", path: ["totalPrice"], message: "Enter the total price so the deposit can be deducted" });
-      else if (a.depositAmount > a.totalPrice) ctx.addIssue({ code: "custom", path: ["depositAmount"], message: "The deposit cannot be more than the total price" });
-      if (!a.depositMethod) ctx.addIssue({ code: "custom", path: ["depositMethod"], message: "Choose how the deposit was paid" });
+      if (a.totalPrice === null || a.totalPrice === undefined) ctx.addIssue({ code: "custom", path: ["totalPrice"], message: msg("validation.totalForDeposit") });
+      else if (a.depositAmount > a.totalPrice) ctx.addIssue({ code: "custom", path: ["depositAmount"], message: msg("validation.depositTooHigh") });
+      if (!a.depositMethod) ctx.addIssue({ code: "custom", path: ["depositMethod"], message: msg("validation.depositMethod") });
     }
   });
 
@@ -179,7 +185,7 @@ export type VisitOutcome = (typeof VISIT_OUTCOMES)[number];
 
 export const outcomeSchema = z
   .object({
-    outcome: z.enum(VISIT_OUTCOMES, { error: "Choose the outcome of the visit" }),
+    outcome: z.enum(VISIT_OUTCOMES, { error: msg("validation.outcome") }),
     report: optionalText(4000),
     /** Paid by the customer at this visit (left out = unchanged). */
     collectedAmount: moneyField,
@@ -190,29 +196,29 @@ export const outcomeSchema = z
   })
   .superRefine((o, ctx) => {
     if (o.outcome !== "IN_PROGRESS" && !o.report) {
-      ctx.addIssue({ code: "custom", path: ["report"], message: "Write what was done (or why not) - the visit report is required" });
+      ctx.addIssue({ code: "custom", path: ["report"], message: msg("validation.reportRequired") });
     }
     if (o.outcome === "IN_PROGRESS" && o.collectedAmount) {
-      ctx.addIssue({ code: "custom", path: ["collectedAmount"], message: "Record the payment when you finish the visit" });
+      ctx.addIssue({ code: "custom", path: ["collectedAmount"], message: msg("validation.paymentAtFinish") });
     }
     if (o.collectedAmount && !o.collectedMethod) {
-      ctx.addIssue({ code: "custom", path: ["collectedMethod"], message: "Choose how the customer paid" });
+      ctx.addIssue({ code: "custom", path: ["collectedMethod"], message: msg("validation.collectedMethod") });
     }
     if (o.serials?.length && o.outcome !== "COMPLETED") {
-      ctx.addIssue({ code: "custom", path: ["serials"], message: "Record installed serial numbers when the job is done" });
+      ctx.addIssue({ code: "custom", path: ["serials"], message: msg("validation.serialsAtFinish") });
     }
   });
 
 export const productModelSchema = z.object({
-  name: z.preprocess((v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v), z.string({ error: "Model name is required" }).min(1, "Model name is required").max(120)),
-  category: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: "Choose a product category" }),
-  warrantyMonths: z.coerce.number({ error: "Enter the warranty in months" }).int("Whole months").min(0, "Cannot be negative").max(120, "At most 120 months"),
+  name: z.preprocess((v) => (typeof v === "string" ? v.trim().replace(/\s+/g, " ") : v), z.string({ error: msg("validation.modelName") }).min(1, msg("validation.modelName")).max(120)),
+  category: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: msg("validation.category") }),
+  warrantyMonths: z.coerce.number({ error: msg("validation.warranty") }).int(msg("validation.wholeMonths")).min(0, msg("validation.negative")).max(120, msg("validation.max120Months")),
   isActive: z.boolean().optional(),
 });
 
 export const stockInSchema = z.object({
-  modelId: z.string({ error: "Choose the model" }).min(1, "Choose the model").max(64),
-  serials: serialsField.refine((l) => l.length > 0, "Enter at least one serial number (one per line)"),
+  modelId: z.string({ error: msg("validation.chooseModel") }).min(1, msg("validation.chooseModel")).max(64),
+  serials: serialsField.refine((l) => l.length > 0, msg("validation.serialsRequired")),
   note: optionalText(500),
 });
 
@@ -220,13 +226,13 @@ export const STOCK_MOVE_TARGETS = ["IN_STORE", "WITH_TECHNICIAN", "RETURNED", "F
 
 export const stockMoveSchema = z
   .object({
-    itemIds: z.array(idField).min(1, "Choose at least one item").max(500),
-    to: z.enum(STOCK_MOVE_TARGETS, { error: "Choose where the items go" }),
+    itemIds: z.array(idField).min(1, msg("validation.chooseItems")).max(500),
+    to: z.enum(STOCK_MOVE_TARGETS, { error: msg("validation.moveTarget") }),
     technicianId: idField.optional().nullable(),
     note: optionalText(500),
   })
   .superRefine((m, ctx) => {
-    if (m.to === "WITH_TECHNICIAN" && !m.technicianId) ctx.addIssue({ code: "custom", path: ["technicianId"], message: "Choose the technician" });
+    if (m.to === "WITH_TECHNICIAN" && !m.technicianId) ctx.addIssue({ code: "custom", path: ["technicianId"], message: msg("validation.chooseTechnician") });
   });
 
 export const cashReceiveSchema = z.object({
@@ -236,7 +242,7 @@ export const cashReceiveSchema = z.object({
 });
 
 export const confirmationSchema = z.object({
-  confirmation: z.enum(CONFIRMATIONS as [string, ...string[]], { error: "Choose a confirmation status" }),
+  confirmation: z.enum(CONFIRMATIONS as [string, ...string[]], { error: msg("validation.confirmation") }),
   version: z.number().int().positive().optional(),
 });
 
@@ -246,13 +252,13 @@ export const cancelSchema = z.object({
 });
 
 export const availabilitySchema = z.object({
-  date: z.string().refine(isValidDateString, "Enter a valid date"),
-  startTime: z.string().regex(TIME_RE, "Enter a valid time"),
+  date: z.string().refine(isValidDateString, msg("validation.date")),
+  startTime: z.string().regex(TIME_RE, msg("validation.time")),
   durationMinutes: z.coerce.number().int().min(15).max(1440),
   excludeAppointmentId: idField.optional().nullable(),
 });
 
-const dateField = z.string({ error: "Enter a valid date" }).refine(isValidDateString, "Enter a valid date");
+const dateField = z.string({ error: msg("validation.date") }).refine(isValidDateString, msg("validation.date"));
 
 /** Leave of a technician: whole company-local days, first and last day inclusive. */
 export const leaveInputSchema = z
@@ -261,31 +267,31 @@ export const leaveInputSchema = z
     userId: idField.optional().nullable(),
     startDate: dateField,
     endDate: dateField,
-    type: z.enum(LEAVE_TYPES as [string, ...string[]], { error: "Choose the type of leave" }),
+    type: z.enum(LEAVE_TYPES as [string, ...string[]], { error: msg("validation.leaveType") }),
     reason: optionalText(500),
   })
   .superRefine((v, ctx) => {
     if (!isValidDateString(v.startDate) || !isValidDateString(v.endDate)) return;
-    if (v.endDate < v.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: "The last day must be on or after the first day" });
+    if (v.endDate < v.startDate) ctx.addIssue({ code: "custom", path: ["endDate"], message: msg("validation.leaveEnd") });
     else if (Date.parse(v.endDate) - Date.parse(v.startDate) > 92 * 86_400_000) {
-      ctx.addIssue({ code: "custom", path: ["endDate"], message: "A single leave can cover at most 93 days" });
+      ctx.addIssue({ code: "custom", path: ["endDate"], message: msg("validation.leaveMax") });
     }
   });
 
 export const leaveDecisionSchema = z.object({
-  decision: z.enum(["APPROVED", "REJECTED"], { error: "Choose approve or reject" }),
+  decision: z.enum(["APPROVED", "REJECTED"], { error: msg("validation.decision") }),
   note: optionalText(500),
 });
 
 export const passwordSchema = z
   .string()
-  .min(10, "Password must be at least 10 characters")
-  .max(128, "Password must be at most 128 characters")
-  .refine((v) => /[A-Za-z]/.test(v) && /\d/.test(v), "Password must contain letters and numbers");
+  .min(10, msg("validation.passwordMin"))
+  .max(128, msg("validation.passwordMax"))
+  .refine((v) => /[A-Za-z]/.test(v) && /\d/.test(v), msg("validation.passwordMix"));
 
 export const loginSchema = z.object({
-  email: z.preprocess((v) => (typeof v === "string" ? v.trim().toLowerCase() : v), z.string().min(1, "Email is required").max(254)),
-  password: z.string().min(1, "Password is required").max(128),
+  email: z.preprocess((v) => (typeof v === "string" ? v.trim().toLowerCase() : v), z.string().min(1, msg("validation.emailRequired")).max(254)),
+  password: z.string().min(1, msg("validation.passwordRequired")).max(128),
 });
 
 export const setPasswordSchema = z.object({
@@ -294,29 +300,29 @@ export const setPasswordSchema = z.object({
 });
 
 export const changePasswordSchema = z.object({
-  currentPassword: z.string().min(1, "Current password is required").max(128),
+  currentPassword: z.string().min(1, msg("validation.currentPasswordRequired")).max(128),
   newPassword: passwordSchema,
 });
 
 const emailField = z.preprocess(
   (v) => (typeof v === "string" ? v.trim().toLowerCase() : v),
-  z.email("Enter a valid email address").max(254),
+  z.email(msg("validation.email")).max(254),
 );
 
 const colorField = z.preprocess(
   (v) => (typeof v === "string" ? v.trim().toUpperCase() || null : (v ?? null)),
-  z.string().regex(HEX_COLOR_RE, "Use a hex colour like #E55823").nullable(),
+  z.string().regex(HEX_COLOR_RE, msg("validation.hexColor")).nullable(),
 );
 
 const viewerPermissionsField = z
   .array(z.enum(VIEWER_GRANTABLE as [string, ...string[]]))
-  .refine((p) => new Set(p).size === p.length, "Duplicate permission");
+  .refine((p) => new Set(p).size === p.length, msg("validation.duplicatePermission"));
 
 export const userCreateSchema = z.object({
-  name: requiredText("Full name", 100),
+  name: requiredText("fields.fullName", 100),
   email: emailField,
   phone: optionalPhone,
-  role: z.enum(ROLES as [string, ...string[]], { error: "Choose a role" }),
+  role: z.enum(ROLES as [string, ...string[]], { error: msg("validation.role") }),
   color: colorField.optional(),
   viewerPermissions: viewerPermissionsField.optional(),
   /** Optional: set an initial password directly instead of sending an invitation link. */
@@ -324,7 +330,7 @@ export const userCreateSchema = z.object({
 });
 
 export const userUpdateSchema = z.object({
-  name: requiredText("Full name", 100).optional(),
+  name: requiredText("fields.fullName", 100).optional(),
   email: emailField.optional(),
   phone: optionalPhone.optional(),
   role: z.enum(ROLES as [string, ...string[]]).optional(),
@@ -334,9 +340,11 @@ export const userUpdateSchema = z.object({
 });
 
 export const statusInputSchema = z.object({
-  name: requiredText("Name", 60),
+  name: requiredText("fields.name", 60),
+  /** Arabic name shown to Arabic readers (optional; the name is used when blank). */
+  nameAr: optionalText(60).optional(),
   kind: z.enum(STATUS_KINDS as [string, ...string[]]),
-  color: z.string().regex(HEX_COLOR_RE, "Use a hex colour like #E55823"),
+  color: z.string().regex(HEX_COLOR_RE, msg("validation.hexColor")),
   blocksSchedule: z.boolean(),
   isDefault: z.boolean().optional(),
   isActive: z.boolean().optional(),
@@ -345,7 +353,7 @@ export const statusInputSchema = z.object({
 
 export const settingsSchema = z
   .object({
-    timezone: z.string().refine(isValidTimeZone, "Unknown timezone"),
+    timezone: z.string().refine(isValidTimeZone, msg("validation.timezone")),
     weekStartsOn: z.coerce.number().int().min(0).max(6),
     dayStartHour: z.coerce.number().int().min(0).max(23),
     dayEndHour: z.coerce.number().int().min(1).max(24),
@@ -357,12 +365,12 @@ export const settingsSchema = z
     /** Weekdays (0 = Sunday ... 6 = Saturday) on which no visits can be booked. */
     closedWeekdays: z
       .array(z.coerce.number().int().min(0).max(6))
-      .max(6, "At least one day must stay open")
-      .refine((d) => new Set(d).size === d.length, "A day was selected twice"),
+      .max(6, msg("validation.oneDayOpen"))
+      .refine((d) => new Set(d).size === d.length, msg("validation.dayTwice")),
     /** Used in messages to customers (WhatsApp reminders); blank = "your installation team". */
-    companyName: z.preprocess((v) => (typeof v === "string" ? v.trim() : (v ?? "")), z.string().max(80, "Must be at most 80 characters")),
+    companyName: z.preprocess((v) => (typeof v === "string" ? v.trim() : (v ?? "")), z.string().max(80, maxChars(80))),
   })
-  .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: "Must be after the start hour" });
+  .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: msg("validation.afterStartHour") });
 
 export type SettingsValues = z.output<typeof settingsSchema>;
 

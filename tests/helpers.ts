@@ -16,13 +16,13 @@ export async function resetDb() {
 
 export async function seedStatuses() {
   const defs = [
-    { name: "Scheduled", kind: "SCHEDULED", color: "#2563EB", blocksSchedule: true, isDefault: true },
-    { name: "In Progress", kind: "IN_PROGRESS", color: "#CA8A04", blocksSchedule: true },
-    { name: "Completed", kind: "COMPLETED", color: "#059669", blocksSchedule: true },
-    { name: "Postponed/Rescheduled", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
-    { name: "Cancelled", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
-    { name: "Unable to Complete", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
-    { name: "Needs another visit", kind: "NEEDS_REVISIT", color: "#EA580C", blocksSchedule: true },
+    { name: "Scheduled", nameAr: "مجدول", kind: "SCHEDULED", color: "#2563EB", blocksSchedule: true, isDefault: true },
+    { name: "In Progress", nameAr: "قيد التنفيذ", kind: "IN_PROGRESS", color: "#CA8A04", blocksSchedule: true },
+    { name: "Completed", nameAr: "تم التنفيذ", kind: "COMPLETED", color: "#059669", blocksSchedule: true },
+    { name: "Postponed/Rescheduled", nameAr: "مؤجل / ميعاد جديد", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
+    { name: "Cancelled", nameAr: "ملغي", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
+    { name: "Unable to Complete", nameAr: "تعذّر التنفيذ", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
+    { name: "Needs another visit", nameAr: "محتاج زيارة أخرى", kind: "NEEDS_REVISIT", color: "#EA580C", blocksSchedule: true },
   ] as const;
   const out: Record<string, string> = {};
   for (const [i, d] of defs.entries()) {
@@ -48,7 +48,8 @@ export async function makeUser(role: Role, overrides: Partial<User> = {}): Promi
   });
 }
 
-export function asCurrent(user: User, settings: Partial<SettingsValues> = {}): CurrentUser {
+/** The user as the services see them; English by default so messages in assertions are stable. */
+export function asCurrent(user: User, settings: Partial<SettingsValues> = {}, locale: "ar" | "en" = "en"): CurrentUser {
   const s = { ...DEFAULT_SETTINGS, ...settings };
   return {
     id: user.id,
@@ -61,6 +62,7 @@ export function asCurrent(user: User, settings: Partial<SettingsValues> = {}): C
     permissions: [...permissionsFor(user, s)],
     settings: s,
     sessionId: "test",
+    locale,
   };
 }
 

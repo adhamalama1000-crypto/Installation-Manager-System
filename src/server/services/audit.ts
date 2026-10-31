@@ -1,11 +1,16 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
+import { createT } from "@/i18n/translator";
 import type { Db } from "../db";
+import { messageData } from "./notifications";
+
+const english = createT("en");
 
 export type AuditInput = {
   entityType: "APPOINTMENT" | "USER" | "STATUS" | "SETTINGS" | "CUSTOMER" | "LEAVE" | "CASH" | "STOCK";
   entityId: string;
   action: string;
+  /** Encoded message (i18n `msg`): stored in English plus its key and params for other languages. */
   summary: string;
   changes?: Record<string, unknown> | null;
   actorId: string | null;
@@ -18,7 +23,8 @@ export async function recordAudit(db: Db, entry: AuditInput) {
       entityType: entry.entityType,
       entityId: entry.entityId,
       action: entry.action,
-      summary: entry.summary.slice(0, 500),
+      summary: english.msg(entry.summary).slice(0, 500),
+      summaryData: messageData(entry.summary) ?? Prisma.DbNull,
       changes: entry.changes ? (entry.changes as Prisma.InputJsonValue) : Prisma.DbNull,
       actorId: entry.actorId,
       appointmentId: entry.appointmentId ?? null,

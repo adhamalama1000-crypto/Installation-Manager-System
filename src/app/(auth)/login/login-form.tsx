@@ -5,10 +5,11 @@ import { Eye, EyeOff, LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
 import { Alert } from "@/components/ui/misc";
+import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
-import { APP_NAME } from "@/lib/constants";
 
 export function LoginForm({ next }: { next: string }) {
+  const t = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [show, setShow] = useState(false);
@@ -19,7 +20,7 @@ export function LoginForm({ next }: { next: string }) {
     e.preventDefault();
     setError(null);
     if (!email.trim() || !password) {
-      setError("Enter your email and password.");
+      setError(t("auth.enterBoth"));
       return;
     }
     setLoading(true);
@@ -27,29 +28,29 @@ export function LoginForm({ next }: { next: string }) {
       await api("/api/auth/login", { method: "POST", body: { email, password } });
       window.location.href = next;
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "Sign in failed. Please try again.");
+      setError(err instanceof ApiError ? err.message : t("auth.failed"));
       setLoading(false);
     }
   }
 
   return (
     <div>
-      <h1 className="text-2xl font-semibold tracking-tight">Welcome back</h1>
-      <p className="mt-1 text-sm text-fg-muted">Sign in to {APP_NAME}.</p>
+      <h1 className="text-2xl font-semibold tracking-tight">{t("auth.welcome")}</h1>
+      <p className="mt-1 text-sm text-fg-muted">{t("auth.signInTo", { app: t("app.name") })}</p>
       <form onSubmit={submit} className="mt-8 space-y-5" noValidate>
         {error && <Alert tone="danger">{error}</Alert>}
-        <Field label="Email">
-          {(p) => <Input {...p} type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@company.com" />}
+        <Field label={t("auth.email")}>
+          {(p) => <Input {...p} type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("auth.emailPlaceholder")} dir="ltr" />}
         </Field>
-        <Field label="Password">
+        <Field label={t("auth.password")}>
           {(p) => (
             <div className="relative">
-              <Input {...p} type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="pr-10" />
+              <Input {...p} type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="pe-10" dir="ltr" />
               <button
                 type="button"
                 onClick={() => setShow((s) => !s)}
-                className="absolute inset-y-0 right-0 flex w-10 items-center justify-center text-fg-subtle hover:text-fg"
-                aria-label={show ? "Hide password" : "Show password"}
+                className="absolute inset-y-0 end-0 flex w-10 items-center justify-center text-fg-subtle hover:text-fg"
+                aria-label={show ? t("auth.hidePassword") : t("auth.showPassword")}
               >
                 {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
               </button>
@@ -57,9 +58,9 @@ export function LoginForm({ next }: { next: string }) {
           )}
         </Field>
         <Button type="submit" size="lg" className="w-full" loading={loading}>
-          {!loading && <LogIn className="h-4 w-4" />} Sign in
+          {!loading && <LogIn className="h-4 w-4 rtl:-scale-x-100" />} {t("auth.signIn")}
         </Button>
-        <p className="text-center text-xs text-fg-subtle">Forgot your password? Ask an administrator for a reset link.</p>
+        <p className="text-center text-xs text-fg-subtle">{t("auth.forgot")}</p>
       </form>
     </div>
   );
