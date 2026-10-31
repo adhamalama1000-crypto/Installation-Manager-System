@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Boxes, CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, MapPinOff, Navigation, Package, Phone, User } from "lucide-react";
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
+import { DeliveryCard } from "@/components/appointments/delivery-card";
 import { OutcomePanel } from "@/components/appointments/outcome-panel";
 import { PaymentCard } from "@/components/appointments/payment-card";
 import { HistoryList } from "@/components/appointments/history-list";
@@ -15,6 +16,7 @@ import { formatKey, todayKey } from "@/lib/time";
 import { categoryText, dateTime, longDate, shortDate, timeRange } from "@/lib/format";
 import { requirePagePermission } from "@/server/auth/session";
 import { getAppointment, getAppointmentHistory } from "@/server/services/appointments";
+import { listAttachments } from "@/server/services/attachments";
 import { listStatuses } from "@/server/services/statuses";
 import { heldBy } from "@/server/services/stock";
 import { loadOr404 } from "./load";
@@ -34,12 +36,13 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const L = t.locale;
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [a, history, allStatuses, myStock] = await Promise.all([
+  const [a, history, allStatuses, myStock, files] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
     canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
     user.permissions.includes("appointments.manage") ? listStatuses(L) : Promise.resolve([]),
     // A technician's own custody, offered as quick picks for the installed serial numbers.
     user.role === "TECHNICIAN" ? heldBy(user.id) : Promise.resolve([]),
+    loadOr404(() => listAttachments(user, id)),
   ]);
   const today = todayKey(tz);
   const statuses = a.canManage ? allStatuses : [];
@@ -172,6 +175,22 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               />
             </CardBody>
           </Card>
+
+          <DeliveryCard
+            id={a.id}
+            productCategory={a.productCategory}
+            visitType={a.visitType}
+            statusKind={a.status.kind}
+            canReport={a.canReport}
+            enforced={!user.permissions.includes("appointments.manage")}
+            rules={{ requireDeliveryProof: user.settings.requireDeliveryProof, serialRequired: user.settings.serialRequired }}
+            checklist={a.deliveryChecklist}
+            items={files.items}
+            rights={files.rights}
+            payment={a.payment}
+            installedCount={a.installed.length}
+            tz={tz}
+          />
 
           {reportable ? (
             <OutcomePanel id={a.id} version={a.version} statusKind={a.status.kind} report={a.visitReport} payment={a.payment} myStock={myStock} />

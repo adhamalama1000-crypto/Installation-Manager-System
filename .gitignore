@@ -12,3 +12,6 @@ next-env.d.ts
 .env.test
 npm-debug.log*
 .DS_Store
+
+# Uploaded visit photos, signatures and proofs (back up with the database; never commit)
+storage/

@@ -117,6 +117,24 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
           onChange={(e) => upd({ technicianCanSeeContacts: e.target.checked })}
         />
       </div>
+      <fieldset>
+        <legend className="mb-1 text-sm font-medium text-fg">{t("settings.delivery")}</legend>
+        <p className="mb-2 text-xs text-fg-muted">{t("settings.deliveryText")}</p>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Checkbox
+            label={t("settings.requireProof")}
+            description={t("settings.requireProofText")}
+            checked={v.requireDeliveryProof}
+            onChange={(e) => upd({ requireDeliveryProof: e.target.checked })}
+          />
+          <Checkbox
+            label={t("settings.serialRequired")}
+            description={t("settings.serialRequiredText")}
+            checked={v.serialRequired}
+            onChange={(e) => upd({ serialRequired: e.target.checked })}
+          />
+        </div>
+      </fieldset>
       <div className="flex justify-end">
         <Button type="submit" loading={saving}>
           {t("settings.save")}

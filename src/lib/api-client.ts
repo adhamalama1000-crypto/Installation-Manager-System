@@ -58,6 +58,17 @@ export async function api<T>(path: string, options: ApiOptions = {}): Promise<T>
   return parse<T>(await send(path, options), path);
 }
 
+/** Sends a file as the raw request body (the server checks its real type). */
+export async function apiUpload<T>(path: string, file: Blob): Promise<T> {
+  let res: Response;
+  try {
+    res = await fetch(path, { method: "POST", headers: { "Content-Type": file.type || "application/octet-stream" }, body: file, cache: "no-store", credentials: "same-origin" });
+  } catch {
+    throw new ApiError(pageT()("errors.network"), 0, "NETWORK_ERROR");
+  }
+  return parse<T>(res, path);
+}
+
 async function parse<T>(res: Response, path: string): Promise<T> {
   if (res.status === 401 && typeof window !== "undefined" && !path.startsWith("/api/auth/")) {
     // Session expired: full reload to the sign-in page (clears stale client state).

@@ -8,7 +8,7 @@ The legacy source was re-audited function by function on 2026-10-31:
 - **`src/Legacy.gs`:** real customer orders from December and January. These are not imported.
 - **`اقرأني_التشغيل.md`:** the setup notes.
 
-The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages.
+The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phase A are implemented on that branch and waiting for review.
 
 ## How Aura works
 
@@ -67,12 +67,12 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Mark done / needs another visit with a mandatory report | Start the job; done / unable / needs another visit with a required report; Sales notified | ✅ | — |
 | Problem reasons list, with client-fault reasons (`PROBLEMS`, `CLIENT_FAULT`) | Free-text report | ✗ | C: a reason list on the outcome and the "problem" check-in |
 | Repeat-visit fee set automatically on a client-fault problem (`REVISIT_FEE`, `api_setFee`) | The extra fee is typed by Sales | ◐ | C: an Admin-set fee, applied on a client-fault "needs another visit" |
-| Before photos from Sales, after photos from the technician, up to 20 per order (`api_uploadPhoto`, `api_deletePhoto`) | — | 🚧 | A |
-| Customer signature (`api_uploadFile` sign) | — | 🚧 | A |
-| Transfer screenshot for a non-cash collection (`api_uploadFile` pay) | — | 🚧 | A |
-| Deposit proof photo (`api_depositPhoto`) | — | 🚧 | A |
-| Delivery checklist, lock or smart, required before "done" on installation and completion (`CHECKLIST`, `deliveryMissing_`) | — | 🚧 | A: behind an Admin setting, off by default to keep current behaviour |
-| "Serial required" before "done" (`api_setSerialRequired`) | Serials optional | 🚧 | A: Admin setting |
+| Before photos from Sales, after photos from the technician, up to 20 per order (`api_uploadPhoto`, `api_deletePhoto`) | Up to 20 per kind, shrunk in the browser (location metadata stripped), served through a permission-checked route; removal hides the file and keeps it | ✅ | A |
+| Customer signature (`api_uploadFile` sign) | On-screen signature pad, PNG; a new signature replaces the old one, which is kept | ✅ | A |
+| Transfer screenshot for a non-cash collection (`api_uploadFile` pay) | Transfer proof, seen only by people who see money and the visit's technicians | ✅ | A |
+| Deposit proof photo (`api_depositPhoto`) | Deposit proof, added by whoever manages the booking | ✅ | A |
+| Delivery checklist, lock or smart, required before "done" on installation and completion (`CHECKLIST`, `deliveryMissing_`) | Checklist with Aura's items; "Require delivery proof" setting (off by default) enforces checklist, after photo, signature and transfer proof as in `deliveryMissing_`; managers are not blocked | ✅ | A |
+| "Serial required" before "done" (`api_setSerialRequired`) | "Require the installed serial number" setting (off by default) | ✅ | A |
 | GPS check-in stages: company, pickup, ready (photo), depart, arrive, start, done, problem, leave (`api_checkin`, `checkin_`) | — | ✗ | C: browser geolocation with the user's consent; nothing is faked when location is denied |
 | Distance flags: more than 400 m from the company, more than 300 m from the client (`checkin_`) | — | ✗ | C |
 | ETA on "depart": distance × 1.4 ÷ speed by time of day, plus 5 min (`etaMin_`) | — | ✗ | C |
@@ -93,7 +93,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Aura feature (function) | This app today | Status | Phase |
 |---|---|:-:|:-:|
 | Total, deposit and method, remaining, collected and method, extra fee | Price, deposit and method, extra fee; collection recorded with the outcome; technicians see only the amount to collect | ✅ | — |
-| Deposit proof, transfer proof | — | 🚧 | A |
+| Deposit proof, transfer proof | Both, with money-only visibility | ✅ | A |
 | Cash custody until the accountant receives it (`api_cash`, `api_cashReceive`) | Custody until the Accountant or Admin confirms receipt | ✅ | — |
 | Monthly statement: sales, deposits and collections by method, owed per client, cash held (`api_statement`) | Finance page and CSV | ✅ | — |
 | Statement includes transport expenses and attendance (`api_statement`, `api_exportStatement`) | — | ✗ | D (expenses), C (attendance) |

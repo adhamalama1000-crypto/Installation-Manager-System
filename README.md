@@ -51,6 +51,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 - **Reports**: appointments per day/month, by status, by Sales employee, by category, completed vs cancelled, technician workload (hours and jobs) - each exportable to CSV. Internal notes are never exported.
 - **Audit log** (Admin): append-only record of appointment, user, permission, status and settings changes. A database trigger blocks updates and deletes.
 - **In-app notifications** for technicians when they are assigned, unassigned, or a job is rescheduled, updated or cancelled.
+- **Photos and delivery proof**: Sales add before photos and deposit proofs; the assigned technician adds after photos (up to 20 per kind), the customer's on-screen signature and the transfer proof, and ticks the delivery checklist for locks or smart-home systems. Photos are shrunk in the browser (which also strips their location metadata) and served only through a permission-checked route; transfer and deposit proofs are visible only to people who see money and to the visit's technicians. Removing a file only hides it. An Admin can require the proof, and the installed serial number, before a technician marks a visit done.
 - **Arabic first, with English**: the app opens in Arabic, right to left, and every page, form, validation message, notification, audit entry, CSV export and WhatsApp text can be switched to English (sidebar, sign-in page or profile). The choice is kept in a cookie and on the user's account.
 - **Responsive UI** (phone, tablet, desktop) with light, dark and system themes, accessible focus states, empty/error states and toast feedback.
 
@@ -212,13 +213,15 @@ e2e/                       Playwright browser tests
 
 ## Database
 
-Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`.
+Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`.
+
+Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads`), with their type, size and SHA-256 recorded in `attachments`. Back up that folder together with the database.
 
 - Stable `cuid` IDs, plus a sequential appointment number shown as `APT-000123`.
 - `appointments.createdById` is the permanent original Sales creator; `updatedById` is the last editor.
 - Users are never deleted, only deactivated, so historical references survive. Foreign keys use `ON DELETE RESTRICT` for appointment data, and appointments are cancelled, never deleted.
 - Check constraints for time ranges, durations and colour formats; indexes for the common filters (dates, status, creator, technician, customer, area, building, phone digits).
-- Audit rows are append-only (trigger).
+- Audit rows are append-only (trigger). Attachment rows can only be marked removed, never changed or deleted (trigger).
 
 ## Testing
 
@@ -241,6 +244,7 @@ What is covered:
 - **SQL reads**: the hand-written list/calendar/export queries return exactly what the Prisma filters return (300 random filter combinations), including literal `%`/`_` in search terms.
 - **API**: login/logout with cookies, generic login errors, rate limiting, cross-origin rejection, malformed JSON, 401/403/404/409 responses, server-assigned creator.
 - **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), a technician collecting cash that the Admin then receives on the finance page, the store handing serials to a technician who installs one at the visit (warranty shown, custody updated), Sales opening the day plan with a WhatsApp link per technician, and the Arabic interface (right-to-left layout, switching languages, Arabic statuses and validation messages, phone layout, drawer opening from the right).
+- **Photos and delivery proof**: who may add, see and remove each kind (Sales, the assigned technician, other technicians, viewers, finance), real file-type checks (no SVG or renamed files), one current signature, the 20-photo limit, append-only rows (trigger), the checklist limited to the product's items without bumping the booking version, the delivery rules off by default, and when on: the missing items listed, the transfer proof for non-cash collections, managers never blocked, the serial-required rule; through the API: raw uploads, private caching headers, 401/404 for other readers, oversized and cross-site uploads refused.
 - **Localization**: both dictionaries have the same keys and placeholders, every stored enum value has a name in both languages, Arabic plural forms, encoded server messages, Arabic dates and amounts; the API answers in Arabic by default and keeps a browser's chosen language at sign-in.
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
@@ -263,7 +267,7 @@ Production checklist:
 
 - Serve over **HTTPS** and set `APP_URL` to the public `https://` URL. Session cookies are then marked `Secure`.
 - Run behind a reverse proxy that sets `X-Forwarded-For` (used for per-IP login rate limiting; the per-account limit applies regardless).
-- Back up the PostgreSQL database regularly.
+- Back up the PostgreSQL database and the upload folder (`UPLOAD_DIR`) regularly, at the same time.
 - Do **not** run `npm run db:seed` in production (it refuses unless forced).
 
 Serverless platforms work too. Use a pooled connection string for `DATABASE_URL` if your provider recommends one. Keep the database close to the app (same region): each page needs a few database round trips, so distance adds directly to every page load.
@@ -278,6 +282,8 @@ Serverless platforms work too. Use a pooled connection string for `DATABASE_URL`
 | `TEST_DATABASE_URL` | tests | Separate, disposable database for `npm test` (must differ from `DATABASE_URL`) |
 | `SEED_PASSWORD` | | Password for demo accounts (default `ChangeMe123!`) |
 | `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | | Inputs for `npm run create-admin` |
+| `UPLOAD_DIR` | | Folder for visit photos, signatures and proofs (default `./storage/uploads`); outside `public/`, backed up with the database |
+| `MAX_UPLOAD_MB` | | Largest accepted upload in MB (default 8) |
 | `E2E_BASE_URL` | | Point Playwright at an already running app |
 
 No secrets are committed. `.env` is git-ignored and `.env.example` documents the format.
@@ -305,8 +311,8 @@ Judge speed on `npm run build && npm start`, not `npm run dev`: the development 
 
 - No map picker or geocoding: Sales paste a map link (or coordinates). Coordinates can be read automatically from full Google Maps URLs. Short links (`maps.app.goo.gl`) are saved and opened as-is.
 - Text search uses PostgreSQL `ILIKE` with `pg_trgm` indexes; search terms shorter than 3 characters cannot use them and scan instead.
-- Recurring appointments and file attachments (photos, documents) are not implemented.
+- Recurring appointments are not implemented. Attachments are images only (JPEG, PNG, WebP); browsers that cannot decode a photo (e.g. HEIC on some desktop browsers) ask for another one.
 - Two languages only (Arabic and English). Numbers use Western digits in both. Admin-defined names (statuses have an optional Arabic name; product models, areas and people do not) are shown as entered.
 - WhatsApp messages are never sent automatically: the day plan opens WhatsApp with the text filled in (no WhatsApp Business API or e-mail provider is connected). Numbers without a country code are treated as Egyptian.
-- Payment proofs (transfer screenshots), before/after photos and signatures need file storage and are not implemented; the repeat-visit fee is entered by Sales rather than set automatically.
-- Not ported from Aura yet: GPS check-ins and the live technician board, attendance and points, complaints, transport expenses, the company car route, slot holds and quotation parsing (see [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md)).
+- The repeat-visit fee is entered by Sales rather than set automatically.
+- Not ported from Aura yet: GPS check-ins and the live technician board, attendance and points, complaints, ratings and maintenance reminders, transport expenses, the company car route, slot holds and quotation parsing. See [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
