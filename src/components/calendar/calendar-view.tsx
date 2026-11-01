@@ -3,6 +3,9 @@
 import { memo, startTransition, useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { ChevronLeft, ChevronRight, ExternalLink, Loader2, MapPin, Plus, RefreshCw, Users, X } from "lucide-react";
+import { useT } from "@/i18n/client";
+import type { Locale } from "@/i18n/config";
+import type { MessageKey } from "@/i18n/translator";
 import { apiIfChanged, ApiError } from "@/lib/api-client";
 import { chipColors, colorOrFallback } from "@/lib/colors";
 import { productLine, timeRange } from "@/lib/format";
@@ -26,11 +29,11 @@ export type CalendarViewMode = "month" | "week" | "day" | "agenda";
 type Person = { id: string; name: string; color?: string | null; isActive?: boolean };
 
 const HOUR_PX = 56;
-const VIEWS: { id: CalendarViewMode; label: string }[] = [
-  { id: "day", label: "Day" },
-  { id: "week", label: "Week" },
-  { id: "month", label: "Month" },
-  { id: "agenda", label: "Agenda" },
+const VIEWS: { id: CalendarViewMode; label: MessageKey }[] = [
+  { id: "day", label: "calendar.day" },
+  { id: "week", label: "calendar.week" },
+  { id: "month", label: "calendar.month" },
+  { id: "agenda", label: "calendar.agenda" },
 ];
 
 function rangeFor(view: CalendarViewMode, date: string, weekStartsOn: number) {
@@ -50,11 +53,11 @@ function rangeFor(view: CalendarViewMode, date: string, weekStartsOn: number) {
   }
 }
 
-function titleFor(view: CalendarViewMode, date: string, weekStartsOn: number) {
-  if (view === "month") return formatKey(date, { month: "long", year: "numeric" });
-  if (view === "day") return formatKey(date, { weekday: "long", day: "numeric", month: "long", year: "numeric" });
+function titleFor(view: CalendarViewMode, date: string, weekStartsOn: number, locale: Locale) {
+  if (view === "month") return formatKey(date, { month: "long", year: "numeric" }, locale);
+  if (view === "day") return formatKey(date, { weekday: "long", day: "numeric", month: "long", year: "numeric" }, locale);
   const r = rangeFor(view, date, weekStartsOn);
-  return `${formatKey(r.from, { day: "numeric", month: "short" })} – ${formatKey(r.to, { day: "numeric", month: "short", year: "numeric" })}`;
+  return `${formatKey(r.from, { day: "numeric", month: "short" }, locale)} – ${formatKey(r.to, { day: "numeric", month: "short", year: "numeric" }, locale)}`;
 }
 
 function shift(view: CalendarViewMode, date: string, dir: 1 | -1) {
@@ -154,6 +157,7 @@ export function CalendarView({
   canCreate: boolean;
   isTechnician: boolean;
 }) {
+  const t = useT();
   const [view, setView] = useState<CalendarViewMode>(initialView ?? "week");
   const [date, setDate] = useState(initialDate);
   const [filters, setFilters] = useState(initialFilters);
@@ -200,12 +204,12 @@ export function CalendarView({
         setLastUpdated(new Date());
       } catch (e) {
         if ((e as Error).name === "AbortError") return;
-        setError(e instanceof ApiError ? e.message : "Could not load the calendar.");
+        setError(e instanceof ApiError ? e.message : t("calendar.loadError"));
       } finally {
         if (!signal?.aborted) setLoading(false);
       }
     },
-    [range.from, range.to, filters],
+    [range.from, range.to, filters, t],
   );
 
   useEffect(() => {
@@ -223,10 +227,10 @@ export function CalendarView({
         setNow(new Date());
       }
     };
-    const t = setInterval(tick, 30_000);
+    const timer = setInterval(tick, 30_000);
     document.addEventListener("visibilitychange", tick);
     return () => {
-      clearInterval(t);
+      clearInterval(timer);
       document.removeEventListener("visibilitychange", tick);
     };
   }, [load]);
@@ -264,23 +268,23 @@ export function CalendarView({
       <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
         <div className="flex flex-wrap items-center gap-2">
           <div className="flex rounded-lg border border-line bg-surface shadow-card">
-            <button type="button" onClick={() => startRender(() => setDate(shift(view, date, -1)))} className="rounded-l-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Previous">
-              <ChevronLeft className="h-4 w-4" />
+            <button type="button" onClick={() => startRender(() => setDate(shift(view, date, -1)))} className="rounded-s-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label={t("common.previous")}>
+              <ChevronLeft className="h-4 w-4 rtl:rotate-180" />
             </button>
             <button type="button" onClick={() => startRender(() => setDate(today))} className="border-x border-line px-3 text-sm font-medium hover:bg-surface-muted">
-              Today
+              {t("common.today")}
             </button>
-            <button type="button" onClick={() => startRender(() => setDate(shift(view, date, 1)))} className="rounded-r-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label="Next">
-              <ChevronRight className="h-4 w-4" />
+            <button type="button" onClick={() => startRender(() => setDate(shift(view, date, 1)))} className="rounded-e-lg px-2.5 py-2 text-fg-muted hover:bg-surface-muted" aria-label={t("common.next")}>
+              <ChevronRight className="h-4 w-4 rtl:rotate-180" />
             </button>
           </div>
           <h2 className="text-lg font-semibold text-fg" aria-live="polite">
-            {titleFor(view, date, weekStartsOn)}
+            {titleFor(view, date, weekStartsOn, t.locale)}
           </h2>
-          {(loading || rendering) && <Loader2 className="h-4 w-4 animate-spin text-fg-subtle" aria-label="Loading" />}
+          {(loading || rendering) && <Loader2 className="h-4 w-4 animate-spin text-fg-subtle" aria-label={t("common.loading")} />}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <div className="inline-flex rounded-lg border border-line bg-surface-muted p-0.5" role="tablist" aria-label="Calendar view">
+          <div className="inline-flex rounded-lg border border-line bg-surface-muted p-0.5" role="tablist" aria-label={t("calendar.view")}>
             {VIEWS.map((v) => (
               <button
                 key={v.id}
@@ -293,17 +297,17 @@ export function CalendarView({
                   view === v.id ? "bg-surface text-brand-text shadow-card" : "text-fg-muted hover:text-fg",
                 )}
               >
-                {v.label}
+                {t(v.label)}
               </button>
             ))}
           </div>
-          <button type="button" onClick={() => load()} className={buttonClasses("outline", "icon")} title="Refresh">
+          <button type="button" onClick={() => load()} className={buttonClasses("outline", "icon")} title={t("calendar.refresh")}>
             <RefreshCw className="h-4 w-4" />
-            <span className="sr-only">Refresh</span>
+            <span className="sr-only">{t("calendar.refresh")}</span>
           </button>
           {canCreate && (
             <Link href={`/appointments/new?date=${date}`} className={buttonClasses("primary")}>
-              <Plus className="h-4 w-4" /> New
+              <Plus className="h-4 w-4" /> {t("nav.newShort")}
             </Link>
           )}
         </div>
@@ -312,8 +316,8 @@ export function CalendarView({
       {/* Filters + Sales colour legend */}
       <div className="rounded-xl border border-line bg-surface p-3 shadow-card">
         <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-          <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5" aria-label="Sales colour legend">
-            <span className="mr-1 text-xs font-semibold uppercase tracking-wide text-fg-subtle">Sales</span>
+          <div className="flex flex-wrap items-center gap-x-1 gap-y-1.5" aria-label={t("calendar.legend")}>
+            <span className="me-1 text-xs font-semibold uppercase tracking-wide text-fg-subtle">{t("common.sales")}</span>
             {sales.map((s) => {
               const active = filters.salesId === s.id;
               return (
@@ -327,11 +331,11 @@ export function CalendarView({
                     active ? "border-fg bg-surface-muted text-fg" : "border-transparent text-fg-muted hover:bg-surface-muted",
                     filters.salesId && !active && "opacity-50",
                   )}
-                  title={active ? "Show all Sales employees" : `Show only ${s.name}`}
+                  title={active ? t("calendar.showAllSales") : t("calendar.showOnly", { name: s.name })}
                 >
                   <span className="h-3 w-3 rounded-full ring-1 ring-black/10 dark:ring-white/20" style={{ backgroundColor: colorOrFallback(s.color) }} aria-hidden />
                   {s.name}
-                  {s.isActive === false && <span className="text-fg-subtle">(inactive)</span>}
+                  {s.isActive === false && <span className="text-fg-subtle">{t("common.inactiveParen")}</span>}
                 </button>
               );
             })}
@@ -339,30 +343,30 @@ export function CalendarView({
           <div className="flex flex-wrap gap-2">
             {!isTechnician && (
               <select
-                aria-label="Filter by technician"
+                aria-label={t("calendar.filterTechnician")}
                 value={filters.technicianId ?? ""}
                 onChange={(e) => setFilter("technicianId", e.target.value)}
                 className="h-9 rounded-lg border border-line-strong bg-surface px-2 text-sm"
               >
-                <option value="">All technicians</option>
-                {technicians.map((t) => (
-                  <option key={t.id} value={t.id}>
-                    {t.name}
-                    {t.isActive === false ? " (inactive)" : ""}
+                <option value="">{t("filters.allTechnicians")}</option>
+                {technicians.map((x) => (
+                  <option key={x.id} value={x.id}>
+                    {x.name}
+                    {x.isActive === false ? ` ${t("common.inactiveParen")}` : ""}
                   </option>
                 ))}
               </select>
             )}
             <select
-              aria-label="Filter by status"
+              aria-label={t("calendar.filterStatus")}
               value={filters.status ?? ""}
               onChange={(e) => setFilter("status", e.target.value)}
               className="h-9 rounded-lg border border-line-strong bg-surface px-2 text-sm"
             >
-              <option value="">All statuses</option>
+              <option value="">{t("filters.allStatuses")}</option>
               {statuses.map((s) => (
                 <option key={s.id} value={s.id}>
-                  {s.name}
+                  {s.label}
                 </option>
               ))}
             </select>
@@ -370,7 +374,11 @@ export function CalendarView({
         </div>
       </div>
 
-      {error && <Alert tone="danger" title="Calendar could not be loaded">{error}</Alert>}
+      {error && (
+        <Alert tone="danger" title={t("calendar.loadErrorTitle")}>
+          {error}
+        </Alert>
+      )}
 
       <div className="overflow-hidden rounded-xl border border-line bg-surface shadow-card">
         {view === "month" && (
@@ -381,8 +389,8 @@ export function CalendarView({
         )}
         {view === "agenda" && <Agenda days={days} today={today} events={prepared} onSelect={setSelected} />}
       </div>
-      <p className="text-right text-xs text-fg-subtle">
-        Times shown in {tz}. {lastUpdated ? `Updated ${lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" })}; refreshes automatically.` : ""}
+      <p className="text-end text-xs text-fg-subtle">
+        {t("calendar.timesIn", { tz })} {lastUpdated ? t("calendar.updated", { time: lastUpdated.toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit" }) }) : ""}
       </p>
 
       {selected && <DetailsPanel a={selected} tz={tz} onClose={() => setSelected(null)} />}
@@ -396,7 +404,7 @@ function EventChip({ a, time, onSelect, compact }: { a: AppointmentListItem; tim
     <button
       type="button"
       onClick={() => onSelect(a)}
-      className={cn("block w-full truncate rounded px-1.5 py-0.5 text-left text-[11px] font-medium leading-4", cancelled && "line-through opacity-50")}
+      className={cn("block w-full truncate rounded px-1.5 py-0.5 text-start text-[11px] font-medium leading-4", cancelled && "line-through opacity-50")}
       style={chipColors(a.createdBy.color)}
       title={`${time} ${a.customerName} (${a.status.name})`}
     >
@@ -424,13 +432,14 @@ const MonthGrid = memo(function MonthGrid({
   onDay: (d: string) => void;
   canCreate: boolean;
 }) {
+  const t = useT();
   return (
     <div>
       <div className="grid grid-cols-7 border-b border-line bg-surface-muted/60">
         {days.slice(0, 7).map((d) => (
           <div key={d} className="px-2 py-2 text-center text-xs font-semibold uppercase tracking-wide text-fg-subtle">
-            <span className="hidden sm:inline">{formatKey(d, { weekday: "short" })}</span>
-            <span className="sm:hidden">{formatKey(d, { weekday: "narrow" })}</span>
+            <span className="hidden sm:inline">{formatKey(d, { weekday: "short" }, t.locale)}</span>
+            <span className="sm:hidden">{formatKey(d, { weekday: "narrow" }, t.locale)}</span>
           </div>
         ))}
       </div>
@@ -440,7 +449,7 @@ const MonthGrid = memo(function MonthGrid({
           const inMonth = d.startsWith(month);
           const max = 3;
           return (
-            <div key={d} className={cn("group relative min-h-24 border-b border-r border-line p-1 sm:min-h-28 sm:p-1.5 [&:nth-child(7n)]:border-r-0", !inMonth && "bg-surface-muted/50")}>
+            <div key={d} className={cn("group relative min-h-24 border-b border-e border-line p-1 sm:min-h-28 sm:p-1.5 [&:nth-child(7n)]:border-e-0", !inMonth && "bg-surface-muted/50")}>
               <div className="mb-1 flex items-center justify-between">
                 <button
                   type="button"
@@ -449,12 +458,12 @@ const MonthGrid = memo(function MonthGrid({
                     "flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-xs font-medium hover:bg-surface-hover",
                     d === today ? "bg-brand-strong text-white hover:bg-brand-stronger" : inMonth ? "text-fg" : "text-fg-subtle",
                   )}
-                  aria-label={`Open ${formatKey(d, { weekday: "long", day: "numeric", month: "long" })}`}
+                  aria-label={t("calendar.openDay", { day: formatKey(d, { weekday: "long", day: "numeric", month: "long" }, t.locale) })}
                 >
                   {Number(d.slice(8))}
                 </button>
                 {canCreate && (
-                  <Link href={`/appointments/new?date=${d}`} prefetch={false} className="rounded p-0.5 text-fg-subtle opacity-0 hover:bg-surface-hover hover:text-fg group-hover:opacity-100 focus:opacity-100" aria-label={`New appointment on ${d}`}>
+                  <Link href={`/appointments/new?date=${d}`} prefetch={false} className="rounded p-0.5 text-fg-subtle opacity-0 hover:bg-surface-hover hover:text-fg group-hover:opacity-100 focus:opacity-100" aria-label={t("calendar.newOn", { day: d })}>
                     <Plus className="h-3.5 w-3.5" />
                   </Link>
                 )}
@@ -472,7 +481,7 @@ const MonthGrid = memo(function MonthGrid({
                   ))}
                   {list.length > max && (
                     <button type="button" onClick={() => onDay(d)} className="px-1.5 text-[11px] font-medium text-fg-muted hover:text-fg">
-                      +{list.length - max} more
+                      {t("calendar.more", { count: list.length - max })}
                     </button>
                   )}
                 </div>
@@ -508,6 +517,7 @@ const TimeGrid = memo(function TimeGrid({
   canCreate: boolean;
   onDay: (d: string) => void;
 }) {
+  const t = useT();
   const hourList = Array.from({ length: hours.end - hours.start }, (_, i) => hours.start + i);
   const height = hourList.length * HOUR_PX;
   const nowMin = minutesOfDay(now, tz);
@@ -517,8 +527,8 @@ const TimeGrid = memo(function TimeGrid({
         <div className="sticky top-0 z-10 grid border-b border-line bg-surface-muted/80 backdrop-blur" style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0, 1fr))` }}>
           <div />
           {days.map((d) => (
-            <button key={d} type="button" onClick={() => onDay(d)} className="border-l border-line px-2 py-2 text-center hover:bg-surface-hover">
-              <span className="block text-xs font-semibold uppercase tracking-wide text-fg-subtle">{formatKey(d, { weekday: "short" })}</span>
+            <button key={d} type="button" onClick={() => onDay(d)} className="border-s border-line px-2 py-2 text-center hover:bg-surface-hover">
+              <span className="block text-xs font-semibold uppercase tracking-wide text-fg-subtle">{formatKey(d, { weekday: "short" }, t.locale)}</span>
               <span className={cn("mx-auto mt-0.5 flex h-7 w-7 items-center justify-center rounded-full text-sm font-semibold", d === today ? "bg-brand-strong text-white" : "text-fg")}>
                 {Number(d.slice(8))}
               </span>
@@ -528,7 +538,7 @@ const TimeGrid = memo(function TimeGrid({
         <div className="grid" style={{ gridTemplateColumns: `56px repeat(${days.length}, minmax(0, 1fr))` }}>
           <div className="relative" style={{ height }}>
             {hourList.map((h, i) => (
-              <div key={h} className="absolute right-2 -translate-y-1/2 text-[11px] tabular-nums text-fg-subtle" style={{ top: i * HOUR_PX }}>
+              <div key={h} className="absolute end-2 -translate-y-1/2 text-[11px] tabular-nums text-fg-subtle" style={{ top: i * HOUR_PX }}>
                 {i === 0 ? "" : `${String(h).padStart(2, "0")}:00`}
               </div>
             ))}
@@ -536,7 +546,7 @@ const TimeGrid = memo(function TimeGrid({
           {days.map((d) => {
             const items = layoutDay(byDay.get(d) ?? []);
             return (
-              <div key={d} className={cn("relative border-l border-line", d === today && "bg-brand-soft/30")} style={{ height }}>
+              <div key={d} className={cn("relative border-s border-line", d === today && "bg-brand-soft/30")} style={{ height }}>
                 {hourList.map((h, i) => (
                   <div key={h} className="absolute inset-x-0 border-t border-line/70" style={{ top: i * HOUR_PX }}>
                     {canCreate && (
@@ -545,7 +555,7 @@ const TimeGrid = memo(function TimeGrid({
                         prefetch={false}
                         className="block opacity-0 hover:bg-surface-muted/60 hover:opacity-100 focus:opacity-100"
                         style={{ height: HOUR_PX }}
-                        aria-label={`New appointment ${d} ${h}:00`}
+                        aria-label={t("calendar.newAt", { day: d, time: `${h}:00` })}
                         tabIndex={-1}
                       />
                     )}
@@ -563,13 +573,14 @@ const TimeGrid = memo(function TimeGrid({
                       type="button"
                       onClick={() => onSelect(a)}
                       className={cn(
-                        "absolute overflow-hidden rounded-md border border-black/10 px-1.5 py-1 text-left text-xs shadow-sm transition-[filter] hover:brightness-95 focus-visible:z-20 dark:border-white/10",
+                        "absolute overflow-hidden rounded-md border border-black/10 px-1.5 py-1 text-start text-xs shadow-sm transition-[filter] hover:brightness-95 focus-visible:z-20 dark:border-white/10",
                         cancelled && "opacity-50",
                       )}
                       style={{
                         top,
                         height: h,
-                        left: `calc(${(col / cols) * 100}% + 2px)`,
+                        // Columns start on the reading side (right in Arabic).
+                        insetInlineStart: `calc(${(col / cols) * 100}% + 2px)`,
                         width: `calc(${100 / cols}% - 4px)`,
                         ...chipColors(a.createdBy.color),
                       }}
@@ -577,10 +588,10 @@ const TimeGrid = memo(function TimeGrid({
                     >
                       <span className={cn("block font-semibold leading-tight", cancelled && "line-through")}>{a.customerName}</span>
                       <span className="block tabular-nums leading-tight opacity-90">{time}</span>
-                      {h > 52 && <span className="block truncate leading-tight opacity-90">{productLine(a)}</span>}
+                      {h > 52 && <span className="block truncate leading-tight opacity-90">{productLine(a, t)}</span>}
                       {detailed && h > 70 && (
                         <span className="mt-0.5 block truncate leading-tight opacity-90">
-                          {a.technicians.map((t) => t.name).join(", ") || "Unassigned"}
+                          {a.technicians.map((x) => x.name).join("، ") || t("appointments.unassigned")}
                           {a.area ? ` · ${a.area}` : ""}
                         </span>
                       )}
@@ -590,7 +601,7 @@ const TimeGrid = memo(function TimeGrid({
                 })}
                 {d === today && nowMin >= hours.start * 60 && nowMin <= hours.end * 60 && (
                   <div className="pointer-events-none absolute inset-x-0 z-10 flex items-center" style={{ top: ((nowMin - hours.start * 60) / 60) * HOUR_PX }} aria-hidden>
-                    <span className="-ml-1 h-2.5 w-2.5 rounded-full bg-brand" />
+                    <span className="-ms-1 h-2.5 w-2.5 rounded-full bg-brand" />
                     <span className="h-0.5 flex-1 bg-brand" />
                   </div>
                 )}
@@ -614,6 +625,7 @@ const Agenda = memo(function Agenda({
   events: CalEvent[];
   onSelect: (a: AppointmentListItem) => void;
 }) {
+  const t = useT();
   const groups = useMemo(() => {
     const byStart = new Map<string, CalEvent[]>();
     for (const ev of events) {
@@ -623,36 +635,36 @@ const Agenda = memo(function Agenda({
     }
     return days.map((d) => ({ d, list: byStart.get(d) ?? [] })).filter((g) => g.list.length);
   }, [days, events]);
-  if (!groups.length) return <p className="px-6 py-14 text-center text-sm text-fg-muted">No appointments in this period.</p>;
+  if (!groups.length) return <p className="px-6 py-14 text-center text-sm text-fg-muted">{t("calendar.empty")}</p>;
   return (
     <div className="divide-y divide-line">
       {groups.map(({ d, list }) => (
         <section key={d} className="px-4 py-3 [contain-intrinsic-size:auto_480px] [content-visibility:auto] sm:px-5">
           <h3 className={cn("mb-2 text-sm font-semibold", d === today ? "text-brand-text" : "text-fg")}>
-            {formatKey(d, { weekday: "long", day: "numeric", month: "long" })}
-            {d === today && " · Today"}
-            <span className="ml-2 font-normal text-fg-subtle">{list.length}</span>
+            {formatKey(d, { weekday: "long", day: "numeric", month: "long" }, t.locale)}
+            {d === today && ` · ${t("common.today")}`}
+            <span className="ms-2 font-normal text-fg-subtle">{list.length}</span>
           </h3>
           <ul className="space-y-2">
             {list.map(({ a, time }) => (
               <li key={a.id}>
-                <button type="button" onClick={() => onSelect(a)} className="flex w-full gap-3 rounded-lg border border-line p-3 text-left hover:bg-surface-muted">
+                <button type="button" onClick={() => onSelect(a)} className="flex w-full gap-3 rounded-lg border border-line p-3 text-start hover:bg-surface-muted">
                   <span className="w-1.5 shrink-0 rounded-full" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-hidden />
-                  <span className="w-24 shrink-0 text-sm font-semibold tabular-nums">{time}</span>
+                  <bdi className="w-24 shrink-0 text-sm font-semibold tabular-nums">{time}</bdi>
                   <span className="min-w-0 flex-1">
                     <span className="flex flex-wrap items-center gap-2">
                       <span className={cn("font-medium", a.status.kind === "CANCELLED" && "line-through")}>{a.customerName}</span>
                       <StatusBadge name={a.status.name} color={a.status.color} />
                     </span>
-                    <span className="mt-0.5 block truncate text-sm text-fg-muted">{productLine(a)}</span>
+                    <span className="mt-0.5 block truncate text-sm text-fg-muted">{productLine(a, t)}</span>
                     <span className="mt-0.5 flex flex-wrap gap-x-3 text-xs text-fg-subtle">
                       {(a.area || a.building) && (
                         <span className="inline-flex items-center gap-1">
-                          <MapPin className="h-3 w-3" /> {[a.building, a.area].filter(Boolean).join(", ")}
+                          <MapPin className="h-3 w-3" /> {[a.building, a.area].filter(Boolean).join("، ")}
                         </span>
                       )}
                       <span className="inline-flex items-center gap-1">
-                        <Users className="h-3 w-3" /> {a.technicians.map((t) => t.name).join(", ") || "Unassigned"}
+                        <Users className="h-3 w-3" /> {a.technicians.map((x) => x.name).join("، ") || t("appointments.unassigned")}
                       </span>
                     </span>
                   </span>
@@ -667,25 +679,28 @@ const Agenda = memo(function Agenda({
 });
 
 function DetailsPanel({ a, tz, onClose }: { a: AppointmentListItem; tz: string; onClose: () => void }) {
+  const t = useT();
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, [onClose]);
   return (
-    <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={`Appointment ${a.code}`}>
-      <button type="button" className="absolute inset-0 bg-black/30" onClick={onClose} aria-label="Close details" />
-      <aside className="absolute inset-y-0 right-0 flex w-full max-w-md flex-col border-l border-line bg-surface shadow-pop">
+    <div className="fixed inset-0 z-40" role="dialog" aria-modal="true" aria-label={`${t("appointment.title")} ${a.code}`}>
+      <button type="button" className="absolute inset-0 bg-black/30" onClick={onClose} aria-label={t("calendar.closeDetails")} />
+      <aside className="absolute inset-y-0 end-0 flex w-full max-w-md flex-col border-s border-line bg-surface shadow-pop">
         <div className="h-1.5" style={{ backgroundColor: colorOrFallback(a.createdBy.color) }} aria-hidden />
         <div className="flex items-start justify-between gap-4 border-b border-line px-5 py-4">
           <div>
-            <p className="text-xs font-medium text-fg-subtle">{a.code}</p>
+            <p className="text-xs font-medium text-fg-subtle" dir="ltr">
+              {a.code}
+            </p>
             <h2 className="text-lg font-semibold">{a.customerName}</h2>
             <p className="text-sm text-fg-muted">
-              {formatKey(dateKey(a.startsAt, tz), { weekday: "long", day: "numeric", month: "long" })} · <span className="tabular-nums">{timeRange(a.startsAt, a.endsAt, tz)}</span>
+              {formatKey(dateKey(a.startsAt, tz), { weekday: "long", day: "numeric", month: "long" }, t.locale)} · <bdi className="tabular-nums">{timeRange(a.startsAt, a.endsAt, tz)}</bdi>
             </p>
           </div>
-          <button type="button" onClick={onClose} className="rounded-md p-1 text-fg-subtle hover:bg-surface-muted" aria-label="Close">
+          <button type="button" onClick={onClose} className="rounded-md p-1 text-fg-subtle hover:bg-surface-muted" aria-label={t("common.close")}>
             <X className="h-5 w-5" />
           </button>
         </div>
@@ -695,27 +710,29 @@ function DetailsPanel({ a, tz, onClose }: { a: AppointmentListItem; tz: string; 
           </div>
           <dl className="space-y-3">
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Installation</dt>
-              <dd className="mt-0.5">{productLine(a)}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t("appointment.installation")}</dt>
+              <dd className="mt-0.5">{productLine(a, t)}</dd>
             </div>
             {a.customerPhone && (
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Phone</dt>
-                <dd className="mt-0.5">{a.customerPhone}</dd>
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t("common.phone")}</dt>
+                <dd className="mt-0.5" dir="ltr">
+                  {a.customerPhone}
+                </dd>
               </div>
             )}
             {(a.area || a.building) && (
               <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Location</dt>
-                <dd className="mt-0.5">{[a.building, a.area].filter(Boolean).join(", ")}</dd>
+                <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t("appointment.location")}</dt>
+                <dd className="mt-0.5">{[a.building, a.area].filter(Boolean).join("، ")}</dd>
               </div>
             )}
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Technicians</dt>
-              <dd className="mt-0.5">{a.technicians.map((t) => t.name).join(", ") || <span className="text-warning">No technician assigned</span>}</dd>
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t("common.technicians")}</dt>
+              <dd className="mt-0.5">{a.technicians.map((x) => x.name).join("، ") || <span className="text-warning">{t("appointments.noTechnician")}</span>}</dd>
             </div>
             <div>
-              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">Sales employee</dt>
+              <dt className="text-xs font-medium uppercase tracking-wide text-fg-subtle">{t("filters.salesEmployee")}</dt>
               <dd className="mt-1">
                 <SalesTag name={a.createdBy.name} color={a.createdBy.color} inactive={!a.createdBy.isActive} />
               </dd>
@@ -724,7 +741,7 @@ function DetailsPanel({ a, tz, onClose }: { a: AppointmentListItem; tz: string; 
         </div>
         <div className="border-t border-line p-4">
           <Link href={`/appointments/${a.id}`} className={buttonClasses("primary", "md", "w-full")}>
-            Open full details <ExternalLink className="h-4 w-4" />
+            {t("calendar.openDetails")} <ExternalLink className="h-4 w-4" />
           </Link>
         </div>
       </aside>

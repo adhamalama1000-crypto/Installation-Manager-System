@@ -25,12 +25,12 @@ async function main() {
   });
   if ((await prisma.appointmentStatus.count()) === 0) {
     const defaults = [
-      { name: "Scheduled", kind: "SCHEDULED", color: "#2563EB", blocksSchedule: true, isDefault: true },
-      { name: "In Progress", kind: "IN_PROGRESS", color: "#CA8A04", blocksSchedule: true },
-      { name: "Completed", kind: "COMPLETED", color: "#059669", blocksSchedule: true },
-      { name: "Postponed/Rescheduled", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
-      { name: "Cancelled", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
-      { name: "Unable to Complete", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
+      { name: "Scheduled", nameAr: "مجدول", kind: "SCHEDULED", color: "#2563EB", blocksSchedule: true, isDefault: true },
+      { name: "In Progress", nameAr: "قيد التنفيذ", kind: "IN_PROGRESS", color: "#CA8A04", blocksSchedule: true },
+      { name: "Completed", nameAr: "تم التنفيذ", kind: "COMPLETED", color: "#059669", blocksSchedule: true },
+      { name: "Postponed/Rescheduled", nameAr: "مؤجل / ميعاد جديد", kind: "POSTPONED", color: "#7C3AED", blocksSchedule: true },
+      { name: "Cancelled", nameAr: "ملغي", kind: "CANCELLED", color: "#6B7280", blocksSchedule: false },
+      { name: "Unable to Complete", nameAr: "تعذّر التنفيذ", kind: "UNABLE_TO_COMPLETE", color: "#DC2626", blocksSchedule: true },
     ] as const;
     for (const [i, s] of defaults.entries()) {
       await prisma.appointmentStatus.create({ data: { ...s, isDefault: "isDefault" in s, sortOrder: i * 10 } });

@@ -4,25 +4,25 @@ import { PageHeader } from "@/components/ui/misc";
 import { requireUser } from "@/server/auth/session";
 import { leaveOverview } from "@/server/services/leaves";
 import { activeTechnicians } from "@/server/services/users";
+import { getT } from "@/i18n/server";
+import type { Metadata } from "next";
 
-export const metadata = { title: "Leave" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getT())("nav.leave") };
+}
 
 export default async function LeavesPage() {
-  const user = await requireUser();
+  const [user, t] = await Promise.all([requireUser(), getT()]);
   const manage = user.permissions.includes("leaves.manage");
   if (!manage && !user.permissions.includes("leaves.request")) redirect("/access-denied");
   const [overview, technicians] = await Promise.all([leaveOverview(user), manage ? activeTechnicians() : Promise.resolve([])]);
   return (
     <>
       <PageHeader
-        title={manage ? "Technician leave" : "My leave"}
-        description={
-          manage
-            ? "Approve leave requests and record sick days or absences. Approved leave stops new bookings of that technician on those days."
-            : "Ask for leave or a day off. Once an Admin approves it, you will not be booked on those days."
-        }
+        title={manage ? t("leaves.manageTitle") : t("nav.myLeave")}
+        description={manage ? t("leaves.manageText") : t("leaves.ownText")}
       />
-      <LeavesManager overview={overview} technicians={technicians.map((t) => ({ id: t.id, name: t.name }))} manage={manage} timezone={user.settings.timezone} />
+      <LeavesManager overview={overview} technicians={technicians.map((x) => ({ id: x.id, name: x.name }))} manage={manage} timezone={user.settings.timezone} />
     </>
   );
 }

@@ -1,75 +1,41 @@
 import { History as HistoryIcon } from "lucide-react";
+import { getT } from "@/i18n/server";
+import type { T } from "@/i18n/translator";
 import type { AuditEntryDTO } from "@/lib/types";
-import { CONFIRMATION_LABELS, PAYMENT_METHOD_LABELS, PRODUCT_CATEGORY_LABELS, VISIT_TYPE_LABELS, money } from "@/lib/constants";
+import { money } from "@/lib/constants";
 import { dateTime } from "@/lib/format";
 
-const FIELD_LABELS: Record<string, string> = {
-  "customer.name": "Customer name",
-  "customer.phone": "Primary phone",
-  "customer.secondaryPhone": "Secondary phone",
-  "location.area": "Area",
-  "location.streetAddress": "Address",
-  "location.building": "Compound / building",
-  "location.apartment": "Apartment",
-  "location.floor": "Floor",
-  "location.accessInstructions": "Access instructions",
-  "location.mapUrl": "Map link",
-  "location.latitude": "Latitude",
-  "location.longitude": "Longitude",
-  productCategory: "Category",
-  visitType: "Visit type",
-  customerConfirmation: "Customer confirmation",
-  categoryOther: "Category (other)",
-  brand: "Brand",
-  model: "Model",
-  description: "Description",
-  requiredEquipment: "Required equipment",
-  additionalNotes: "Additional notes",
-  internalNotes: "Internal notes",
-  visitReport: "Visit report",
-  totalPrice: "Total price",
-  depositAmount: "Deposit",
-  depositMethod: "Deposit paid by",
-  extraFee: "Extra fee",
-  collectedAmount: "Collected at visit",
-  collectedMethod: "Collected by method",
-  installedSerials: "Installed serial numbers",
-  startsAt: "Start",
-  endsAt: "End",
-  durationMinutes: "Duration (min)",
-  technicians: "Technicians",
-  status: "Status",
-  note: "Note",
-  createdBy: "Sales creator",
-  name: "Name",
-  email: "Email",
-  phone: "Phone",
-  role: "Role",
-  isActive: "Active",
-  color: "Colour",
-  viewerPermissions: "Viewer permissions",
+const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+const MONEY_KEYS = new Set(["totalPrice", "depositAmount", "extraFee", "collectedAmount", "amount"]);
+/** Stored enum values shown with their translated name; anything else is shown as stored. */
+const ENUM_KEYS: Record<string, string> = {
+  productCategory: "enums.productCategory",
+  visitType: "enums.visitType",
+  customerConfirmation: "enums.confirmation",
+  depositMethod: "enums.paymentMethod",
+  collectedMethod: "enums.paymentMethod",
+  role: "enums.role",
+  type: "enums.leaveType",
+  to: "enums.stockStatus",
+  kind: "enums.statusKind",
 };
 
-const ISO_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
-
-export function formatAuditValue(v: unknown, tz: string, key?: string): string {
+export function formatAuditValue(v: unknown, tz: string, t: T, key?: string): string {
   if (v === null || v === undefined || v === "") return "—";
-  if (typeof v === "string" && ISO_RE.test(v)) return dateTime(v, tz);
-  if (key === "productCategory" && typeof v === "string") return PRODUCT_CATEGORY_LABELS[v as keyof typeof PRODUCT_CATEGORY_LABELS] ?? v;
-  if (key === "visitType" && typeof v === "string") return VISIT_TYPE_LABELS[v as keyof typeof VISIT_TYPE_LABELS] ?? v;
-  if (key === "customerConfirmation" && typeof v === "string") return CONFIRMATION_LABELS[v as keyof typeof CONFIRMATION_LABELS] ?? v;
-  if ((key === "depositMethod" || key === "collectedMethod") && typeof v === "string") return PAYMENT_METHOD_LABELS[v as keyof typeof PAYMENT_METHOD_LABELS] ?? v;
-  if ((key === "totalPrice" || key === "depositAmount" || key === "extraFee" || key === "collectedAmount") && typeof v === "number") return money(v);
-  if (Array.isArray(v)) return v.length ? v.join(", ") : "none";
-  if (typeof v === "boolean") return v ? "Yes" : "No";
+  if (typeof v === "string" && ISO_RE.test(v)) return dateTime(v, tz, t.locale);
+  if (key && ENUM_KEYS[key] && typeof v === "string") return t.dyn(`${ENUM_KEYS[key]}.${v}`, undefined, v);
+  if (key && MONEY_KEYS.has(key) && typeof v === "number") return money(v, t.locale);
+  if (Array.isArray(v)) return v.length ? v.join(t.locale === "ar" ? "، " : ", ") : t("common.none");
+  if (typeof v === "boolean") return v ? t("common.yes") : t("common.no");
   if (typeof v === "object") return JSON.stringify(v);
   return String(v);
 }
 
-export function ChangeTable({ changes, tz }: { changes: AuditEntryDTO["changes"]; tz: string }) {
+export async function ChangeTable({ changes, tz }: { changes: AuditEntryDTO["changes"]; tz: string }) {
   if (!changes || typeof changes !== "object") return null;
   const rows = Object.entries(changes as Record<string, unknown>);
   if (!rows.length) return null;
+  const t = await getT();
   return (
     <div className="mt-2 overflow-x-auto rounded-lg border border-line">
       <table className="w-full text-xs">
@@ -79,15 +45,18 @@ export function ChangeTable({ changes, tz }: { changes: AuditEntryDTO["changes"]
             const d = val as { from: unknown; to: unknown };
             return (
               <tr key={key} className="align-top">
-                <th className="w-40 bg-surface-muted/60 px-3 py-1.5 text-left font-medium text-fg-muted">{FIELD_LABELS[key] ?? key}</th>
+                <th className="w-40 bg-surface-muted/60 px-3 py-1.5 text-start font-medium text-fg-muted">{t.dyn(`historyFields.${key}`, undefined, key)}</th>
                 {isDiff ? (
                   <td className="px-3 py-1.5 text-fg">
-                    <span className="text-fg-subtle line-through decoration-fg-subtle/60">{formatAuditValue(d.from, tz, key)}</span>
-                    <span className="mx-1.5 text-fg-subtle">→</span>
-                    <span>{formatAuditValue(d.to, tz, key)}</span>
+                    <span className="text-fg-subtle line-through decoration-fg-subtle/60">{formatAuditValue(d.from, tz, t, key)}</span>
+                    <span className="mx-1.5 text-fg-subtle">
+                      <span className="rtl:hidden">→</span>
+                      <span className="ltr:hidden">←</span>
+                    </span>
+                    <span>{formatAuditValue(d.to, tz, t, key)}</span>
                   </td>
                 ) : (
-                  <td className="px-3 py-1.5 text-fg">{formatAuditValue(val, tz, key)}</td>
+                  <td className="px-3 py-1.5 text-fg">{formatAuditValue(val, tz, t, key)}</td>
                 )}
               </tr>
             );
@@ -98,16 +67,17 @@ export function ChangeTable({ changes, tz }: { changes: AuditEntryDTO["changes"]
   );
 }
 
-export function HistoryList({ entries, tz }: { entries: AuditEntryDTO[]; tz: string }) {
-  if (!entries.length) return <p className="text-sm text-fg-muted">No history recorded.</p>;
+export async function HistoryList({ entries, tz }: { entries: AuditEntryDTO[]; tz: string }) {
+  const t = await getT();
+  if (!entries.length) return <p className="text-sm text-fg-muted">{t("history.empty")}</p>;
   return (
-    <ol className="relative space-y-5 border-l border-line pl-5">
+    <ol className="relative space-y-5 border-s border-line ps-5">
       {entries.map((e) => (
         <li key={e.id} className="relative">
-          <span className="absolute -left-[27px] top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-surface bg-brand" aria-hidden />
+          <span className="absolute -start-[27px] top-0.5 flex h-3.5 w-3.5 items-center justify-center rounded-full border-2 border-surface bg-brand" aria-hidden />
           <p className="text-sm text-fg">{e.summary}</p>
           <p className="mt-0.5 text-xs text-fg-subtle">
-            {e.actor?.name ?? "System"} · {dateTime(e.createdAt, tz)}
+            {e.actor?.name ?? t("history.system")} · {dateTime(e.createdAt, tz, t.locale)}
           </p>
           {e.action !== "APPOINTMENT_CREATED" && <ChangeTable changes={e.changes} tz={tz} />}
         </li>

@@ -8,15 +8,18 @@ import { dateTime } from "@/lib/format";
 import { prisma } from "@/server/db";
 import { requirePagePermission } from "@/server/auth/session";
 import { AUDIT_ENTITY_TYPES, listAuditLog } from "@/server/services/audit-log";
+import { getT } from "@/i18n/server";
+import type { Metadata } from "next";
 
-export const metadata = { title: "Audit log" };
-
-const ENTITY_LABELS: Record<string, string> = { APPOINTMENT: "Appointment", USER: "User", STATUS: "Status", SETTINGS: "Settings", CUSTOMER: "Customer", LEAVE: "Leave", CASH: "Cash custody", STOCK: "Stock" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getT())("nav.audit") };
+}
 
 type SP = { entityType?: string; actorId?: string; from?: string; to?: string; q?: string; page?: string };
 
 export default async function AuditPage({ searchParams }: { searchParams: Promise<SP> }) {
-  const user = await requirePagePermission("audit.view");
+  const [user, t] = await Promise.all([requirePagePermission("audit.view"), getT()]);
+  const entity = (type: string) => t.dyn(`enums.auditEntity.${type}`, undefined, type);
   const sp = await searchParams;
   const tz = user.settings.timezone;
   const [result, actors] = await Promise.all([
@@ -32,42 +35,48 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
   };
   return (
     <>
-      <PageHeader title="Audit log" description="Append-only record of appointment, user, status and settings changes. Entries cannot be edited or deleted." />
+      <PageHeader title={t("nav.audit")} description={t("auditPage.text")} />
       <Card className="mb-4 p-4">
         <form method="get" className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-          <input name="q" defaultValue={sp.q} placeholder="Search summary" aria-label="Search summary" className={`${control} col-span-2 md:col-span-1 xl:col-span-2`} />
-          <select name="entityType" defaultValue={sp.entityType ?? ""} aria-label="Record type" className={control}>
-            <option value="">All record types</option>
-            {AUDIT_ENTITY_TYPES.map((t) => (
-              <option key={t} value={t}>{ENTITY_LABELS[t]}</option>
+          <input name="q" defaultValue={sp.q} placeholder={t("auditPage.search")} aria-label={t("auditPage.search")} className={`${control} col-span-2 md:col-span-1 xl:col-span-2`} />
+          <select name="entityType" defaultValue={sp.entityType ?? ""} aria-label={t("auditPage.recordType")} className={control}>
+            <option value="">{t("auditPage.allTypes")}</option>
+            {AUDIT_ENTITY_TYPES.map((x) => (
+              <option key={x} value={x}>
+                {entity(x)}
+              </option>
             ))}
           </select>
-          <select name="actorId" defaultValue={sp.actorId ?? ""} aria-label="Changed by" className={control}>
-            <option value="">Anyone</option>
+          <select name="actorId" defaultValue={sp.actorId ?? ""} aria-label={t("auditPage.changedBy")} className={control}>
+            <option value="">{t("auditPage.anyone")}</option>
             {actors.map((a) => (
               <option key={a.id} value={a.id}>{a.name}</option>
             ))}
           </select>
-          <input type="date" name="from" defaultValue={sp.from} aria-label="From date" className={control} />
-          <input type="date" name="to" defaultValue={sp.to} aria-label="To date" className={control} />
+          <input type="date" name="from" defaultValue={sp.from} aria-label={t("auditPage.fromDate")} className={control} />
+          <input type="date" name="to" defaultValue={sp.to} aria-label={t("auditPage.toDate")} className={control} />
           <div className="col-span-2 flex gap-2 md:col-span-3 xl:col-span-6">
-            <button className={buttonClasses("primary")}>Apply</button>
-            <Link href="/audit" className={buttonClasses("outline")}>Reset</Link>
+            <button className={buttonClasses("primary")}>{t("common.apply")}</button>
+            <Link href="/audit" className={buttonClasses("outline")}>
+              {t("common.reset")}
+            </Link>
           </div>
         </form>
       </Card>
       <Card className="overflow-hidden">
         {result.items.length === 0 ? (
-          <EmptyState title="No entries" />
+          <EmptyState title={t("auditPage.none")} />
         ) : (
           <>
             <ul className="divide-y divide-line">
               {result.items.map((e) => (
                 <li key={e.id} className="px-5 py-4">
                   <div className="flex flex-wrap items-center gap-2">
-                    <Badge>{ENTITY_LABELS[e.entityType] ?? e.entityType}</Badge>
-                    <span className="font-mono text-[11px] text-fg-subtle">{e.action}</span>
-                    <span className="ml-auto text-xs text-fg-subtle">{dateTime(e.createdAt, tz)}</span>
+                    <Badge>{entity(e.entityType)}</Badge>
+                    <span className="font-mono text-[11px] text-fg-subtle" dir="ltr">
+                      {e.action}
+                    </span>
+                    <span className="ms-auto text-xs text-fg-subtle">{dateTime(e.createdAt, tz, t.locale)}</span>
                   </div>
                   <p className="mt-1.5 text-sm text-fg">
                     {e.appointmentId ? (
@@ -76,10 +85,10 @@ export default async function AuditPage({ searchParams }: { searchParams: Promis
                       e.summary
                     )}
                   </p>
-                  <p className="text-xs text-fg-muted">by {e.actor?.name ?? "System"}</p>
+                  <p className="text-xs text-fg-muted">{t("auditPage.by", { name: e.actor?.name ?? t("history.system") })}</p>
                   {e.changes && e.action !== "APPOINTMENT_CREATED" && (
                     <details className="mt-2">
-                      <summary className="cursor-pointer text-xs font-medium text-brand-text">Show changes</summary>
+                      <summary className="cursor-pointer text-xs font-medium text-brand-text">{t("auditPage.showChanges")}</summary>
                       <ChangeTable changes={e.changes} tz={tz} />
                     </details>
                   )}

@@ -239,10 +239,10 @@ describe("dashboard summary", () => {
     expect(all.today).toBe("2030-03-10");
     expect(all.counts).toEqual({ today: 2, upcoming: 3, scheduled: 3, completed: 1, postponed: 1, cancelled: 1, attention: 4 });
     expect(all.attention.map((x) => [x.id, x.reason])).toEqual([
-      [a1, "Past end time - status not updated"],
-      [a8, "Past end time - status not updated"],
-      [a2, "No technician assigned"],
-      [a4, "No map location saved"],
+      [a1, "dashboard.reasons.overdue"],
+      [a8, "dashboard.reasons.overdue"],
+      [a2, "dashboard.reasons.unassigned"],
+      [a4, "dashboard.reasons.noLocation"],
     ]);
     expect(all.todays.map((x) => x.id)).toEqual([a1, a2, a3]);
 

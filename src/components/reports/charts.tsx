@@ -18,11 +18,11 @@ export function StatTile({ label, value, sub }: { label: string; value: React.Re
 export function BarList({
   rows,
   unit = "",
-  emptyText = "No data for this period.",
+  emptyText,
 }: {
   rows: { key: string; label: React.ReactNode; value: number; color?: string | null; display?: string }[];
   unit?: string;
-  emptyText?: string;
+  emptyText: string;
 }) {
   if (!rows.length) return <p className="py-6 text-center text-sm text-fg-muted">{emptyText}</p>;
   const max = Math.max(...rows.map((r) => r.value), 1);
@@ -31,7 +31,7 @@ export function BarList({
       <tbody>
         {rows.map((r) => (
           <tr key={r.key} className="group" title={`${typeof r.label === "string" ? r.label : ""} ${r.display ?? r.value}${unit}`}>
-            <th scope="row" className="w-[38%] max-w-0 py-1.5 pr-3 text-left font-normal text-fg">
+            <th scope="row" className="w-[38%] max-w-0 py-1.5 pe-3 text-start font-normal text-fg">
               <span className="flex items-center gap-2 truncate">
                 {r.color && <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: colorOrFallback(r.color) }} aria-hidden />}
                 <span className="truncate">{r.label}</span>
@@ -41,11 +41,11 @@ export function BarList({
               <div className="flex items-center gap-2">
                 <div className="h-5 flex-1">
                   <div
-                    className="h-full rounded-r-[4px] transition-[filter] group-hover:brightness-110"
+                    className="h-full rounded-e-[4px] transition-[filter] group-hover:brightness-110"
                     style={{ width: `${Math.max((r.value / max) * 100, r.value > 0 ? 1.5 : 0)}%`, backgroundColor: r.color ? colorOrFallback(r.color) : "var(--brand)" }}
                   />
                 </div>
-                <span className="w-14 shrink-0 text-right font-medium tabular-nums text-fg">
+                <span className="w-14 shrink-0 text-end font-medium tabular-nums text-fg">
                   {r.display ?? r.value}
                   {unit}
                 </span>
@@ -59,14 +59,25 @@ export function BarList({
 }
 
 /** Daily column chart (single series) with a hover/focus tooltip per column. */
-export function DailyColumns({ days, labelFor }: { days: { day: string; count: number }[]; labelFor: (day: string) => string }) {
-  if (!days.some((d) => d.count > 0)) return <p className="py-6 text-center text-sm text-fg-muted">No appointments in this period.</p>;
+export function DailyColumns({
+  days,
+  labelFor,
+  emptyText,
+  columnLabel,
+}: {
+  days: { day: string; count: number }[];
+  labelFor: (day: string) => string;
+  emptyText: string;
+  /** Accessible label of one column ("Mon 3 Mar: 4 appointments"). */
+  columnLabel: (day: string, count: number) => string;
+}) {
+  if (!days.some((d) => d.count > 0)) return <p className="py-6 text-center text-sm text-fg-muted">{emptyText}</p>;
   const max = Math.max(...days.map((d) => d.count), 1);
   const ticks = [max, Math.round(max / 2), 0].filter((v, i, a) => a.indexOf(v) === i);
   return (
     <div>
       <div className="flex h-48 gap-2">
-        <div className="flex flex-col justify-between py-0.5 text-right text-[11px] tabular-nums text-fg-subtle" aria-hidden>
+        <div className="flex flex-col justify-between py-0.5 text-end text-[11px] tabular-nums text-fg-subtle" aria-hidden>
           {ticks.map((t) => (
             <span key={t}>{t}</span>
           ))}
@@ -76,7 +87,7 @@ export function DailyColumns({ days, labelFor }: { days: { day: string; count: n
             <div key={t} className="pointer-events-none absolute inset-x-0 border-t border-line/60" style={{ bottom: `${(t / max) * 100}%` }} aria-hidden />
           ))}
           {days.map((d) => (
-            <div key={d.day} tabIndex={0} className="group relative flex h-full flex-1 items-end outline-none" aria-label={`${labelFor(d.day)}: ${d.count} appointments`}>
+            <div key={d.day} tabIndex={0} className="group relative flex h-full flex-1 items-end outline-none" aria-label={columnLabel(d.day, d.count)}>
               <div
                 className={cn("w-full max-w-6 mx-auto rounded-t-[4px] bg-brand transition-[filter] group-hover:brightness-110 group-focus:brightness-110")}
                 style={{ height: `${(d.count / max) * 100}%`, minHeight: d.count ? 2 : 0 }}
@@ -88,7 +99,7 @@ export function DailyColumns({ days, labelFor }: { days: { day: string; count: n
           ))}
         </div>
       </div>
-      <div className="ml-6 mt-1 flex justify-between text-[11px] text-fg-subtle" aria-hidden>
+      <div className="ms-6 mt-1 flex justify-between text-[11px] text-fg-subtle" aria-hidden>
         <span>{labelFor(days[0]!.day)}</span>
         {days.length > 1 && <span>{labelFor(days[days.length - 1]!.day)}</span>}
       </div>

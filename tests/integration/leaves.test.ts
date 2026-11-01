@@ -123,7 +123,7 @@ describe("approved leave blocks bookings", () => {
     expect(clashes.map((c) => c.appointmentId)).toEqual([booked.id]);
     expect((await listNotifications(asCurrent(sales))).items.find((n) => n.type === "LEAVE_CLASH")).toMatchObject({ appointmentId: booked.id });
     const summary = await dashboardSummary(asCurrent(sales), NOW);
-    expect(summary.attention).toContainEqual(expect.objectContaining({ id: booked.id, reason: "Technician on approved leave - assign someone else" }));
+    expect(summary.attention).toContainEqual(expect.objectContaining({ id: booked.id, reason: "dashboard.reasons.onLeave" }));
 
     // Same day, same technician: other details can still be edited.
     const edited = await updateAppointment(asCurrent(sales), booked.id, appointmentPayload({ technicianIds: [tech.id], version: booked.version, brand: "Samsung", startTime: "11:00" }));

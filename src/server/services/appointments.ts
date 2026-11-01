@@ -1,20 +1,18 @@
 import "server-only";
 import { Prisma, type AppointmentStatus, type CustomerConfirmation, type PaymentMethod, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
 import { z } from "zod";
+import { msg } from "@/i18n/translator";
 import {
-  CONFIRMATION_LABELS,
   PRODUCT_CATEGORIES,
-  PRODUCT_CATEGORY_LABELS,
-  STATUS_KIND_LABELS,
-  WEEKDAY_NAMES,
   appointmentCode,
   parseAppointmentCode,
   phoneDigits,
 } from "@/lib/constants";
+import { statusName } from "@/lib/format";
 import { resolveLocationLink } from "@/lib/maps";
 import { type Permission } from "@/lib/permissions";
 import type { AppointmentDTO, AppointmentListItem, AuditEntryDTO } from "@/lib/types";
-import { computeEnd, dateKey, dayRangeUtc, fmt, isValidDateString, weekdayOfKey, zonedToUtc } from "@/lib/time";
+import { computeEnd, dateKey, dayRangeUtc, isValidDateString, weekdayOfKey, zonedToUtc } from "@/lib/time";
 import {
   appointmentInputSchema,
   cancelSchema,
@@ -25,6 +23,7 @@ import {
   type AppointmentInput,
 } from "@/lib/validation";
 import { prisma, type Tx } from "../db";
+import { statusParam, whenParam } from "../i18n-params";
 import { appointmentScope, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import {
@@ -35,7 +34,7 @@ import {
   ValidationError,
 } from "../errors";
 import { diffValues, recordAudit } from "./audit";
-import { notifyUsers } from "./notifications";
+import { localized, notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
 import { assertTechniciansNotOnLeave } from "./leaves";
 import { canSeePrices, loadCustody, paymentDTO, prepareCollection, type CustodyView } from "./payments";
@@ -128,7 +127,7 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     durationMinutes: a.durationMinutes,
     status: {
       id: a.status.id,
-      name: a.status.name,
+      name: statusName(a.status, user.locale),
       kind: a.status.kind,
       color: a.status.color,
       blocksSchedule: a.status.blocksSchedule,
@@ -207,7 +206,7 @@ export function parseAppointmentFilters(params: URLSearchParams | Record<string,
       ? Object.fromEntries([...params.keys()].map((k) => [k, params.getAll(k).length > 1 ? params.getAll(k) : params.get(k)]))
       : params;
   const parsed = appointmentFiltersSchema.safeParse(obj);
-  if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error), "Invalid filters.");
+  if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error), "errors.invalidFilters");
   return parsed.data;
 }
 
@@ -282,10 +281,10 @@ export async function calendarAppointments(
 ): Promise<AppointmentListItem[]> {
   assertCan(user, "appointments.view");
   if (!isValidDateString(range.from) || !isValidDateString(range.to) || range.from > range.to) {
-    throw new ValidationError({ from: "Invalid date range" });
+    throw new ValidationError({ from: msg("errors.invalidRange") });
   }
   const { start, end } = dayRangeUtc(range.from, range.to, user.settings.timezone);
-  if (end.getTime() - start.getTime() > 62 * 24 * 3600 * 1000) throw new ValidationError({ to: "Range too large" });
+  if (end.getTime() - start.getTime() > 62 * 24 * 3600 * 1000) throw new ValidationError({ to: msg("errors.rangeTooLarge") });
   const where = appointmentFilterSql(user, { ...f, from: undefined, to: undefined });
   // Appointments last at most 24 hours (validation + the appointments_duration_check constraint),
   // so anything overlapping the range starts after `start - 24h`. Stating that bound lets the
@@ -306,11 +305,11 @@ export async function calendarAppointments(
  */
 async function findVisibleAppointment(user: CurrentUser, id: string): Promise<AppointmentView> {
   assertCan(user, "appointments.view");
-  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Appointment not found.");
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("errors.appointmentNotFound");
   // The scope is part of the query: a technician asking for someone else's appointment gets a
   // plain 404, exactly as if the ID did not exist.
   const appt = await prisma.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] } });
-  if (!appt) throw new NotFoundError("Appointment not found.");
+  if (!appt) throw new NotFoundError("errors.appointmentNotFound");
   const scope = appointmentScope(user);
   const [customer, location, status, people, technicians, followUpOf, followUps, custody, installed] = await Promise.all([
     prisma.customer.findUniqueOrThrow({ where: { id: appt.customerId } }),
@@ -330,7 +329,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
       : Promise.resolve(null),
     prisma.appointment.findMany({
       where: { AND: [{ followUpOfId: appt.id }, scope] },
-      select: { id: true, number: true, startsAt: true, status: { select: { name: true, color: true, kind: true } } },
+      select: { id: true, number: true, startsAt: true, status: { select: { name: true, nameAr: true, color: true, kind: true } } },
       orderBy: { startsAt: "asc" },
       take: 20,
     }),
@@ -352,7 +351,7 @@ async function findVisibleAppointment(user: CurrentUser, id: string): Promise<Ap
     technicians: technicians.map((technician) => ({ technician })),
     links: {
       followUpOf: followUpOf ? { id: followUpOf.id, code: appointmentCode(followUpOf.number) } : null,
-      followUps: followUps.map((f) => ({ id: f.id, code: appointmentCode(f.number), startsAt: f.startsAt.toISOString(), status: f.status })),
+      followUps: followUps.map((f) => ({ id: f.id, code: appointmentCode(f.number), startsAt: f.startsAt.toISOString(), status: { name: statusName(f.status, user.locale), color: f.status.color, kind: f.status.kind } })),
     },
   };
 }
@@ -386,7 +385,7 @@ export function redactChanges(user: CurrentUser, changes: unknown): AuditEntryDT
 export async function getAppointmentHistory(user: CurrentUser, id: string): Promise<AuditEntryDTO[]> {
   assertCan(user, "history.view");
   assertCan(user, "appointments.view");
-  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Appointment not found.");
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("errors.appointmentNotFound");
   // Both queries run at once; the history is only returned if the appointment is visible.
   const [visible, rows] = await Promise.all([
     prisma.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] }, select: { id: true } }),
@@ -397,11 +396,11 @@ export async function getAppointmentHistory(user: CurrentUser, id: string): Prom
       take: 200,
     }),
   ]);
-  if (!visible) throw new NotFoundError("Appointment not found.");
+  if (!visible) throw new NotFoundError("errors.appointmentNotFound");
   return rows.map((r) => ({
     id: r.id,
     action: r.action,
-    summary: r.summary,
+    summary: localized(r.summaryData, r.summary, user.locale),
     changes: redactChanges(user, r.changes),
     actor: r.actor,
     createdAt: r.createdAt.toISOString(),
@@ -428,10 +427,10 @@ async function validateTechnicians(tx: Tx, ids: string[], alreadyAssigned: strin
   for (const id of ids) {
     const u = users.find((x) => x.id === id);
     if (!u || u.role !== "TECHNICIAN") {
-      throw new ValidationError({ technicianIds: "One of the selected technicians does not exist." });
+      throw new ValidationError({ technicianIds: msg("appointmentErrors.technicianMissing") });
     }
     if (!u.isActive && !alreadyAssigned.includes(id)) {
-      throw new ValidationError({ technicianIds: `${u.name} is inactive and cannot be assigned.` });
+      throw new ValidationError({ technicianIds: msg("appointmentErrors.technicianInactive", { name: u.name }) });
     }
   }
   return users;
@@ -449,7 +448,7 @@ async function upsertCustomerAndLocation(tx: Tx, input: AppointmentInput) {
   let customer;
   if (c.id) {
     const existing = await tx.customer.findUnique({ where: { id: c.id } });
-    if (!existing) throw new ValidationError({ "customer.id": "The selected customer no longer exists." });
+    if (!existing) throw new ValidationError({ "customer.id": msg("appointmentErrors.customerGone") });
     customer = await tx.customer.update({ where: { id: c.id }, data: customerData });
   } else {
     customer = await tx.customer.create({ data: customerData });
@@ -471,7 +470,7 @@ async function upsertCustomerAndLocation(tx: Tx, input: AppointmentInput) {
   if (l.id) {
     const existing = await tx.customerLocation.findUnique({ where: { id: l.id } });
     if (!existing || existing.customerId !== customer.id) {
-      throw new ValidationError({ "location.id": "The selected location does not belong to this customer." });
+      throw new ValidationError({ "location.id": msg("appointmentErrors.locationMismatch") });
     }
     location = await tx.customerLocation.update({ where: { id: l.id }, data: locationData });
   } else {
@@ -523,10 +522,10 @@ function moneyData(input: AppointmentInput, before?: MoneyBefore) {
   const extraFee = pick(input.extraFee, before?.extraFee);
   const depositMethod = depositAmount ? ((input.depositMethod as PaymentMethod | null | undefined) ?? before?.depositMethod ?? null) : null;
   if (depositAmount && (totalPrice === null || depositAmount > totalPrice)) {
-    const msg = totalPrice === null ? "Enter the total price so the deposit can be deducted." : "The deposit cannot be more than the total price.";
-    throw new ValidationError(totalPrice === null ? { totalPrice: msg } : { depositAmount: msg }, msg);
+    const text = totalPrice === null ? msg("validation.totalForDeposit") : msg("validation.depositTooHigh");
+    throw new ValidationError(totalPrice === null ? { totalPrice: text } : { depositAmount: text }, text);
   }
-  if (depositAmount && !depositMethod) throw new ValidationError({ depositMethod: "Choose how the deposit was paid." });
+  if (depositAmount && !depositMethod) throw new ValidationError({ depositMethod: msg("validation.depositMethod") });
   return { totalPrice, depositAmount, depositMethod, extraFee };
 }
 
@@ -536,13 +535,9 @@ function assertOpenDay(user: CurrentUser, date: string, closedWeekdays: number[]
   if (!closedWeekdays.includes(day)) return;
   if (user.role === "ADMIN" && allowClosedDay) return;
   throw new ValidationError(
-    { date: `${WEEKDAY_NAMES[day]} is a closed day.${user.role === "ADMIN" ? " Tick \"Book on a closed day\" to book it anyway." : " Choose another date."}` },
-    "This date is a closed day.",
+    { date: msg(user.role === "ADMIN" ? "appointmentErrors.closedDayAdmin" : "appointmentErrors.closedDay", { day: `@enums.weekday.${day}` }) },
+    "appointmentErrors.closedDate",
   );
-}
-
-function whenLabel(startsAt: Date, endsAt: Date, tz: string) {
-  return `${fmt(startsAt, tz, "EEE d MMM yyyy, HH:mm")}–${fmt(endsAt, tz, "HH:mm")}`;
 }
 
 async function loadFull(tx: Tx, id: string) {
@@ -553,14 +548,14 @@ async function resolveStatus(tx: Tx, statusId: string | null | undefined, curren
   if (statusId) {
     if (current && current.id === statusId) return current;
     const s = await tx.appointmentStatus.findUnique({ where: { id: statusId } });
-    if (!s || !s.isActive) throw new ValidationError({ statusId: "Choose a valid status." });
+    if (!s || !s.isActive) throw new ValidationError({ statusId: msg("appointmentErrors.invalidStatus") });
     return s;
   }
   if (current) return current;
   const s =
     (await tx.appointmentStatus.findFirst({ where: { isDefault: true, isActive: true } })) ??
     (await tx.appointmentStatus.findFirst({ where: { kind: "SCHEDULED", isActive: true }, orderBy: { sortOrder: "asc" } }));
-  if (!s) throw new ValidationError({ statusId: "No active default status is configured." });
+  if (!s) throw new ValidationError({ statusId: msg("appointmentErrors.noDefaultStatus") });
   return s;
 }
 
@@ -590,10 +585,10 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
   // behalf of a Sales employee.
   let creatorId = user.id;
   if (input.salesUserId && input.salesUserId !== user.id) {
-    if (user.role !== "ADMIN") throw new ForbiddenError("Only an Admin can create appointments on behalf of another employee.");
+    if (user.role !== "ADMIN") throw new ForbiddenError("appointmentErrors.onBehalfAdminOnly");
     const sales = await prisma.user.findUnique({ where: { id: input.salesUserId } });
     if (!sales || !sales.isActive || (sales.role !== "SALES" && sales.role !== "ADMIN")) {
-      throw new ValidationError({ salesUserId: "Choose an active Sales employee." });
+      throw new ValidationError({ salesUserId: msg("appointmentErrors.chooseSales") });
     }
     creatorId = sales.id;
   }
@@ -602,7 +597,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
   const endsAt = computeEnd(startsAt, input.durationMinutes);
   if (input.followUpOfId) {
     const original = await prisma.appointment.findFirst({ where: { AND: [{ id: input.followUpOfId }, appointmentScope(user)] }, select: { id: true } });
-    if (!original) throw new ValidationError({ followUpOfId: "The original appointment no longer exists." });
+    if (!original) throw new ValidationError({ followUpOfId: msg("appointmentErrors.originalGone") });
   }
 
   try {
@@ -673,7 +668,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         entityId: appt.id,
         appointmentId: appt.id,
         action: "APPOINTMENT_CREATED",
-        summary: `Created ${code} for ${customer.name} on ${whenLabel(startsAt, endsAt, tz)}`,
+        summary: msg("audit.appointmentCreated", { code, customer: customer.name, ...whenParam("when", startsAt, endsAt, tz) }),
         changes: {
           ...snapshot(full),
           startsAt: startsAt.toISOString(),
@@ -691,7 +686,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         {
           appointmentId: appt.id,
           type: "ASSIGNED",
-          message: `New assignment ${code}: ${customer.name}, ${whenLabel(startsAt, endsAt, tz)}`,
+          message: msg("notify.assigned", { code, customer: customer.name, ...whenParam("when", startsAt, endsAt, tz) }),
         },
         user.id,
       );
@@ -712,18 +707,18 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
 
 async function lockAppointmentRow(tx: Tx, id: string) {
   const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM appointments WHERE id = ${id} FOR UPDATE`;
-  if (!rows.length) throw new NotFoundError("Appointment not found.");
+  if (!rows.length) throw new NotFoundError("errors.appointmentNotFound");
 }
 
 /** Loads an appointment for modification, enforcing visibility, edit rights and optimistic locking. */
 async function loadForUpdate(tx: Tx, user: CurrentUser, id: string, version?: number) {
-  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Appointment not found.");
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("errors.appointmentNotFound");
   await lockAppointmentRow(tx, id);
   const visible = await tx.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] }, select: { id: true } });
-  if (!visible) throw new NotFoundError("Appointment not found.");
+  if (!visible) throw new NotFoundError("errors.appointmentNotFound");
   const existing = await loadFull(tx, id);
   if (!canManageAppointment(user, existing)) {
-    throw new ForbiddenError("You can only modify appointments you created.");
+    throw new ForbiddenError("appointmentErrors.ownOnly");
   }
   if (version !== undefined && version !== existing.version) throw new StaleRecordError();
   return existing;
@@ -829,7 +824,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           entityId: id,
           appointmentId: id,
           action: "APPOINTMENT_UPDATED",
-          summary: `Updated details of ${code}`,
+          summary: msg("audit.appointmentUpdated", { code }),
           changes: detailChanges,
           actorId: user.id,
         });
@@ -842,7 +837,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           entityId: id,
           appointmentId: id,
           action: "APPOINTMENT_RESCHEDULED",
-          summary: `Rescheduled ${code} from ${whenLabel(existing.startsAt, existing.endsAt, tz)} to ${whenLabel(startsAt, endsAt, tz)}`,
+          summary: msg("audit.appointmentRescheduled", { code, ...whenParam("from", existing.startsAt, existing.endsAt, tz), ...whenParam("to", startsAt, endsAt, tz) }),
           changes: diffValues(
             { startsAt: existing.startsAt, endsAt: existing.endsAt, durationMinutes: existing.durationMinutes },
             { startsAt, endsAt, durationMinutes: input.durationMinutes },
@@ -858,7 +853,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           entityId: id,
           appointmentId: id,
           action: "TECHNICIANS_CHANGED",
-          summary: `Changed technicians of ${code}: ${afterNames.join(", ") || "none"}`,
+          summary: afterNames.length ? msg("audit.techniciansChanged", { code, names: afterNames.join(", ") }) : msg("audit.techniciansRemoved", { code }),
           changes: { technicians: { from: beforeNames, to: afterNames } },
           actorId: user.id,
         });
@@ -869,16 +864,16 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           entityId: id,
           appointmentId: id,
           action: status.kind === "CANCELLED" ? "APPOINTMENT_CANCELLED" : "STATUS_CHANGED",
-          summary: `Changed status of ${code} from ${existing.status.name} to ${status.name}`,
+          summary: msg("audit.statusChanged", { code, ...statusParam("from", existing.status), ...statusParam("to", status) }),
           changes: { status: { from: existing.status.name, to: status.name } },
           actorId: user.id,
         });
       }
       for (const a of audits) await recordAudit(tx, a);
 
-      const when = whenLabel(startsAt, endsAt, tz);
-      await notifyUsers(tx, added, { appointmentId: id, type: "ASSIGNED", message: `New assignment ${code}: ${customer.name}, ${when}` }, user.id);
-      await notifyUsers(tx, removed, { appointmentId: id, type: "UNASSIGNED", message: `You were removed from ${code} (${customer.name})` }, user.id);
+      const when = whenParam("when", startsAt, endsAt, tz);
+      await notifyUsers(tx, added, { appointmentId: id, type: "ASSIGNED", message: msg("notify.assigned", { code, customer: customer.name, ...when }) }, user.id);
+      await notifyUsers(tx, removed, { appointmentId: id, type: "UNASSIGNED", message: msg("notify.unassigned", { code, customer: customer.name }) }, user.id);
       if (audits.length) {
         await notifyUsers(
           tx,
@@ -886,7 +881,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           {
             appointmentId: id,
             type: timeChanged ? "RESCHEDULED" : "UPDATED",
-            message: timeChanged ? `${code} was rescheduled to ${when}` : `${code} (${customer.name}) was updated`,
+            message: timeChanged ? msg("notify.rescheduled", { code, ...when }) : msg("notify.updated", { code, customer: customer.name }),
           },
           user.id,
         );
@@ -923,7 +918,7 @@ async function applyStatusChange(
         "statusId" in statusIdOrKind
           ? await resolveStatus(tx, statusIdOrKind.statusId, existing.status)
           : await tx.appointmentStatus.findFirst({ where: { kind: "CANCELLED", isActive: true }, orderBy: { sortOrder: "asc" } });
-      if (!status) throw new ValidationError({ statusId: "No active cancellation status is configured." });
+      if (!status) throw new ValidationError({ statusId: msg("appointmentErrors.noCancelStatus") });
       if (status.id === existing.statusId) return;
 
       // Re-activating (e.g. un-cancelling) must not create a double booking.
@@ -952,8 +947,10 @@ async function applyStatusChange(
         appointmentId: id,
         action: cancelled ? "APPOINTMENT_CANCELLED" : "STATUS_CHANGED",
         summary: cancelled
-          ? `Cancelled ${code}${note ? `: ${note}` : ""}`
-          : `Changed status of ${code} from ${existing.status.name} to ${status.name}`,
+          ? note
+            ? msg("audit.cancelledWithNote", { code, note })
+            : msg("audit.cancelled", { code })
+          : msg("audit.statusChanged", { code, ...statusParam("from", existing.status), ...statusParam("to", status) }),
         changes: { status: { from: existing.status.name, to: status.name }, ...(note ? { note } : {}) },
         actorId: user.id,
       });
@@ -964,8 +961,8 @@ async function applyStatusChange(
           appointmentId: id,
           type: cancelled ? "CANCELLED" : "STATUS_CHANGED",
           message: cancelled
-            ? `${code} (${existing.customer.name}, ${whenLabel(existing.startsAt, existing.endsAt, tz)}) was cancelled`
-            : `${code} status changed to ${status.name}`,
+            ? msg("notify.cancelled", { code, customer: existing.customer.name, ...whenParam("when", existing.startsAt, existing.endsAt, tz) })
+            : msg("notify.statusChanged", { code, ...statusParam("status", status) }),
         },
         user.id,
       );
@@ -1001,25 +998,25 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
   const parsed = outcomeSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
   const input = parsed.data;
-  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("Appointment not found.");
+  if (typeof id !== "string" || id.length > 64) throw new NotFoundError("errors.appointmentNotFound");
   const settings = await getSettings();
   const ctx: { techIds: string[]; startsAt?: Date; endsAt?: Date } = { techIds: [] };
   try {
     await prisma.$transaction(async (tx) => {
       await lockAppointmentRow(tx, id);
       const visible = await tx.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] }, select: { id: true } });
-      if (!visible) throw new NotFoundError("Appointment not found.");
+      if (!visible) throw new NotFoundError("errors.appointmentNotFound");
       const existing = await loadFull(tx, id);
-      if (!canReportVisit(user, existing)) throw new ForbiddenError("Only the assigned technicians can record the outcome of this visit.");
+      if (!canReportVisit(user, existing)) throw new ForbiddenError("appointmentErrors.assignedOnly");
       if (input.version !== undefined && input.version !== existing.version) throw new StaleRecordError();
       if (!REPORTABLE_KINDS.includes(existing.status.kind)) {
-        const msg = `This appointment is "${existing.status.name}", so no outcome can be recorded.`;
-        throw new ValidationError({ outcome: msg }, msg);
+        const text = msg("appointmentErrors.notReportable", statusParam("status", existing.status));
+        throw new ValidationError({ outcome: text }, text);
       }
       const status = await tx.appointmentStatus.findFirst({ where: { kind: input.outcome, isActive: true }, orderBy: [{ sortOrder: "asc" }, { name: "asc" }] });
       if (!status) {
-        const msg = `No active "${STATUS_KIND_LABELS[input.outcome]}" status is set up. An Admin can add one in Settings.`;
-        throw new ValidationError({ outcome: msg }, msg);
+        const text = msg("appointmentErrors.noOutcomeStatus", { kind: `@enums.statusKind.${input.outcome}` });
+        throw new ValidationError({ outcome: text }, text);
       }
       const report = input.report ?? existing.visitReport;
       const now = new Date();
@@ -1062,7 +1059,9 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
         appointmentId: id,
         action: "VISIT_OUTCOME",
         // Amounts stay out of the summary: it is shown unredacted, the changes are redacted per field.
-        summary: `${user.name} recorded "${status.name}" for ${code}${report ? `: ${report}` : ""}`,
+        summary: report
+          ? msg("audit.outcomeWithReport", { name: user.name, code, report, ...statusParam("status", status) })
+          : msg("audit.outcome", { name: user.name, code, ...statusParam("status", status) }),
         changes: {
           ...(status.id !== existing.statusId ? { status: { from: existing.status.name, to: status.name } } : {}),
           ...(reportChanged ? { visitReport: { from: existing.visitReport, to: report } } : {}),
@@ -1078,7 +1077,14 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
         {
           appointmentId: id,
           type: "VISIT_OUTCOME",
-          message: `${user.name}: ${code} (${existing.customer.name}) is now "${status.name}"${collection?.summary ? `, ${collection.summary}` : ""}${installed.length ? `, installed ${installed.length} item${installed.length === 1 ? "" : "s"}` : ""}`,
+          message: msg("notify.outcome", {
+            name: user.name,
+            code,
+            customer: existing.customer.name,
+            ...statusParam("status", status),
+            collected: collection?.summary ? `@${collection.summary}` : "",
+            installed: installed.length ? `@${msg("notify.installedPart", { count: installed.length })}` : "",
+          }),
         },
         user.id,
       );
@@ -1112,7 +1118,7 @@ export async function setCustomerConfirmation(user: CurrentUser, id: string, raw
         entityId: id,
         appointmentId: id,
         action: "CONFIRMATION_CHANGED",
-        summary: `${appointmentCode(existing.number)}: ${CONFIRMATION_LABELS[next]}`,
+        summary: msg("audit.confirmation", { code: appointmentCode(existing.number), confirmation: `@enums.confirmation.${next}` }),
         changes: { customerConfirmation: { from: existing.customerConfirmation, to: next } },
         actorId: user.id,
       });
@@ -1124,6 +1130,4 @@ export async function setCustomerConfirmation(user: CurrentUser, id: string, raw
   return getAppointment(user, id);
 }
 
-export function categoryLabel(a: { productCategory: ProductCategory; categoryOther: string | null }) {
-  return a.productCategory === "OTHER" && a.categoryOther ? a.categoryOther : PRODUCT_CATEGORY_LABELS[a.productCategory];
-}
+

@@ -122,6 +122,8 @@ model User {
   createdAt         DateTime  @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
   passwordChangedAt DateTime? @db.Timestamptz(3)
+  /// Interface language chosen by the user ("ar" or "en"); null = not chosen yet (Arabic).
+  locale            String?
 
   sessions              Session[]
   passwordTokens        PasswordToken[]         @relation("TokenUser")
@@ -255,6 +257,8 @@ model CustomerLocation {
 model AppointmentStatus {
   id             String     @id @default(cuid())
   name           String     @unique
+  /// Arabic name shown in the Arabic interface (falls back to `name`).
+  nameAr         String?
   kind           StatusKind
   /// Hex colour for status badges.
   color          String
@@ -385,6 +389,9 @@ model AuditLog {
   /// e.g. APPOINTMENT_CREATED, APPOINTMENT_RESCHEDULED, USER_ROLE_CHANGED ...
   action        String
   summary       String
+  /// { key, params }: the summary as a message key, shown in each reader's language. Null on rows
+  /// written before localization (their `summary` text is shown).
+  summaryData   Json?
   /// { field: { from, to } } for updates, or a snapshot for creations.
   changes       Json?
   actorId       String?
@@ -408,7 +415,10 @@ model Notification {
   appointmentId String?
   appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
   type          String
+  /// English text (kept for rows written before localization and as a fallback).
   message       String
+  /// { key, params }: shown in the reader's language.
+  data          Json?
   readAt        DateTime?    @db.Timestamptz(3)
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 

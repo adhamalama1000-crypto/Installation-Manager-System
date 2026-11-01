@@ -1,27 +1,10 @@
-import type { CustomerConfirmation, LeaveStatus, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, StockStatus, VisitType } from "@prisma/client";
-
-export const APP_NAME = "Installation Manager System";
+import type { CustomerConfirmation, LeaveType, PaymentMethod, ProductCategory, Role, StatusKind, StockStatus, VisitType } from "@prisma/client";
+import { intlLocale, type Locale } from "@/i18n/config";
+import type { T } from "@/i18n/translator";
 
 export const DEFAULT_TIMEZONE = "Africa/Cairo";
 
-export const ROLE_LABELS: Record<Role, string> = {
-  ADMIN: "Admin",
-  SALES: "Sales",
-  TECHNICIAN: "Technician",
-  VIEWER: "Viewer",
-  ACCOUNTANT: "Accountant",
-  STORE: "Store keeper",
-};
-
 export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "ACCOUNTANT", "STORE", "VIEWER"];
-
-export const STOCK_STATUS_LABELS: Record<StockStatus, string> = {
-  IN_STORE: "In store",
-  WITH_TECHNICIAN: "With technician",
-  INSTALLED: "Installed",
-  RETURNED: "Returned",
-  FAULTY: "Faulty",
-};
 
 export const STOCK_STATUSES: StockStatus[] = ["IN_STORE", "WITH_TECHNICIAN", "INSTALLED", "RETURNED", "FAULTY"];
 
@@ -40,76 +23,30 @@ export function parseSerials(text: string | null | undefined): string[] {
 
 export const SERIAL_RE = /^[A-Z0-9][A-Z0-9._/-]{0,63}$/;
 
-export const PAYMENT_METHOD_LABELS: Record<PaymentMethod, string> = {
-  CASH: "Cash",
-  INSTAPAY: "InstaPay",
-  VODAFONE_CASH: "Vodafone Cash",
-  BANK_TRANSFER: "Bank transfer",
-};
-
 export const PAYMENT_METHODS: PaymentMethod[] = ["CASH", "INSTAPAY", "VODAFONE_CASH", "BANK_TRANSFER"];
 
-/** Amounts are Egyptian pounds with up to two decimals. */
-export function money(n: number | null | undefined): string {
-  if (n === null || n === undefined) return "—";
-  return `${n.toLocaleString("en-GB", { minimumFractionDigits: Number.isInteger(n) ? 0 : 2, maximumFractionDigits: 2 })} EGP`;
-}
+const moneyFormats = new Map<string, Intl.NumberFormat[]>();
 
-export const PRODUCT_CATEGORY_LABELS: Record<ProductCategory, string> = {
-  SMART_LOCK: "Smart Lock",
-  SMART_HOME: "Smart Home",
-  CCTV: "CCTV",
-  INTERCOM: "Intercom",
-  OTHER: "Other",
-};
+/** Amounts are Egyptian pounds with up to two decimals ("1,250 EGP" / "1,250 ج.م"). */
+export function money(n: number | null | undefined, locale: Locale): string {
+  if (n === null || n === undefined) return "—";
+  let f = moneyFormats.get(locale);
+  if (!f) {
+    const tag = intlLocale(locale);
+    f = [new Intl.NumberFormat(tag, { maximumFractionDigits: 0 }), new Intl.NumberFormat(tag, { minimumFractionDigits: 2, maximumFractionDigits: 2 })];
+    moneyFormats.set(locale, f);
+  }
+  const amount = f[Number.isInteger(n) ? 0 : 1]!.format(n);
+  return locale === "ar" ? `${amount} ج.م` : `${amount} EGP`;
+}
 
 export const PRODUCT_CATEGORIES: ProductCategory[] = ["SMART_LOCK", "SMART_HOME", "CCTV", "INTERCOM", "OTHER"];
 
-export const VISIT_TYPE_LABELS: Record<VisitType, string> = {
-  INSPECTION: "Inspection",
-  INSTALLATION: "Installation",
-  COMPLETION: "Completion",
-  PROGRAMMING: "Programming",
-  MAINTENANCE: "Maintenance",
-};
-
 export const VISIT_TYPES: VisitType[] = ["INSTALLATION", "INSPECTION", "COMPLETION", "PROGRAMMING", "MAINTENANCE"];
-
-export const CONFIRMATION_LABELS: Record<CustomerConfirmation, string> = {
-  PENDING: "Awaiting confirmation",
-  CONFIRMED: "Confirmed by customer",
-  RESCHEDULE_REQUESTED: "Customer asked to reschedule",
-  UNREACHABLE: "Customer unreachable",
-};
 
 export const CONFIRMATIONS: CustomerConfirmation[] = ["PENDING", "CONFIRMED", "RESCHEDULE_REQUESTED", "UNREACHABLE"];
 
-export const LEAVE_TYPE_LABELS: Record<LeaveType, string> = {
-  LEAVE: "Leave",
-  SICK: "Sick leave",
-  ABSENCE: "Absence",
-};
-
 export const LEAVE_TYPES: LeaveType[] = ["LEAVE", "SICK", "ABSENCE"];
-
-export const LEAVE_STATUS_LABELS: Record<LeaveStatus, string> = {
-  REQUESTED: "Awaiting approval",
-  APPROVED: "Approved",
-  REJECTED: "Rejected",
-  CANCELLED: "Cancelled",
-};
-
-export const WEEKDAY_NAMES = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
-
-export const STATUS_KIND_LABELS: Record<StatusKind, string> = {
-  SCHEDULED: "Scheduled",
-  IN_PROGRESS: "In Progress",
-  COMPLETED: "Completed",
-  POSTPONED: "Postponed / Rescheduled",
-  CANCELLED: "Cancelled",
-  UNABLE_TO_COMPLETE: "Unable to Complete",
-  NEEDS_REVISIT: "Needs another visit",
-};
 
 export const STATUS_KINDS: StatusKind[] = [
   "SCHEDULED",
@@ -157,10 +94,10 @@ export function phoneDigits(phone: string): string {
   return phone.replace(/\D/g, "");
 }
 
-export function minutesLabel(total: number): string {
+export function minutesLabel(total: number, t: T): string {
   const h = Math.floor(total / 60);
   const m = total % 60;
-  if (h && m) return `${h} h ${m} min`;
-  if (h) return `${h} h`;
-  return `${m} min`;
+  if (h && m) return t("duration.hm", { h, m });
+  if (h) return t("duration.h", { h });
+  return t("duration.m", { m });
 }

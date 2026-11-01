@@ -6,6 +6,7 @@ import { prisma } from "../db";
 import { assertCan } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { escapeLike } from "./appointment-reads";
+import { localized } from "./notifications";
 
 export const AUDIT_ENTITY_TYPES = ["APPOINTMENT", "USER", "STATUS", "SETTINGS", "CUSTOMER", "LEAVE", "CASH", "STOCK"] as const;
 
@@ -42,7 +43,7 @@ export async function listAuditLog(
   const items: AuditEntryDTO[] = rows.map((r) => ({
     id: r.id,
     action: r.action,
-    summary: r.summary,
+    summary: localized(r.summaryData, r.summary, user.locale),
     changes: (r.changes as AuditEntryDTO["changes"]) ?? null,
     actor: r.actor,
     createdAt: r.createdAt.toISOString(),

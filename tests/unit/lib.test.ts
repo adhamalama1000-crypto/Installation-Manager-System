@@ -1,3 +1,4 @@
+import { createT } from "@/i18n/translator";
 import { describe, expect, it } from "vitest";
 import { appointmentCode, parseAppointmentCode, parseSerials, phoneDigits, minutesLabel } from "@/lib/constants";
 import { checkMapUrl, extractCoordinates, resolveLocationLink } from "@/lib/maps";
@@ -163,7 +164,8 @@ describe("codes and formatting", () => {
     expect(parseAppointmentCode("#42")).toBe(42);
     expect(parseAppointmentCode("Ahmed")).toBeNull();
     expect(phoneDigits("+20 (100) 123-4567")).toBe("201001234567");
-    expect(minutesLabel(150)).toBe("2 h 30 min");
+    expect(minutesLabel(150, createT("en"))).toBe("2 h 30 min");
+    expect(minutesLabel(150, createT("ar"))).toBe("2 ساعة و30 دقيقة");
     expect(parseSerials("ab-1\n SN 12 34 ,ab-1;x9\r\n\n")).toEqual(["AB-1", "SN1234", "X9"]);
   });
 });

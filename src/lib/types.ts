@@ -2,7 +2,12 @@ import type { CustodyStatus, CustomerConfirmation, LeaveStatus, LeaveType, Payme
 
 export type StatusDTO = {
   id: string;
+  /** Name as configured (English or the company's own wording). */
   name: string;
+  /** Arabic name; Arabic readers see it when set. */
+  nameAr: string | null;
+  /** The name in the reader's language. */
+  label: string;
   kind: StatusKind;
   color: string;
   blocksSchedule: boolean;

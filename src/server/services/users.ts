@@ -1,6 +1,7 @@
 import "server-only";
 import { Prisma, type Role, type User } from "@prisma/client";
-import { ROLE_LABELS, SALES_COLOR_SUGGESTIONS } from "@/lib/constants";
+import { msg } from "@/i18n/translator";
+import { SALES_COLOR_SUGGESTIONS } from "@/lib/constants";
 import { DEFAULT_VIEWER_PERMISSIONS } from "@/lib/permissions";
 import type { UserDTO } from "@/lib/types";
 import { fieldErrorsFromZod, userCreateSchema, userUpdateSchema } from "@/lib/validation";
@@ -42,7 +43,7 @@ export async function listUsers(actor: CurrentUser) {
 export async function getUser(actor: CurrentUser, id: string) {
   assertCan(actor, "users.manage");
   const u = await prisma.user.findUnique({ where: { id } });
-  if (!u) throw new NotFoundError("User not found.");
+  if (!u) throw new NotFoundError("userErrors.notFound");
   return toUserDTO(u);
 }
 
@@ -120,7 +121,7 @@ export async function createUser(actor: CurrentUser, raw: unknown) {
         entityType: "USER",
         entityId: user.id,
         action: "USER_CREATED",
-        summary: `Created ${ROLE_LABELS[role]} account for ${user.name} (${user.email})`,
+        summary: msg("audit.userCreated", { role: `@enums.role.${role}`, name: user.name, email: user.email }),
         changes: { name: user.name, email: user.email, role, color, viewerPermissions: user.viewerPermissions },
         actorId: actor.id,
       });
@@ -128,7 +129,7 @@ export async function createUser(actor: CurrentUser, raw: unknown) {
       return { user: toUserDTO(user), invite };
     });
   } catch (e) {
-    if (isUniqueViolation(e, "email")) throw new ValidationError({ email: "An account with this email already exists." });
+    if (isUniqueViolation(e, "email")) throw new ValidationError({ email: msg("userErrors.emailExists") });
     throw e;
   }
 }
@@ -141,15 +142,15 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
   try {
     return await prisma.$transaction(async (tx) => {
       const before = await tx.user.findUnique({ where: { id } });
-      if (!before) throw new NotFoundError("User not found.");
+      if (!before) throw new NotFoundError("userErrors.notFound");
       const role = (input.role as Role | undefined) ?? before.role;
 
       if (id === actor.id && (input.isActive === false || (input.role && input.role !== "ADMIN"))) {
-        throw new ForbiddenError("You cannot deactivate your own account or remove your own Admin role.");
+        throw new ForbiddenError("userErrors.ownAccount");
       }
       if (before.role === "ADMIN" && before.isActive && (role !== "ADMIN" || input.isActive === false)) {
         const otherAdmins = await tx.user.count({ where: { role: "ADMIN", isActive: true, id: { not: id } } });
-        if (otherAdmins === 0) throw new ValidationError({ role: "At least one active Admin is required." });
+        if (otherAdmins === 0) throw new ValidationError({ role: msg("userErrors.lastAdmin") });
       }
 
       let color = input.color === undefined ? before.color : input.color;
@@ -187,7 +188,7 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
           entityType: "USER",
           entityId: id,
           action,
-          summary: `Updated ${after.name}: ${Object.keys(changes).join(", ")}`,
+          summary: msg("audit.userUpdated", { name: after.name, fields: Object.keys(changes).join(", ") }),
           changes,
           actorId: actor.id,
         });
@@ -199,7 +200,7 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
       return toUserDTO(after);
     });
   } catch (e) {
-    if (isUniqueViolation(e, "email")) throw new ValidationError({ email: "An account with this email already exists." });
+    if (isUniqueViolation(e, "email")) throw new ValidationError({ email: msg("userErrors.emailExists") });
     throw e;
   }
 }
@@ -209,15 +210,15 @@ export async function createPasswordLink(actor: CurrentUser, id: string) {
   assertCan(actor, "users.manage");
   return prisma.$transaction(async (tx) => {
     const user = await tx.user.findUnique({ where: { id } });
-    if (!user) throw new NotFoundError("User not found.");
-    if (!user.isActive) throw new ValidationError({ _form: "Activate the account before resetting its password." });
+    if (!user) throw new NotFoundError("userErrors.notFound");
+    if (!user.isActive) throw new ValidationError({ _form: msg("userErrors.inactiveReset") });
     const purpose = user.passwordHash ? "RESET" : "INVITE";
     const link = await issuePasswordToken(tx, id, purpose, actor.id);
     await recordAudit(tx, {
       entityType: "USER",
       entityId: id,
       action: purpose === "RESET" ? "USER_PASSWORD_RESET_ISSUED" : "USER_INVITE_ISSUED",
-      summary: `${purpose === "RESET" ? "Password reset" : "Invitation"} link issued for ${user.name}`,
+      summary: msg(purpose === "RESET" ? "audit.resetLink" : "audit.inviteLink", { name: user.name }),
       actorId: actor.id,
     });
     return link;
@@ -230,11 +231,11 @@ export async function setPasswordWithToken(token: string, password: string) {
   const userId = await prisma.$transaction(async (tx) => {
     const row = await tx.passwordToken.findUnique({ where: { tokenHash }, include: { user: true } });
     if (!row || row.usedAt || row.expiresAt.getTime() < Date.now() || !row.user.isActive) {
-      throw new ValidationError({ token: "This link is invalid or has expired. Ask an administrator for a new one." });
+      throw new ValidationError({ token: msg("auth.linkInvalid") });
     }
     // Mark used atomically so the same link cannot be used twice.
     const used = await tx.passwordToken.updateMany({ where: { id: row.id, usedAt: null }, data: { usedAt: new Date() } });
-    if (used.count !== 1) throw new ValidationError({ token: "This link has already been used." });
+    if (used.count !== 1) throw new ValidationError({ token: msg("userErrors.linkUsed") });
     await tx.user.update({
       where: { id: row.userId },
       data: { passwordHash: await hashPassword(password), passwordChangedAt: new Date() },
@@ -243,7 +244,7 @@ export async function setPasswordWithToken(token: string, password: string) {
       entityType: "USER",
       entityId: row.userId,
       action: "USER_PASSWORD_SET",
-      summary: `${row.user.name} set a new password`,
+      summary: msg("audit.passwordSet", { name: row.user.name }),
       actorId: row.userId,
     });
     return row.userId;

@@ -93,7 +93,7 @@ describe("recording the outcome of a visit", () => {
     await recordVisitOutcome(asCurrent(tech), a.id, { outcome: "NEEDS_REVISIT", report: "Needs a longer cable." });
     const now = new Date("2030-03-12T10:00:00Z");
     const before = await dashboardSummary(asCurrent(sales), now);
-    expect(before.attention).toContainEqual(expect.objectContaining({ id: a.id, reason: "Needs another visit - no follow-up booked" }));
+    expect(before.attention).toContainEqual(expect.objectContaining({ id: a.id, reason: "dashboard.reasons.revisit" }));
     await createAppointment(asCurrent(sales), appointmentPayload({ followUpOfId: a.id, date: "2030-03-14", technicianIds: [tech.id] }));
     const after = await dashboardSummary(asCurrent(sales), now);
     expect(after.attention.map((x) => x.id)).not.toContain(a.id);

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { Monitor, Moon, Sun } from "lucide-react";
+import { useT } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 
 type Theme = "light" | "dark" | "system";
@@ -12,6 +13,7 @@ function apply(theme: Theme) {
 }
 
 export function ThemeToggle({ className }: { className?: string }) {
+  const t = useT();
   const [theme, setTheme] = useState<Theme>("system");
   useEffect(() => {
     try {
@@ -20,20 +22,20 @@ export function ThemeToggle({ className }: { className?: string }) {
       if (saved) setTheme(saved);
     } catch {}
   }, []);
-  const choose = (t: Theme) => {
-    setTheme(t);
+  const choose = (value: Theme) => {
+    setTheme(value);
     try {
-      localStorage.setItem("ims-theme", t);
+      localStorage.setItem("ims-theme", value);
     } catch {}
-    apply(t);
+    apply(value);
   };
   const options: { value: Theme; label: string; icon: typeof Sun }[] = [
-    { value: "light", label: "Light", icon: Sun },
-    { value: "dark", label: "Dark", icon: Moon },
-    { value: "system", label: "System", icon: Monitor },
+    { value: "light", label: t("theme.light"), icon: Sun },
+    { value: "dark", label: t("theme.dark"), icon: Moon },
+    { value: "system", label: t("theme.system"), icon: Monitor },
   ];
   return (
-    <div className={cn("inline-flex rounded-lg border border-line bg-surface-muted p-0.5", className)} role="radiogroup" aria-label="Theme">
+    <div className={cn("inline-flex rounded-lg border border-line bg-surface-muted p-0.5", className)} role="radiogroup" aria-label={t("theme.label")}>
       {options.map(({ value, label, icon: Icon }) => (
         <button
           key={value}

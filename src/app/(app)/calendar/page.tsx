@@ -5,8 +5,12 @@ import { prisma } from "@/server/db";
 import { requirePagePermission } from "@/server/auth/session";
 import { listStatuses } from "@/server/services/statuses";
 import { salesPeople } from "@/server/services/users";
+import { getT } from "@/i18n/server";
+import type { Metadata } from "next";
 
-export const metadata = { title: "Calendar" };
+export async function generateMetadata(): Promise<Metadata> {
+  return { title: (await getT())("nav.calendar") };
+}
 
 const VIEWS: CalendarViewMode[] = ["month", "week", "day", "agenda"];
 
@@ -15,20 +19,20 @@ export default async function CalendarPage({
 }: {
   searchParams: Promise<{ view?: string; date?: string; salesId?: string; technicianId?: string; status?: string }>;
 }) {
-  const user = await requirePagePermission("appointments.view");
+  const [user, t] = await Promise.all([requirePagePermission("appointments.view"), getT()]);
   const sp = await searchParams;
   const tech = user.role === "TECHNICIAN";
   const [sales, technicians, statuses] = await Promise.all([
     salesPeople({ includeInactive: true }),
     tech ? Promise.resolve([]) : prisma.user.findMany({ where: { role: "TECHNICIAN" }, select: { id: true, name: true, isActive: true }, orderBy: [{ isActive: "desc" }, { name: "asc" }] }),
-    listStatuses(),
+    listStatuses(t.locale),
   ]);
   const s = user.settings;
   return (
     <>
       <PageHeader
-        title={tech ? "My schedule" : "Calendar"}
-        description={tech ? "All installations assigned to you." : "All company appointments, coloured by the Sales employee who booked them."}
+        title={tech ? t("nav.mySchedule") : t("nav.calendar")}
+        description={tech ? t("calendar.techText") : t("calendar.text")}
       />
       <CalendarView
         tz={s.timezone}

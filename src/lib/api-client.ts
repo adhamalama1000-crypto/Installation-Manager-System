@@ -1,6 +1,14 @@
 "use client";
 
+import { isLocale } from "@/i18n/config";
+import { createT } from "@/i18n/translator";
 import type { ApiErrorBody, ConflictDTO } from "./types";
+
+/** Messages made in the browser follow the page language (server errors arrive translated). */
+function pageT() {
+  const lang = typeof document === "undefined" ? "ar" : document.documentElement.lang;
+  return createT(isLocale(lang) ? lang : "ar");
+}
 
 export class ApiError extends Error {
   constructor(
@@ -31,7 +39,7 @@ async function send(path: string, options: ApiOptions): Promise<Response> {
     });
   } catch (e) {
     if ((e as Error).name === "AbortError") throw e;
-    throw new ApiError("Could not reach the server. Check your connection and try again.", 0, "NETWORK_ERROR");
+    throw new ApiError(pageT()("errors.network"), 0, "NETWORK_ERROR");
   }
 }
 
@@ -65,7 +73,7 @@ async function parse<T>(res: Response, path: string): Promise<T> {
   if (!res.ok) {
     const err = (data as ApiErrorBody | null)?.error;
     throw new ApiError(
-      err?.message ?? `Request failed (${res.status}).`,
+      err?.message ?? pageT()("errors.requestFailed", { status: res.status }),
       res.status,
       err?.code ?? "UNKNOWN",
       err?.fieldErrors ?? {},
