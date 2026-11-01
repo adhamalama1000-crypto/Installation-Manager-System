@@ -369,6 +369,10 @@ export const settingsSchema = z
       .refine((d) => new Set(d).size === d.length, msg("validation.dayTwice")),
     /** Used in messages to customers (WhatsApp reminders); blank = "your installation team". */
     companyName: z.preprocess((v) => (typeof v === "string" ? v.trim() : (v ?? "")), z.string().max(80, maxChars(80))),
+    /** Technicians must tick the delivery checklist and add an after-photo, the customer's signature and (for transfers) the transfer proof before "Done". */
+    requireDeliveryProof: z.boolean(),
+    /** Installation visits need at least one installed serial number before "Done". */
+    serialRequired: z.boolean(),
   })
   .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: msg("validation.afterStartHour") });
 

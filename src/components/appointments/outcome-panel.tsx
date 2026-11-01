@@ -103,7 +103,11 @@ export function OutcomePanel({
             </button>
           ))}
         </div>
-        {errors.outcome && <Alert tone="danger">{t.msg(errors.outcome)}</Alert>}
+        {errors.outcome && (
+          <Alert tone="danger">
+            <span className="whitespace-pre-line">{t.msg(errors.outcome)}</span>
+          </Alert>
+        )}
         <Field label={t("appointment.visitReport")} required error={errors.report} hint={t("outcome.reportHint")}>
           {(p) => <Textarea {...p} rows={4} value={text} onChange={(e) => setText(e.target.value)} />}
         </Field>

@@ -2,7 +2,10 @@
  * Exercises the real Next.js route handlers (authentication cookie -> session -> permission
  * checks -> JSON errors) without a browser.
  */
-import { beforeEach, describe, expect, it } from "vitest";
+import { mkdtemp, rm } from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { User } from "@prisma/client";
 import { POST as login } from "@/app/api/auth/login/route";
 import { POST as logout } from "@/app/api/auth/logout/route";
@@ -13,6 +16,10 @@ import { POST as cancelAppt } from "@/app/api/appointments/[id]/cancel/route";
 import { POST as createUserRoute } from "@/app/api/users/route";
 import { POST as availability } from "@/app/api/appointments/availability/route";
 import { GET as exportCsv } from "@/app/api/reports/export/route";
+import { GET as listFiles, POST as uploadFile } from "@/app/api/appointments/[id]/attachments/route";
+import { DELETE as removeFile, GET as getFile } from "@/app/api/attachments/[id]/route";
+import { PUT as putChecklist } from "@/app/api/appointments/[id]/checklist/route";
+import { MAX_UPLOAD_BYTES } from "@/server/storage";
 import { hashPassword } from "@/server/auth/password";
 import { appointmentPayload, makeUser, prisma, resetDb, seedStatuses } from "../helpers";
 
@@ -219,5 +226,61 @@ describe("authorization through the API", () => {
       noParams,
     );
     expect(created.status).toBe(201);
+  });
+});
+
+describe("visit photos through the API", () => {
+  let dir: string;
+  beforeAll(async () => {
+    dir = await mkdtemp(path.join(os.tmpdir(), "ims-api-uploads-"));
+    process.env.UPLOAD_DIR = dir;
+  });
+  afterAll(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  const JPEG = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, 1, 2, 3]);
+  function upload(id: string, kind: string, body: BodyInit, cookie: string, headers: Record<string, string> = {}) {
+    return uploadFile(
+      new Request(`${BASE}/api/appointments/${id}/attachments?kind=${kind}`, { method: "POST", headers: { host: "localhost:3000", cookie, "content-type": "image/jpeg", ...headers }, body }),
+      idParams(id),
+    );
+  }
+
+  it("uploads raw image bytes, serves them only to allowed readers and refuses oversized or cross-site uploads", async () => {
+    const salesCookie = await signIn("sales@test.local");
+    const appt = (await (await createAppt(req("/api/appointments", { method: "POST", cookie: salesCookie, body: appointmentPayload({ technicianIds: [tech.id], visitType: "INSTALLATION" }) }), noParams)).json()).appointment;
+    const cookie = await signIn("tech@test.local");
+
+    const res = await upload(appt.id, "AFTER_PHOTO", JPEG, cookie);
+    expect(res.status).toBe(200);
+    const { attachment } = await res.json();
+    expect(attachment).toMatchObject({ kind: "AFTER_PHOTO", url: `/api/attachments/${attachment.id}`, canDelete: true });
+
+    const file = await getFile(req(attachment.url, { cookie }), idParams(attachment.id));
+    expect(file.status).toBe(200);
+    expect(file.headers.get("content-type")).toBe("image/jpeg");
+    expect(file.headers.get("cache-control")).toBe("private, max-age=31536000, immutable");
+    expect(new Uint8Array(await file.arrayBuffer())).toEqual(JPEG);
+    const otherCookie = await signIn("tech2@test.local");
+    expect((await getFile(req(attachment.url, { cookie: otherCookie }), idParams(attachment.id))).status).toBe(404);
+    expect((await getFile(req(attachment.url), idParams(attachment.id))).status).toBe(401);
+
+    const list = await (await listFiles(req(`/api/appointments/${appt.id}/attachments`, { cookie }), idParams(appt.id))).json();
+    expect(list.items).toHaveLength(1);
+
+    const tooBig = await upload(appt.id, "AFTER_PHOTO", JPEG, cookie, { "content-length": String(MAX_UPLOAD_BYTES + 1) });
+    expect(tooBig.status).toBe(422);
+    const crossSite = await upload(appt.id, "AFTER_PHOTO", JPEG, cookie, { origin: "https://evil.example" });
+    expect(crossSite.status).toBe(403);
+    const svg = await upload(appt.id, "AFTER_PHOTO", new TextEncoder().encode("<svg/>"), cookie, { "content-type": "image/svg+xml" });
+    expect(svg.status).toBe(422);
+
+    const checklist = await putChecklist(req(`/api/appointments/${appt.id}/checklist`, { method: "PUT", cookie, body: { items: ["lock.door"] } }), idParams(appt.id));
+    expect(await checklist.json()).toEqual({ items: ["lock.door"] });
+
+    expect((await removeFile(req(attachment.url, { method: "DELETE", cookie: otherCookie }), idParams(attachment.id))).status).toBe(404);
+    expect((await removeFile(req(attachment.url, { method: "DELETE", cookie }), idParams(attachment.id))).status).toBe(200);
+    expect((await getFile(req(attachment.url, { cookie }), idParams(attachment.id))).status).toBe(404);
   });
 });
