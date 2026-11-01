@@ -2,6 +2,7 @@
  * WhatsApp texts for the day plan (Aura: خطة اليوم). Pure functions so the browser and tests share
  * them. Nothing is sent automatically: the links open WhatsApp with the text filled in.
  */
+import type { ProductCategory } from "@prisma/client";
 import type { T } from "@/i18n/translator";
 import { money } from "./constants";
 
@@ -54,11 +55,22 @@ export function technicianMessage(t: T, name: string, dayLabel: string, visits: 
   return lines.join("\n");
 }
 
-export function customerReminder(t: T, customerName: string, dayLabel: string, time: string, what: string, company: string): string {
+/** What the customer should prepare, as in Aura's "prepare the site" message (prepText). */
+function preparation(t: T, category: ProductCategory | null | undefined): string[] {
+  if (category === "SMART_HOME") {
+    return [t("dayPlanText.prepIntro"), t("dayPlanText.prepSmartPower"), t("dayPlanText.prepSmartInternet"), t("dayPlanText.prepSmartWiring"), t("dayPlanText.prepSmartPhone")];
+  }
+  if (category === "SMART_LOCK") {
+    return [t("dayPlanText.prepIntro"), t("dayPlanText.prepLockDoor"), t("dayPlanText.prepLockPhone"), t("dayPlanText.prepLockAdult")];
+  }
+  return [t("dayPlanText.siteReady")];
+}
+
+export function customerReminder(t: T, customerName: string, dayLabel: string, time: string, what: string, company: string, category?: ProductCategory | null): string {
   return [
     t("dayPlanText.hello", { name: customerName }),
     t("dayPlanText.reminder", { company, what: t.locale === "en" ? what.toLowerCase() : what, day: dayLabel, time }),
-    t("dayPlanText.siteReady"),
+    ...preparation(t, category),
     t("dayPlanText.reply"),
   ].join("\n");
 }

@@ -138,7 +138,7 @@ export default async function InventoryPage({ searchParams }: { searchParams: Pr
                             {r.counts[s]}
                           </Link>
                         ) : (
-                          <span className="text-fg-subtle">0</span>
+                          <span className="text-fg-subtle">{0}</span>
                         )}
                       </td>
                     ))}

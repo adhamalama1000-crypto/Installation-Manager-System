@@ -56,4 +56,26 @@ describe("messages", () => {
     expect(text).toContain("💰 المطلوب تحصيله: 3,000 ج.م");
     expect(customerReminder(ar, "أحمد", "السبت 14 مارس", "10:00", "تركيب", "أورا")).toContain("معاك أورا");
   });
+
+  it("asks the customer to prepare the site for the product, as Aura's prepText did", () => {
+    const lock = customerReminder(en, "Ahmed", "Saturday 14 March", "10:00", "Installation", "Aura", "SMART_LOCK").split("\n");
+    expect(lock).toEqual([
+      "Hello Ahmed 👋",
+      "This is Aura. A reminder of your installation visit on Saturday 14 March at 10:00.",
+      "So the technician can finish in one visit, please have the following ready:",
+      "🚪 The door ready, with no carpentry work left on it",
+      "📱 Your phone with you so we can set up the lock's app",
+      "🔑 An adult at the location at the visit time",
+      "If you need another time, just reply to this message. Thank you 🙏",
+    ]);
+    const smart = customerReminder(ar, "أحمد", "السبت 14 مارس", "10:00", "تركيب", "أورا", "SMART_HOME");
+    expect(smart).toContain("عشان الفني يخلص في زيارة واحدة، لو سمحت جهّز الآتي:");
+    expect(smart).toContain("📶 الإنترنت (الراوتر) شغال وباسورد الواي فاي جاهز");
+    expect(smart).toContain("🔧 التأسيس / النجارة خلصانة");
+    expect(smart).not.toContain("🚪");
+    // Other products keep the general line.
+    const cctv = customerReminder(en, "Ahmed", "Saturday 14 March", "10:00", "Installation", "Aura", "CCTV");
+    expect(cctv).toContain("Please make sure someone is at the location and the site is ready");
+    expect(cctv).not.toContain("So the technician can finish in one visit");
+  });
 });

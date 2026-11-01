@@ -28,7 +28,7 @@ test("opens in Arabic, right to left, and switches to English and back", async (
   const width = page.viewportSize()!.width;
   expect(box && box.x + box.width).toBeGreaterThan(width - 5);
 
-  // Switch to English: the page reloads left to right and the choice is remembered.
+  // Switch to English: the page turns left to right in place and the choice is remembered.
   await page.getByRole("radio", { name: "English" }).first().click();
   await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
   await expect(page.getByRole("link", { name: "Dashboard" }).first()).toBeVisible();
@@ -38,6 +38,27 @@ test("opens in Arabic, right to left, and switches to English and back", async (
   await page.getByRole("radio", { name: "العربية" }).first().click();
   await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
   await expect(page.getByRole("heading", { name: "التقويم" })).toBeVisible();
+});
+
+test("switching language keeps what is typed in an open form", async ({ page }) => {
+  await loginArabic(page, "admin@example.com");
+  await page.goto("/appointments/new");
+  await page.getByLabel("اسم العميل").fill("Typed before switching");
+  await page.getByLabel("وصف التركيب").fill("وصف مكتوب قبل التبديل");
+
+  await page.getByRole("radio", { name: "English" }).first().click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "ltr");
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  // The labels changed language; what was typed is still there.
+  await expect(page.getByLabel("Customer full name")).toHaveValue("Typed before switching");
+  await expect(page.getByLabel("Installation description")).toHaveValue("وصف مكتوب قبل التبديل");
+
+  // The choice survives a reload, then switch back so other tests start in Arabic.
+  await page.reload();
+  await expect(page.locator("html")).toHaveAttribute("lang", "en");
+  await page.getByRole("radio", { name: "العربية" }).first().click();
+  await expect(page.locator("html")).toHaveAttribute("dir", "rtl");
+  await expect(page.getByLabel("اسم العميل")).toBeVisible();
 });
 
 test("Arabic pages show Arabic statuses, dates and validation messages", async ({ page }) => {

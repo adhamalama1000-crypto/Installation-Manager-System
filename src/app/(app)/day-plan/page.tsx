@@ -109,7 +109,7 @@ export default async function DayPlanPage({ searchParams }: { searchParams: Prom
                 </p>
               </div>
               <a href={tech.link} target="_blank" rel="noopener noreferrer" className={buttonClasses("primary", "sm")}>
-                <MessageCircle className="h-3.5 w-3.5" /> WhatsApp
+                <MessageCircle className="h-3.5 w-3.5" /> {t("common.whatsapp")}
               </a>
               <CopyButton text={tech.message} />
             </div>

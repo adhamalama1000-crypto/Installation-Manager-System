@@ -49,7 +49,7 @@ export function SalesColors({ people }: { people: Person[] }) {
               {p.role === "ADMIN" && <span className="text-xs font-normal text-fg-subtle"> ({t("enums.role.ADMIN")})</span>}
             </span>
             <span className="rounded-md px-2 py-1 text-xs font-semibold" style={{ backgroundColor: c, color: readableTextColor(c) }}>
-              10:00 {t("settings.preview")}
+              {"10:00"} {t("settings.preview")}
             </span>
             <Button size="sm" variant={changed ? "primary" : "outline"} disabled={!changed} loading={saving === p.id} onClick={() => save(p)}>
               {t("common.save")}

@@ -75,7 +75,7 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
               <ChevronRight className="h-4 w-4 rtl:rotate-180" />
             </Link>
             <a href={`/api/finance/export?month=${month}`} className={buttonClasses("primary", "sm")}>
-              <Download className="h-3.5 w-3.5" /> CSV
+              <Download className="h-3.5 w-3.5" /> {"CSV"}
             </a>
           </>
         }

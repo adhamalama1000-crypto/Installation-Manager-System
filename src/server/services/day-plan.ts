@@ -84,7 +84,7 @@ export async function dayPlan(user: CurrentUser, date: string) {
       confirmation: t.dyn(`enums.confirmation.${a.customerConfirmation}`),
       confirmed: a.customerConfirmation === "CONFIRMED",
       reminderLink: a.customer.phone
-        ? whatsappLink(a.customer.phone, customerReminder(t, a.customer.name, dayLabel, fmt(a.startsAt, tz, "HH:mm"), t.dyn(`enums.visitType.${a.visitType ?? "INSTALLATION"}`), company))
+        ? whatsappLink(a.customer.phone, customerReminder(t, a.customer.name, dayLabel, fmt(a.startsAt, tz, "HH:mm"), t.dyn(`enums.visitType.${a.visitType ?? "INSTALLATION"}`), company, a.productCategory))
         : null,
     };
   };
