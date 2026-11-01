@@ -2,6 +2,8 @@
 
 This page is updated after each completed phase. The feature-by-feature comparison with Aura is in [FEATURE_MIGRATION_MATRIX.md](FEATURE_MIGRATION_MATRIX.md).
 
+Merge order for what is still open: **#10 → #7 → #8 → #9** (each pull request targets `main`; its diff also shows the lower phases until they are merged).
+
 A phase is marked **done** only when its code is committed, and lint, typecheck, unit and integration tests, the production build and the browser tests all passed on that commit. A phase is **merged** only after the owner approves and merges its pull request.
 
 ## Delivered
@@ -16,11 +18,11 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 
 | Phase | Scope | Branch | State |
 |---|---|---|---|
-| A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Done, #5 open (against `main`) |
-| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Done, #6 open (stacked on #5) |
-| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Done, #7 open (stacked on #6) |
-| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Done, #8 open (stacked on #7) |
-| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Done, pull request open (stacked on #8) |
+| A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Merged (#5) |
+| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Approved in #6 (merged into the phase A branch); #10 lands it on `main` |
+| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Done, #7 open (against `main`) |
+| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Done, #8 open (against `main`) |
+| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Done, #9 open (against `main`) |
 
 ## Check results by phase
 
