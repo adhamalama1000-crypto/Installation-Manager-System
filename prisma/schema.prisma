@@ -107,6 +107,14 @@ enum AttachmentKind {
 
 /// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
 /// reports so admins can rename or add statuses without breaking the statistics.
+/// Aura's complaint states: جديدة / اتوزعت / اتحلت / مقفولة.
+enum ComplaintStatus {
+  NEW
+  ASSIGNED
+  RESOLVED
+  CLOSED
+}
+
 enum StatusKind {
   SCHEDULED
   IN_PROGRESS
@@ -162,6 +170,13 @@ model User {
   settingsUpdated       Setting[]
   attachmentsUploaded   Attachment[]            @relation("AttachmentUploader")
   attachmentsDeleted    Attachment[]            @relation("AttachmentDeleter")
+  ratedAppointments     Appointment[]           @relation("AppointmentRater")
+  gradedAppointments    Appointment[]           @relation("AppointmentGrader")
+  complaintsOpened      Complaint[]             @relation("ComplaintCreator")
+  complaintsAssigned    Complaint[]             @relation("ComplaintAssignee")
+  complaintsResolved    Complaint[]             @relation("ComplaintResolver")
+  complaintsClosed      Complaint[]             @relation("ComplaintCloser")
+  maintenanceCalls      MaintenanceCall[]       @relation("MaintenanceCaller")
 
   @@index([role, isActive])
   @@map("users")
@@ -342,6 +357,21 @@ model Appointment {
   attachments       Attachment[]
   stockItems        StockItem[]
   stockMovements    StockMovement[]
+
+  /// Customer satisfaction (1-5 stars) from the follow-up call after the visit, with their words.
+  customerRating   Int?              @db.SmallInt
+  ratingNote       String?
+  ratedAt          DateTime?         @db.Timestamptz(3)
+  ratedById        String?
+  ratedBy          User?             @relation("AppointmentRater", fields: [ratedById], references: [id], onDelete: Restrict)
+  /// Quality grade (1-5) given by the head of installations after reviewing the work.
+  qualityGrade     Int?              @db.SmallInt
+  gradedAt         DateTime?         @db.Timestamptz(3)
+  gradedById       String?
+  gradedBy         User?             @relation("AppointmentGrader", fields: [gradedById], references: [id], onDelete: Restrict)
+  maintenanceCalls MaintenanceCall[]
+  complaints       Complaint[]       @relation("ComplaintAppointment")
+  complaintVisits  Complaint[]       @relation("ComplaintVisit")
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -589,4 +619,57 @@ model Attachment {
 
   @@index([appointmentId, kind, createdAt])
   @@map("attachments")
+}
+
+/// A customer complaint about a visit (Aura DB_Complaints). Never deleted; closed and reopened.
+model Complaint {
+  id            String          @id @default(cuid())
+  /// Aura's number: C + year and month + sequence in that month, e.g. C2610-007.
+  code          String          @unique
+  appointmentId String
+  appointment   Appointment     @relation("ComplaintAppointment", fields: [appointmentId], references: [id], onDelete: Restrict)
+  description   String
+  status        ComplaintStatus @default(NEW)
+  /// Latest warranty end of the items installed at the visit when the complaint was opened (null: none recorded).
+  warrantyUntil DateTime?       @db.Date
+  assignedToId  String?
+  assignedTo    User?           @relation("ComplaintAssignee", fields: [assignedToId], references: [id], onDelete: Restrict)
+  /// The maintenance visit booked for this complaint; finishing it resolves the complaint.
+  visitId       String?
+  visit         Appointment?    @relation("ComplaintVisit", fields: [visitId], references: [id], onDelete: Restrict)
+  resolution    String?
+  resolvedAt    DateTime?       @db.Timestamptz(3)
+  resolvedById  String?
+  resolvedBy    User?           @relation("ComplaintResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  closedAt      DateTime?       @db.Timestamptz(3)
+  closedById    String?
+  closedBy      User?           @relation("ComplaintCloser", fields: [closedById], references: [id], onDelete: Restrict)
+  createdById   String
+  createdBy     User            @relation("ComplaintCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
+  /// Optimistic-locking counter; incremented on every change.
+  version       Int             @default(1)
+
+  @@index([status, createdAt])
+  @@index([appointmentId])
+  @@index([assignedToId, status])
+  @@index([visitId])
+  @@map("complaints")
+}
+
+/// A maintenance reminder call made 6 or 12 months after an installation (Aura maintNote).
+model MaintenanceCall {
+  id            String      @id @default(cuid())
+  appointmentId String
+  appointment   Appointment @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  /// 6 or 12 (months after the installation).
+  milestone     Int         @db.SmallInt
+  note          String?
+  calledById    String
+  calledBy      User        @relation("MaintenanceCaller", fields: [calledById], references: [id], onDelete: Restrict)
+  createdAt     DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@unique([appointmentId, milestone])
+  @@map("maintenance_calls")
 }

@@ -283,6 +283,35 @@ export const leaveDecisionSchema = z.object({
   note: optionalText(500),
 });
 
+/** A customer complaint about a visit (Aura: شكوى). */
+export const complaintOpenSchema = z.object({ description: requiredText("complaints.description", 2000) });
+
+const complaintVersion = z.number({ error: msg("validation.invalid") }).int().positive();
+/** What can happen to a complaint: assign, link the maintenance visit, resolve, close, reopen. */
+export const complaintActionSchema = z.discriminatedUnion(
+  "action",
+  [
+    z.object({ action: z.literal("assign"), technicianId: z.string().max(64).nullable(), version: complaintVersion }),
+    z.object({ action: z.literal("linkVisit"), visitId: z.string().max(64).nullable(), version: complaintVersion }),
+    z.object({ action: z.literal("resolve"), resolution: requiredText("complaints.resolution", 2000), version: complaintVersion }),
+    z.object({ action: z.literal("close"), version: complaintVersion }),
+    z.object({ action: z.literal("reopen"), version: complaintVersion }),
+  ],
+  { error: msg("validation.invalid") },
+);
+export type ComplaintAction = z.infer<typeof complaintActionSchema>;
+
+const stars = z.number({ error: msg("validation.stars") }).int(msg("validation.stars")).min(1, msg("validation.stars")).max(5, msg("validation.stars"));
+/** The customer's satisfaction after the visit (null clears it). */
+export const ratingSchema = z.object({ rating: stars.nullable(), note: optionalText(500) });
+/** The head of installations' quality grade (null clears it). */
+export const gradeSchema = z.object({ grade: stars.nullable() });
+/** A maintenance reminder call 6 or 12 months after an installation. */
+export const maintenanceCallSchema = z.object({
+  milestone: z.union([z.literal(6), z.literal(12)], { error: msg("validation.invalid") }),
+  note: optionalText(500),
+});
+
 export const passwordSchema = z
   .string()
   .min(10, msg("validation.passwordMin"))

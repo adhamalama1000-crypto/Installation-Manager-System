@@ -8,7 +8,7 @@ The legacy source was re-audited function by function on 2026-10-31:
 - **`src/Legacy.gs`:** real customer orders from December and January. These are not imported.
 - **`اقرأني_التشغيل.md`:** the setup notes.
 
-The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phase A are implemented on that branch and waiting for review.
+The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phases A and B are implemented on their branches and waiting for review.
 
 ## How Aura works
 
@@ -116,19 +116,19 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 |---|---|:-:|:-:|
 | Serial stock: goods in, custody, installed, returned, faulty (`api_stock*`) | Inventory page with an append-only history | ✅ | — |
 | Warranty months per model and warranty end per order (`warrantyFor_`) | Per model; an end date for each installed serial | ✅ | — |
-| Complaints: number `CYYMM-NNN`, warranty status, Sales or a manager opens one, a manager assigns it, the technician resolves it, Sales or a manager closes or reopens it, auto-resolved when the linked maintenance visit is done (`api_complaint*`, `resolveComplaints_`) | — | ✗ | B |
-| Customer satisfaction rating 1–5 with a note, plus a "call to rate" list for visits done 3–14 days ago (`rating`, `ratingNote`, `api_dashboard`) | — | ✗ | B |
-| Head of installations' quality grade, plus a "review quality" list for visits done in the last 30 days with photos (`qGrade`) | — | ✗ | B |
-| Maintenance reminders 6 and 12 months after an installation, from 7 days before to 21 days after, marked when called (`maintDue_`, `maintNote`) | — | ✗ | B |
+| Complaints: number `CYYMM-NNN`, warranty status, Sales or a manager opens one, a manager assigns it, the technician resolves it, Sales or a manager closes or reopens it, auto-resolved when the linked maintenance visit is done (`api_complaint*`, `resolveComplaints_`) | Complaints page and a card on the visit; same numbering and workflow; head of installations = Admin; resolved by finishing the linked visit; notifications to Admins, the assignee and the creator; never deleted | ✅ | B |
+| Customer satisfaction rating 1–5 with a note, plus a "call to rate" list for visits done 3–14 days ago (`rating`, `ratingNote`, `api_dashboard`) | Rating on the visit and in **After-sales → Satisfaction calls** with the same window | ✅ | B |
+| Head of installations' quality grade, plus a "review quality" list for visits done in the last 30 days with photos (`qGrade`) | Grade on the visit (Admin) and in **After-sales → Quality reviews** | ✅ | B |
+| Maintenance reminders 6 and 12 months after an installation, from 7 days before to 21 days after, marked when called (`maintDue_`, `maintNote`) | **After-sales → Maintenance calls** with the same windows; each call recorded once with a note | ✅ | B |
 
 ## 6. Reports and dashboard
 
 | Aura feature (function) | This app today | Status | Phase |
 |---|---|:-:|:-:|
 | Dashboard counters: today, tomorrow, week, conflicts, missing, overdue, no engineer, by Sales | Dashboard counters and "Needs attention" | ✅ | — |
-| Dashboard: complaints open, satisfaction calls, quality reviews, maintenance due | — | ✗ | B |
+| Dashboard: complaints open, satisfaction calls, quality reviews, maintenance due | After-sales counters on the dashboard | ✅ | B |
 | Dashboard: pending expenses, pending leave requests, cash held | Leave and cash: yes; expenses: no | ◐ | D |
-| Monthly stats by Sales, engineer, type and area; ratings; visit durations from check-ins (`api_stats`) | Reports by status, Sales, category, technician, day | ◐ | B (ratings), C (durations), E (area) |
+| Monthly stats by Sales, engineer, type and area; ratings; visit durations from check-ins (`api_stats`) | Reports by status, Sales, category, technician, day; ratings and grades are stored per visit | ◐ | C (ratings, grades and durations per technician, with points), E (area) |
 | Month export (`api_export`) | CSV exports | ✅ | — |
 
 ## 7. Platform and administration
