@@ -1,7 +1,8 @@
 /**
  * Development seed data. Creates statuses, demo users (Admin, Sales, Technicians, Accountant,
- * Store keeper, Viewer), customers and ~2 months of non-overlapping appointments around today, with
- * prices, deposits and collections, plus serial-numbered stock (some installed with warranty).
+ * Store keeper, Warehouse manager, Viewer), customers and ~2 months of non-overlapping appointments around today, with
+ * prices, deposits and collections, plus serial-numbered stock (some installed with warranty) and a
+ * small ERP inventory (products, the main store, Karim's van, an opening balance and a transfer).
  *
  *   npm run db:seed                 # only runs on an empty database
  *   SEED_FORCE=1 npm run db:seed    # wipes existing data first (never in production)
@@ -45,6 +46,7 @@ const USERS: { name: string; email: string; role: Role; color?: string; isActive
   { name: "Hany Saeed", email: "hany.tech@example.com", role: "TECHNICIAN", isActive: false },
   { name: "Nadia Fawzy", email: "nadia.accounts@example.com", role: "ACCOUNTANT", phone: "+20 100 444 5566" },
   { name: "Sameh Store", email: "store@example.com", role: "STORE", phone: "+20 100 555 6677" },
+  { name: "Wael Warehouse", email: "warehouse@example.com", role: "WAREHOUSE_MANAGER", phone: "+20 100 777 8899" },
   { name: "Laila Viewer", email: "viewer@example.com", role: "VIEWER", viewerPermissions: ["appointments.view", "location.view", "reports.view"] },
   { name: "Tarek Driver", email: "driver@example.com", role: "DRIVER", phone: "+20 100 666 7788" },
 ];
@@ -100,7 +102,7 @@ async function main() {
     console.log("SEED_FORCE=1: wiping existing data...");
     // TRUNCATE does not fire the row-level trigger that protects audit_logs.
     await prisma.$executeRawUnsafe(
-      `TRUNCATE TABLE notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
+      `TRUNCATE TABLE document_sequences, notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
         password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
     );
   }
@@ -341,8 +343,91 @@ async function main() {
   }
   for (const name of [...modelIds.keys()]) await addItem(name, { status: "IN_STORE" });
 
+  await seedInventory(users.get("warehouse@example.com")!.id, users.get("karim.tech@example.com")!.id);
+
   console.log(`Seeded ${USERS.length} users, ${customers.length} customers and ${created} appointments.`);
   console.log(`Demo login: admin@example.com / ${password} (see README for all accounts)`);
+}
+
+/**
+ * ERP inventory demo: catalogue, the main store with two bins, Karim's van (created here only
+ * because this is demo data; real vehicles are added by hand), a posted opening balance and a
+ * posted transfer to the van. Rows are written the way the posting engine writes them (draft
+ * first, then posted; balances, movements and serial locations together).
+ */
+async function seedInventory(managerId: string, karimId: string) {
+  const year = Number(dayKey(0).slice(0, 4));
+  const docDate = new Date(`${dayKey(-7)}T00:00:00.000Z`);
+  const cat = async (nameEn: string, nameAr: string, parentId: string | null = null) => (await prisma.catalogCategory.create({ data: { nameEn, nameAr, parentId } })).id;
+  const locks = await cat("Smart locks", "أقفال ذكية");
+  const fingerprint = await cat("Fingerprint locks", "أقفال بصمة", locks);
+  const smartHome = await cat("Smart home", "سمارت هوم");
+  const cctv = await cat("CCTV", "كاميرات مراقبة");
+  const cables = await cat("Cables & accessories", "كابلات وإكسسوارات");
+  const brand = async (name: string) => (await prisma.brand.create({ data: { name } })).id;
+  const [yale, aqara, hik] = [await brand("Yale"), await brand("Aqara"), await brand("Hikvision")];
+  const products = [
+    { sku: "YALE-L2", nameEn: "Yale Linus L2 smart lock", nameAr: "قفل ييل لينوس L2", categoryId: fingerprint, brandId: yale, model: "Linus L2", unitId: "unit-pcs", purchaseCost: 6500, sellingPrice: 8900, minStock: 3, warrantyMonths: 24, trackSerials: true, qty: 4 },
+    { sku: "AQ-HUB-M3", nameEn: "Aqara Hub M3", nameAr: "هاب أكارا M3", categoryId: smartHome, brandId: aqara, model: "Hub M3", unitId: "unit-pcs", purchaseCost: 3200, sellingPrice: 4500, minStock: 2, warrantyMonths: 12, trackSerials: false, qty: 6 },
+    { sku: "HIK-CAM-4", nameEn: "Hikvision ColorVu camera", nameAr: "كاميرا هيكفيجن كولورفيو", categoryId: cctv, brandId: hik, model: "DS-2CD2047G2", unitId: "unit-pcs", purchaseCost: 1800, sellingPrice: 2600, minStock: 8, warrantyMonths: 12, trackSerials: false, qty: 5 },
+    { sku: "CBL-CAT6", nameEn: "Cat6 network cable", nameAr: "كابل شبكة Cat6", categoryId: cables, brandId: null, model: null, unitId: "unit-m", purchaseCost: 12, sellingPrice: 20, minStock: 300, warrantyMonths: 0, trackSerials: false, qty: 500 },
+    { sku: "SCR-BOX-100", nameEn: "Wall plugs and screws (box of 100)", nameAr: "علبة خوابير ومسامير (100)", categoryId: cables, brandId: null, model: null, unitId: "unit-box", purchaseCost: 85, sellingPrice: 140, minStock: 5, warrantyMonths: 0, trackSerials: false, qty: 12 },
+  ];
+  const created: { id: string; sku: string; cost: number; qty: number; serials: string[] }[] = [];
+  for (const { qty, ...p } of products) {
+    const row = await prisma.product.create({ data: { ...p, averageCost: p.purchaseCost, createdById: managerId } });
+    created.push({ id: row.id, sku: p.sku, cost: p.purchaseCost, qty, serials: p.trackSerials ? Array.from({ length: qty }, (_, i) => `YL2-${year}-${String(i + 1).padStart(4, "0")}`) : [] });
+  }
+  const main = await prisma.warehouse.create({ data: { code: "MAIN", nameEn: "Main store", nameAr: "المخزن الرئيسي", kind: "WAREHOUSE", address: "Head office, New Cairo", createdById: managerId } });
+  const binA = await prisma.warehouseBin.create({ data: { warehouseId: main.id, code: "A-01", name: "Locks shelf" } });
+  await prisma.warehouseBin.create({ data: { warehouseId: main.id, code: "A-02", name: "Cables" } });
+  const van = await prisma.warehouse.create({ data: { code: "VAN-KARIM", nameEn: "Karim's van", nameAr: "عربية كريم", kind: "VEHICLE", technicianId: karimId, createdById: managerId } });
+
+  const balance = new Map<string, number>();
+  const move = async (docId: string, lineId: string, type: "OPENING_BALANCE" | "TRANSFER_OUT" | "TRANSFER_IN", p: (typeof created)[number], warehouseId: string, binId: string | null, qty: number, serials: string[], from: string | null, to: string | null) => {
+    const key = `${p.id}|${warehouseId}|${binId ?? ""}`;
+    const after = (balance.get(key) ?? 0) + qty;
+    balance.set(key, after);
+    await prisma.stockBalance.upsert({
+      where: { productId_warehouseId_binKey: { productId: p.id, warehouseId, binKey: binId ?? "" } },
+      create: { productId: p.id, warehouseId, binId, binKey: binId ?? "", quantity: after },
+      update: { quantity: after },
+    });
+    const m = await prisma.inventoryMovement.create({
+      data: { documentId: docId, lineId, type, productId: p.id, warehouseId, binId, quantity: qty, fromWarehouseId: from, toWarehouseId: to, unitCost: p.cost, serials, balanceAfter: after, documentDate: docDate, createdById: managerId },
+    });
+    for (const serial of serials) {
+      await prisma.productSerial.upsert({
+        where: { productId_serial: { productId: p.id, serial } },
+        create: { productId: p.id, serial, warehouseId: qty > 0 ? warehouseId : null, binId: qty > 0 ? binId : null, lastMovementId: m.id },
+        update: { warehouseId: qty > 0 ? warehouseId : null, binId: qty > 0 ? binId : null, lastMovementId: m.id },
+      });
+    }
+  };
+
+  // Opening balance of the main store (the lock on its shelf, the rest without a bin).
+  const opening = await prisma.stockDocument.create({ data: { number: `OB-${year}-000001`, type: "OPENING", toWarehouseId: main.id, documentDate: docDate, note: "Opening balance (demo data)", createdById: managerId } });
+  for (const [i, p] of created.entries()) {
+    const binId = p.serials.length ? binA.id : null;
+    const line = await prisma.stockDocumentLine.create({ data: { documentId: opening.id, lineNo: i + 1, productId: p.id, quantity: p.qty, unitCost: p.cost, toBinId: binId, serials: p.serials } });
+    await move(opening.id, line.id, "OPENING_BALANCE", p, main.id, binId, p.qty, p.serials, null, main.id);
+  }
+  await prisma.stockDocument.update({ where: { id: opening.id }, data: { status: "POSTED", postedAt: new Date(), postedById: managerId } });
+
+  // Karim takes a lock, a hub and cable in his van.
+  const transfer = await prisma.stockDocument.create({ data: { number: `TRF-${year}-000001`, type: "TRANSFER", fromWarehouseId: main.id, toWarehouseId: van.id, documentDate: docDate, reference: "Weekly van load", createdById: managerId } });
+  const load: [string, number][] = [["YALE-L2", 1], ["AQ-HUB-M3", 2], ["CBL-CAT6", 100]];
+  for (const [i, [sku, qty]] of load.entries()) {
+    const p = created.find((x) => x.sku === sku)!;
+    const serials = p.serials.slice(0, p.serials.length ? qty : 0);
+    const fromBin = p.serials.length ? binA.id : null;
+    const line = await prisma.stockDocumentLine.create({ data: { documentId: transfer.id, lineNo: i + 1, productId: p.id, quantity: qty, fromBinId: fromBin, serials } });
+    await move(transfer.id, line.id, "TRANSFER_OUT", p, main.id, fromBin, -qty, serials, main.id, van.id);
+    await move(transfer.id, line.id, "TRANSFER_IN", p, van.id, null, qty, serials, main.id, van.id);
+  }
+  await prisma.stockDocument.update({ where: { id: transfer.id }, data: { status: "POSTED", postedAt: new Date(), postedById: managerId } });
+  // Later documents continue the numbering.
+  await prisma.documentSequence.createMany({ data: [{ key: `OB-${year}`, lastNumber: 1 }, { key: `TRF-${year}`, lastNumber: 1 }], skipDuplicates: true });
 }
 
 main()

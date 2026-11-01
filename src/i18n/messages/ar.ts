@@ -1877,6 +1877,7 @@ export const ar: Messages = {
     saved: "تم حفظ الصنف",
     fixedAfterMovement: "لا يتغير بعد أول حركة مخزون.",
     serialsInStock: { zero: "لا سيريالات في المخزون", one: "سيريال واحد في المخزون", two: "سيريالان في المخزون", few: "{count} سيريالات في المخزون", many: "{count} سيريال في المخزون", other: "{count} سيريال في المخزون" },
+    setupEmpty: "لم تتم إضافة شيء بعد.",
     savedEntry: "تم الحفظ",
     products: {
       sku: "كود الصنف",
@@ -2198,6 +2199,7 @@ export const ar: Messages = {
     explain: "التفسير",
     explainPlaceholder: "سبب الفرق",
     countedSerials: "السيريالات الموجودة (سيريال في كل سطر)",
+    noneFound: "لم يوجد شيء",
     expectedSerials: "المتوقع: {list}",
     missingSerials: "ناقص: {list}",
     extraSerials: "زيادة: {list}",

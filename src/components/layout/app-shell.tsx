@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useEffect, useState } from "react";
+import { Suspense, useEffect, useId, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
 import {
@@ -27,6 +27,12 @@ import {
   Users,
   Contact,
   X,
+  Package,
+  Warehouse,
+  ArrowLeftRight,
+  ScrollText,
+  ClipboardCheck,
+  Layers,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
@@ -45,7 +51,7 @@ type ShellUser = { name: string; email: string; role: Role; color: string | null
 function navFor(user: ShellUser, t: T) {
   const has = (p: Permission) => user.permissions.includes(p);
   const tech = user.role === "TECHNICIAN";
-  const items: { href: string; label: string; icon: typeof LayoutDashboard; show: boolean }[] = [
+  const items: { href: string; label: string; icon: typeof LayoutDashboard; show: boolean; group?: "inventory" }[] = [
     { href: "/", label: t("nav.dashboard"), icon: LayoutDashboard, show: has("appointments.view") },
     { href: "/calendar", label: tech ? t("nav.mySchedule") : t("nav.calendar"), icon: CalendarDays, show: has("appointments.view") },
     { href: "/appointments", label: tech ? t("nav.myAppointments") : t("nav.appointments"), icon: ClipboardList, show: has("appointments.view") },
@@ -64,12 +70,20 @@ function navFor(user: ShellUser, t: T) {
     { href: "/users", label: t("nav.users"), icon: Users, show: has("users.manage") },
     { href: "/audit", label: t("nav.audit"), icon: History, show: has("audit.view") },
     { href: "/settings", label: t("nav.settings"), icon: Settings, show: has("settings.manage") },
+    // ERP inventory (warehouses, ledger, documents, stocktakes).
+    { href: "/stock", label: tech ? t("nav.myVanStock") : t("nav.stock"), icon: Layers, show: has("inventory.view"), group: "inventory" },
+    { href: "/stock/documents", label: t("nav.stockDocuments"), icon: ArrowLeftRight, show: has("inventory.view"), group: "inventory" },
+    { href: "/stock/movements", label: t("nav.stockLedger"), icon: ScrollText, show: has("inventory.view"), group: "inventory" },
+    { href: "/stocktakes", label: t("nav.stocktakes"), icon: ClipboardCheck, show: has("inventory.count") || has("inventory.approve"), group: "inventory" },
+    { href: "/products", label: t("nav.products"), icon: Package, show: has("products.view"), group: "inventory" },
+    { href: "/warehouses", label: t("nav.warehouses"), icon: Warehouse, show: has("warehouses.view"), group: "inventory" },
   ];
   return items.filter((i) => i.show);
 }
 
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
+  if (href === "/stock") return pathname === "/stock";
   if (href === "/appointments") return pathname === "/appointments" || (pathname.startsWith("/appointments/") && pathname !== "/appointments/new");
   return pathname === href || pathname.startsWith(`${href}/`);
 }
@@ -90,8 +104,32 @@ async function logout() {
 function SidebarContent({ user, onNavigate }: { user: ShellUser; onNavigate?: () => void }) {
   const t = useT();
   const pathname = usePathname();
-  const nav = navFor(user, t);
+  const all = navFor(user, t);
+  const nav = all.filter((i) => !i.group);
+  const inventoryNav = all.filter((i) => i.group === "inventory");
+  const inventoryHeading = useId();
   const canCreate = user.permissions.includes("appointments.manage");
+  const navLink = ({ href, label, icon: Icon }: (typeof all)[number]) => {
+    const active = isActive(pathname, href);
+    return (
+      <li key={href}>
+        <Link
+          href={href}
+          onClick={onNavigate}
+          aria-current={active ? "page" : undefined}
+          className={cn(
+            "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
+            active ? "bg-brand-soft text-brand-text" : "text-fg-muted hover:bg-surface-muted hover:text-fg",
+          )}
+        >
+          {active && <span className="absolute inset-y-1.5 start-0 w-1 rounded-e-full bg-brand" aria-hidden />}
+          <Icon className="h-[18px] w-[18px] shrink-0" />
+          {label}
+          <PendingDot />
+        </Link>
+      </li>
+    );
+  };
   return (
     <div className="flex h-full flex-col">
       <div className="flex flex-col items-start gap-3 px-5 pb-4 pt-5">
@@ -112,29 +150,17 @@ function SidebarContent({ user, onNavigate }: { user: ShellUser; onNavigate?: ()
         </div>
       )}
       <nav className="flex-1 overflow-y-auto px-3 py-2" aria-label={t("nav.main")}>
-        <ul className="space-y-0.5">
-          {nav.map(({ href, label, icon: Icon }) => {
-            const active = isActive(pathname, href);
-            return (
-              <li key={href}>
-                <Link
-                  href={href}
-                  onClick={onNavigate}
-                  aria-current={active ? "page" : undefined}
-                  className={cn(
-                    "relative flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors",
-                    active ? "bg-brand-soft text-brand-text" : "text-fg-muted hover:bg-surface-muted hover:text-fg",
-                  )}
-                >
-                  {active && <span className="absolute inset-y-1.5 start-0 w-1 rounded-e-full bg-brand" aria-hidden />}
-                  <Icon className="h-[18px] w-[18px] shrink-0" />
-                  {label}
-                  <PendingDot />
-                </Link>
-              </li>
-            );
-          })}
-        </ul>
+        <ul className="space-y-0.5">{nav.map((item) => navLink(item))}</ul>
+        {inventoryNav.length > 0 && (
+          <>
+            <p id={inventoryHeading} className="mt-4 px-3 pb-1 text-xs font-semibold uppercase tracking-[0.12em] text-fg-subtle">
+              {t("nav.inventoryGroup")}
+            </p>
+            <ul className="space-y-0.5" aria-labelledby={inventoryHeading}>
+              {inventoryNav.map((item) => navLink(item))}
+            </ul>
+          </>
+        )}
       </nav>
       <div className="border-t border-line p-4">
         <Link href="/profile" onClick={onNavigate} className="flex items-center gap-3 rounded-lg p-1.5 hover:bg-surface-muted">

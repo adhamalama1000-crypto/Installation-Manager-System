@@ -86,6 +86,12 @@ export async function createStocktake(user: CurrentUser, raw: unknown, now = new
   }
 }
 
+/** Warehouses (of those the user may see) that have a stocktake open: they are frozen. */
+export async function frozenWarehouseIds(user: CurrentUser): Promise<Set<string>> {
+  const rows = await prisma.stocktake.findMany({ where: { status: { in: OPEN }, warehouse: warehouseScope(user) }, select: { warehouseId: true } });
+  return new Set(rows.map((r) => r.warehouseId));
+}
+
 export type StocktakeFilters = { status?: string; warehouseId?: string; page?: number };
 
 export async function listStocktakes(user: CurrentUser, f: StocktakeFilters) {

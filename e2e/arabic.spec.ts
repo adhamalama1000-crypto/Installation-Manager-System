@@ -78,7 +78,8 @@ test.describe("phone", () => {
 
   test("Arabic pages fit a phone screen without horizontal scrolling", async ({ page }) => {
     await loginArabic(page, "admin@example.com");
-    for (const path of ["/", "/calendar", "/appointments", "/appointments/new", "/customers", "/reports", "/finance", "/leaves", "/inventory", "/day-plan", "/users", "/settings", "/audit", "/profile"]) {
+    for (const path of ["/", "/calendar", "/appointments", "/appointments/new", "/customers", "/reports", "/finance", "/leaves", "/inventory", "/day-plan", "/users", "/settings", "/audit", "/profile",
+      "/products", "/products/new", "/products/setup", "/warehouses", "/stock", "/stock/documents", "/stock/documents/new?type=TRANSFER", "/stock/movements", "/stocktakes"]) {
       await page.goto(path);
       await page.waitForLoadState("networkidle");
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

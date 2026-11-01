@@ -4,6 +4,7 @@
  */
 import { z } from "zod";
 import type { AdjustDirection, InventoryMovementType, StockDocStatus, StockDocType, StockReturnKind, StocktakeStatus, WarehouseKind } from "@prisma/client";
+import { intlLocale, type Locale } from "@/i18n/config";
 import { msg } from "@/i18n/translator";
 import type { Permission } from "./permissions";
 import { isValidDateString } from "./time";
@@ -98,8 +99,11 @@ export function hasAtMostDecimals(n: number, places: number): boolean {
 }
 
 /** Quantities are shown without trailing zeros: 3, 2.5, 0.125. */
-export function formatQuantity(n: number, locale: string): string {
-  return new Intl.NumberFormat(locale === "ar" ? "ar-EG" : "en-US", { maximumFractionDigits: 3 }).format(n);
+const qtyFormats = new Map<string, Intl.NumberFormat>();
+export function formatQuantity(n: number, locale: Locale): string {
+  let f = qtyFormats.get(locale);
+  if (!f) qtyFormats.set(locale, (f = new Intl.NumberFormat(intlLocale(locale), { maximumFractionDigits: 3 })));
+  return f.format(n);
 }
 
 const required = (label: string) => msg("validation.required", { field: `@${label}` });

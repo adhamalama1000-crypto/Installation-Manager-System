@@ -1875,6 +1875,7 @@ const messages = {
     saved: "Product saved",
     fixedAfterMovement: "Fixed once stock has moved.",
     serialsInStock: { one: "{count} serial number in stock", other: "{count} serial numbers in stock" },
+    setupEmpty: "Nothing added yet.",
     savedEntry: "Saved",
     products: {
       sku: "SKU",
@@ -2196,6 +2197,7 @@ const messages = {
     explain: "Explanation",
     explainPlaceholder: "Why it differs",
     countedSerials: "Serial numbers found (one per line)",
+    noneFound: "None found",
     expectedSerials: "Expected: {list}",
     missingSerials: "Missing: {list}",
     extraSerials: "Extra: {list}",

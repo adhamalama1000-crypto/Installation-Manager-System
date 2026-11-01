@@ -32,8 +32,17 @@ type NormalLine = {
 };
 
 /** Checks a document against the catalogue and warehouses and returns its lines as stored. */
-async function validateDraft(tx: Tx, user: CurrentUser, input: StockDocInput, now: Date): Promise<NormalLine[]> {
+async function validateDraft(
+  tx: Tx,
+  user: CurrentUser,
+  input: StockDocInput,
+  now: Date,
+  previous: { lineNo: number; productId: string; unitCost: Prisma.Decimal | null }[] = [],
+): Promise<NormalLine[]> {
   const errors: Record<string, string> = {};
+  // Someone who may not see costs never received them, so their edit keeps the costs already on
+  // the draft (same line, same product) instead of clearing them.
+  const hiddenCost = new Map(canSeeCosts(user) ? [] : previous.filter((l) => l.unitCost).map((l) => [`${l.lineNo}|${l.productId}`, l.unitCost!.toNumber()]));
   const sides = docWarehouseSides(input.type, input.returnKind);
   const fromId = sides.from ? input.fromWarehouseId : null;
   const toId = sides.to ? input.toWarehouseId : null;
@@ -89,14 +98,15 @@ async function validateDraft(tx: Tx, user: CurrentUser, input: StockDocInput, no
       } else if (l.serials.length) at("serials", msg("stock.errors.noSerials"));
     }
     const takesCost = lineTakesCost(input.type, input.returnKind, l.direction);
-    if (takesCost && l.unitCost === null && (input.type === "OPENING" || input.type === "RECEIPT") && p && !p.purchaseCost) {
+    const unitCost = l.unitCost ?? hiddenCost.get(`${i + 1}|${l.productId}`) ?? null;
+    if (takesCost && unitCost === null && (input.type === "OPENING" || input.type === "RECEIPT") && p && !p.purchaseCost) {
       at("unitCost", msg("stock.errors.costRequired", { product: `${p.sku} ${p.nameEn}`, productAr: `${p.sku} ${p.nameAr}` }));
     }
     return {
       lineNo: i + 1,
       productId: l.productId,
       quantity: l.quantity,
-      unitCost: takesCost ? l.unitCost : null,
+      unitCost: takesCost ? unitCost : null,
       fromBinId,
       toBinId,
       direction: input.type === "ADJUSTMENT" ? l.direction : null,
@@ -181,7 +191,7 @@ export async function updateDocument(user: CurrentUser, id: string, raw: unknown
       const perms = docPermissions(doc.type, doc.returnKind);
       assertCan(user, perms.prepare);
       if (opts.post) assertCan(user, perms.post);
-      const lines = await validateDraft(tx, user, input, now);
+      const lines = await validateDraft(tx, user, input, now, doc.lines);
       // The type and return kind stay as they are (checked above).
       const { fromWarehouseId, toWarehouseId, documentDate, reference, counterparty, note } = headerData(input);
       const header = { fromWarehouseId, toWarehouseId, documentDate, reference, counterparty, note };
