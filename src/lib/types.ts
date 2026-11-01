@@ -207,3 +207,51 @@ export type AttachmentDTO = {
 
 /** Which kinds the reader may add to a visit. */
 export type AttachmentRights = Record<AttachmentDTO["kind"], boolean>;
+
+export type ComplaintStatusValue = "NEW" | "ASSIGNED" | "RESOLVED" | "CLOSED";
+
+/** A customer complaint about a visit, as the reader may see it. */
+export type ComplaintDTO = {
+  id: string;
+  code: string;
+  status: ComplaintStatusValue;
+  description: string;
+  resolution: string | null;
+  /** Warranty end of the visit's installed items when the complaint was opened (YYYY-MM-DD). */
+  warrantyUntil: string | null;
+  appointment: {
+    id: string;
+    code: string;
+    startsAt: string;
+    customerName: string;
+    /** Only with the customer-contact permission. */
+    customerPhone?: string;
+    area: string | null;
+    technicians: { id: string; name: string }[];
+    /** The reader may open the visit's page. */
+    canOpen: boolean;
+  };
+  assignedTo: { id: string; name: string } | null;
+  visit: { id: string; code: string; startsAt: string; statusName: string; statusColor: string; canOpen: boolean } | null;
+  createdBy: { id: string; name: string };
+  createdAt: string;
+  resolvedBy: { id: string; name: string } | null;
+  resolvedAt: string | null;
+  closedBy: { id: string; name: string } | null;
+  closedAt: string | null;
+  version: number;
+  rights: { assign: boolean; linkVisit: boolean; resolve: boolean; close: boolean; reopen: boolean };
+};
+
+/** The customer's rating, the quality grade and maintenance reminder calls of a visit. */
+export type FeedbackDTO = {
+  rating: number | null;
+  ratingNote: string | null;
+  ratedBy: { id: string; name: string } | null;
+  ratedAt: string | null;
+  grade: number | null;
+  gradedBy: { id: string; name: string } | null;
+  gradedAt: string | null;
+  calls: { milestone: 6 | 12; note: string | null; calledBy: { id: string; name: string }; createdAt: string }[];
+  rights: { rate: boolean; grade: boolean; call: boolean };
+};

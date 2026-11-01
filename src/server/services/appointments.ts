@@ -35,6 +35,7 @@ import {
   ValidationError,
 } from "../errors";
 import { diffValues, recordAudit } from "./audit";
+import { resolveComplaintsForVisit } from "./complaints";
 import { localized, notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
 import { assertTechniciansNotOnLeave } from "./leaves";
@@ -941,6 +942,7 @@ async function applyStatusChange(
         data: { statusId: status.id, updatedById: user.id, version: { increment: 1 } },
       });
       await tx.appointmentTechnician.updateMany({ where: { appointmentId: id }, data: { blocksSchedule: status.blocksSchedule } });
+      if (status.kind === "COMPLETED" && existing.status.kind !== "COMPLETED") await resolveComplaintsForVisit(tx, { id, visitReport: existing.visitReport }, user.id);
       const code = appointmentCode(existing.number);
       const cancelled = status.kind === "CANCELLED";
       await recordAudit(tx, {
@@ -1088,6 +1090,8 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
         },
       });
       await collection?.syncCustody();
+      // A complaint waiting on this visit as its maintenance visit is resolved by finishing it.
+      if (status.kind === "COMPLETED" && existing.status.kind !== "COMPLETED") await resolveComplaintsForVisit(tx, { id, visitReport: report }, user.id);
       if (status.blocksSchedule !== existing.status.blocksSchedule) {
         await tx.appointmentTechnician.updateMany({ where: { appointmentId: id }, data: { blocksSchedule: status.blocksSchedule } });
       }
