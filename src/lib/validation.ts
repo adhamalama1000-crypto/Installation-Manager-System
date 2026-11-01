@@ -179,6 +179,13 @@ export const statusChangeSchema = z.object({
   note: optionalText(1000),
 });
 
+/** A position from the browser's Geolocation API. */
+export const geoSchema = z.object({
+  lat: z.number().refine(isValidLatitude),
+  lng: z.number().refine(isValidLongitude),
+  acc: z.number().min(0).max(100_000).optional(),
+});
+
 /** Outcomes a technician can record for a visit; every outcome except "started" needs a report. */
 export const VISIT_OUTCOMES = ["IN_PROGRESS", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"] as const;
 export type VisitOutcome = (typeof VISIT_OUTCOMES)[number];
@@ -192,6 +199,8 @@ export const outcomeSchema = z
     collectedMethod: paymentMethodField,
     /** Serial numbers installed at this visit (added to what is already recorded). */
     serials: serialsField.optional(),
+    /** Where the technician is (recorded as the START / DONE check-in). */
+    geo: geoSchema.optional().nullable(),
     version: z.number().int().positive().optional(),
   })
   .superRefine((o, ctx) => {
@@ -402,8 +411,30 @@ export const settingsSchema = z
     requireDeliveryProof: z.boolean(),
     /** Installation visits need at least one installed serial number before "Done". */
     serialRequired: z.boolean(),
+    /** The company's location: check-ins further than 400 m from it are flagged (null = not set). */
+    companyLatitude: z.number().refine(isValidLatitude, msg("validation.latitude")).nullable(),
+    companyLongitude: z.number().refine(isValidLongitude, msg("validation.longitude")).nullable(),
+    /** Working day: arriving after start + grace is late, leaving before the end is early (Aura WORK). */
+    workStart: z.string().regex(TIME_RE, msg("validation.time")),
+    workGraceMinutes: z.coerce.number().int().min(0).max(120),
+    workEnd: z.string().regex(TIME_RE, msg("validation.time")),
+    /** Added once to a visit when the technician reports a problem caused by the customer (0 = off). */
+    revisitFee: z.coerce.number().min(0).max(100_000),
   })
-  .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: msg("validation.afterStartHour") });
+  .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: msg("validation.afterStartHour") })
+  .refine((s) => (s.companyLatitude === null) === (s.companyLongitude === null), { path: ["companyLatitude"], message: msg("validation.coordinatesPair") })
+  .refine((s) => s.workEnd > s.workStart, { path: ["workEnd"], message: msg("validation.afterStartTime") });
+
+export const CHECK_IN_KINDS = ["COMPANY", "PICKUP", "READY", "DEPART", "ARRIVE", "START", "DONE", "PROBLEM", "LEAVE"] as const;
+
+/** A check-in sent by a technician. DONE and START also come with the visit outcome. */
+export const checkInSchema = z.object({
+  kind: z.enum(CHECK_IN_KINDS, { error: msg("validation.invalid") }),
+  appointmentId: z.string().max(64).optional().nullable(),
+  geo: geoSchema.optional().nullable(),
+  reason: z.string().max(40).optional().nullable(),
+  note: optionalText(500),
+});
 
 export type SettingsValues = z.output<typeof settingsSchema>;
 

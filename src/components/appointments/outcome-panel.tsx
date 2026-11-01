@@ -12,6 +12,7 @@ import { Alert } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/translator";
 import { api, ApiError } from "@/lib/api-client";
+import { currentPosition } from "@/lib/geo-client";
 import { PAYMENT_METHODS, money, parseSerials } from "@/lib/constants";
 import type { PaymentDTO } from "@/lib/types";
 import { outcomeSchema, fieldErrorsFromZod, type VisitOutcome } from "@/lib/validation";
@@ -31,6 +32,7 @@ export function OutcomePanel({
   report,
   payment,
   myStock,
+  withLocation = false,
 }: {
   id: string;
   version: number;
@@ -39,6 +41,8 @@ export function OutcomePanel({
   payment: PaymentDTO | null;
   /** Items the technician holds, offered as quick picks. */
   myStock: { serial: string; model: string }[];
+  /** The assigned technician: the phone's location goes with the outcome as the START / DONE check-in. */
+  withLocation?: boolean;
 }) {
   const t = useT();
   const router = useRouter();
@@ -63,7 +67,8 @@ export function OutcomePanel({
     setBusy(body.outcome);
     setErrors({});
     try {
-      await api(`/api/appointments/${id}/outcome`, { method: "POST", body: { ...body, version } });
+      const geo = withLocation ? (await currentPosition(8_000)).geo : null;
+      await api(`/api/appointments/${id}/outcome`, { method: "POST", body: { ...body, version, geo } });
       toast.success(body.outcome === "IN_PROGRESS" ? t("outcome.started") : t("outcome.saved"));
       if (body.serials) setSerials("");
       router.refresh();

@@ -53,6 +53,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 - **In-app notifications** for technicians when they are assigned, unassigned, or a job is rescheduled, updated or cancelled.
 - **Photos and delivery proof**: Sales add before photos and deposit proofs; the assigned technician adds after photos (up to 20 per kind), the customer's on-screen signature and the transfer proof, and ticks the delivery checklist for locks or smart-home systems. Photos are shrunk in the browser (which also strips their location metadata) and served only through a permission-checked route; transfer and deposit proofs are visible only to people who see money and to the visit's technicians. Removing a file only hides it. An Admin can require the proof, and the installed serial number, before a technician marks a visit done.
 - **Complaints and after-sales** (from Aura): complaints on a visit get Aura's number (`C2610-007`) and the warranty status; the head of installations (Admin) assigns them to a technician and links the maintenance visit, whose completion resolves them; Sales close or reopen them after calling the customer. Customer satisfaction ratings (1–5 stars and their words), quality grades by the head of installations, and maintenance reminder calls 6 and 12 months after an installation, each with a work list (**After-sales**) and a dashboard counter.
+- **Field tracking** (from Aura): technicians check in with the phone's location when they reach the company, pick up the lock, call the customer, set off (with an estimated arrival), arrive, start, finish or report a problem, and leave. Check-ins far from the company (400 m) or the customer's pin (300 m), late arrivals and early departures are flagged; Sales and the Admins are told as it happens. A problem the customer caused adds the repeat-visit fee once. The **Live board** shows where every technician is (also for the office screen, through a Viewer account), **Attendance & points** scores each month with Aura's rule, and a scheduled call sends late alerts to the Admins.
 - **Arabic first, with English**: the app opens in Arabic, right to left, and every page, form, validation message, notification, audit entry, CSV export and WhatsApp text can be switched to English (sidebar, sign-in page or profile). The choice is kept in a cookie and on the user's account.
 - **Responsive UI** (phone, tablet, desktop) with light, dark and system themes, accessible focus states, empty/error states and toast feedback.
 
@@ -214,7 +215,7 @@ e2e/                       Playwright browser tests
 
 ## Database
 
-Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`, `complaints`, `maintenance_calls`.
+Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`, `complaints`, `maintenance_calls`, `check_ins`, `technician_positions`, `alerts_sent`.
 
 Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads`), with their type, size and SHA-256 recorded in `attachments`. Back up that folder together with the database.
 
@@ -222,7 +223,7 @@ Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads
 - `appointments.createdById` is the permanent original Sales creator; `updatedById` is the last editor.
 - Users are never deleted, only deactivated, so historical references survive. Foreign keys use `ON DELETE RESTRICT` for appointment data, and appointments are cancelled, never deleted.
 - Check constraints for time ranges, durations and colour formats; indexes for the common filters (dates, status, creator, technician, customer, area, building, phone digits).
-- Audit rows are append-only (trigger). Attachment rows can only be marked removed, never changed or deleted (trigger). Complaints cannot be deleted (trigger); ratings and grades are 1–5 and always stored with who gave them and when (check constraints).
+- Audit rows are append-only (trigger). Attachment rows can only be marked removed, never changed or deleted (trigger). Check-ins are append-only (trigger). Complaints cannot be deleted (trigger); ratings and grades are 1–5 and always stored with who gave them and when (check constraints).
 
 ## Testing
 
@@ -247,6 +248,7 @@ What is covered:
 - **Browser (Playwright)**: booking with two technicians, separate apartment/floor, Open Location link, rescheduling with history, cancellation, a real race where a colleague books the technician first (conflict shown, form data kept), calendar legend and panel, technician and viewer restrictions, no horizontal scrolling at 390 px on every main page, mobile navigation, a technician recording the visit outcome, Sales recording the customer's confirmation, a technician asking for leave that the Admin approves (the technician then cannot be booked that day), a technician collecting cash that the Admin then receives on the finance page, the store handing serials to a technician who installs one at the visit (warranty shown, custody updated), Sales opening the day plan with a WhatsApp link per technician, and the Arabic interface (right-to-left layout, switching languages, Arabic statuses and validation messages, phone layout, drawer opening from the right).
 - **Photos and delivery proof**: who may add, see and remove each kind (Sales, the assigned technician, other technicians, viewers, finance), real file-type checks (no SVG or renamed files), one current signature, the 20-photo limit, append-only rows (trigger), the checklist limited to the product's items without bumping the booking version, the delivery rules off by default, and when on: the missing items listed, the transfer proof for non-cash collections, managers never blocked, the serial-required rule; through the API: raw uploads, private caching headers, 401/404 for other readers, oversized and cross-site uploads refused.
 - **Complaints and after-sales**: Aura's monthly numbering, the warranty snapshot, who may open, assign, resolve, close and reopen (technicians only see their own open complaints), notifications, optimistic locking, the full audit trail, the delete trigger, resolution by finishing the linked maintenance visit; ratings and grades (range, who, finished visits only, booking version untouched, database checks); maintenance calls once per milestone on installations; the satisfaction, quality and maintenance lists with Aura's windows and the dashboard counts; through the API: 201 on opening, 403 for technicians, translated validation, 409 on a stale version.
+- **Field tracking**: distance, arrival-time and points rules; late arrival and early departure from the working-day settings, far flags from the company and the customer's pin, duplicate presses, "call the customer before setting off", START/DONE recorded with the outcome, the repeat-visit fee added once for customer-caused problems with an audit entry, notifications, the append-only trigger; the live board states and colours and who may see it; late alerts sent once a day, only on working days and hours, and the secret-protected endpoint (503 / 401 / 200); attendance (days, lateness, early leave, leave, sick days, absences on visit days) and the month's points.
 - **Localization**: both dictionaries have the same keys and placeholders, every stored enum value has a name in both languages, Arabic plural forms, encoded server messages, Arabic dates and amounts; the API answers in Arabic by default and keeps a browser's chosen language at sign-in.
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
@@ -270,6 +272,12 @@ Production checklist:
 - Serve over **HTTPS** and set `APP_URL` to the public `https://` URL. Session cookies are then marked `Secure`.
 - Run behind a reverse proxy that sets `X-Forwarded-For` (used for per-IP login rate limiting; the per-account limit applies regardless).
 - Back up the PostgreSQL database and the upload folder (`UPLOAD_DIR`) regularly, at the same time.
+- Check-ins need **HTTPS**: browsers only give the phone's location to secure pages (and `localhost`). Without it, check-ins are recorded without a location and shown as such.
+- Late alerts: set `CRON_SECRET` (16+ characters) and call `POST /api/cron/late-check` with `Authorization: Bearer <CRON_SECRET>` every 15 minutes. On Windows:
+  ```bat
+  schtasks /Create /SC MINUTE /MO 15 /TN "IMS late alerts" /TR "curl.exe -s -X POST -H \"Authorization: Bearer YOUR_SECRET\" https://your-app/api/cron/late-check"
+  ```
+  On Linux, a cron line with the same `curl` works. Alerts go to the Admins' in-app notifications, once per item and day, only on working days between the start of the working day and 20:30.
 - Do **not** run `npm run db:seed` in production (it refuses unless forced).
 
 Serverless platforms work too. Use a pooled connection string for `DATABASE_URL` if your provider recommends one. Keep the database close to the app (same region): each page needs a few database round trips, so distance adds directly to every page load.
@@ -284,6 +292,7 @@ Serverless platforms work too. Use a pooled connection string for `DATABASE_URL`
 | `TEST_DATABASE_URL` | tests | Separate, disposable database for `npm test` (must differ from `DATABASE_URL`) |
 | `SEED_PASSWORD` | | Password for demo accounts (default `ChangeMe123!`) |
 | `ADMIN_EMAIL` / `ADMIN_NAME` / `ADMIN_PASSWORD` | | Inputs for `npm run create-admin` |
+| `CRON_SECRET` | | Enables `POST /api/cron/late-check` for a scheduler (at least 16 characters) |
 | `UPLOAD_DIR` | | Folder for visit photos, signatures and proofs (default `./storage/uploads`); outside `public/`, backed up with the database |
 | `MAX_UPLOAD_MB` | | Largest accepted upload in MB (default 8) |
 | `E2E_BASE_URL` | | Point Playwright at an already running app |
@@ -300,7 +309,7 @@ No secrets are committed. `.env` is git-ignored and `.env.example` documents the
 
 ## Notifications - what is and isn't included
 
-- **Included:** in-app notifications (bell icon) for technicians: new assignment, removal, reschedule, update, status change and cancellation. Pages and the calendar also refresh automatically.
+- **Included:** in-app notifications (bell icon): technicians hear about assignments, removals, reschedules, updates, status changes, cancellations and complaints assigned to them; Sales hear about visit outcomes, technicians on the way, arrivals, problems and resolved complaints; Admins hear about leave requests, new complaints, problems, late arrivals, early departures and late alerts. Pages and the calendar also refresh automatically.
 - **Not included:** email, SMS, WhatsApp or push. No such service is configured, so nothing is sent outside the app. Invitation and password-reset links are shown to the Admin, who passes them on. Adding an email provider would mean sending those links (and optionally the in-app notifications) from `src/server/services/users.ts` and `notifications.ts`.
 
 ## Performance
@@ -317,4 +326,5 @@ Judge speed on `npm run build && npm start`, not `npm run dev`: the development 
 - Two languages only (Arabic and English). Numbers use Western digits in both. Admin-defined names (statuses have an optional Arabic name; product models, areas and people do not) are shown as entered.
 - WhatsApp messages are never sent automatically: the day plan opens WhatsApp with the text filled in (no WhatsApp Business API or e-mail provider is connected). Numbers without a country code are treated as Egyptian.
 - The repeat-visit fee is entered by Sales rather than set automatically.
-- Not ported from Aura yet: GPS check-ins and the live technician board, attendance and points, transport expenses, the company car route, slot holds and quotation parsing. See [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+- Not ported from Aura yet: transport expenses, the company car route, slot holds and quotation parsing.
+- No e-mail is sent: Aura's morning e-mail and e-mailed late alerts need an e-mail provider, which is not configured. Late alerts arrive as in-app notifications, and the day plan shows the morning summary. See [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).

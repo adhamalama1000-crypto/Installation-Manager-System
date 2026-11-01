@@ -36,6 +36,7 @@ import {
 } from "../errors";
 import { diffValues, recordAudit } from "./audit";
 import { resolveComplaintsForVisit } from "./complaints";
+import { insertCheckIn } from "./field";
 import { localized, notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
 import { assertTechniciansNotOnLeave } from "./leaves";
@@ -1092,6 +1093,26 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
       await collection?.syncCustody();
       // A complaint waiting on this visit as its maintenance visit is resolved by finishing it.
       if (status.kind === "COMPLETED" && existing.status.kind !== "COMPLETED") await resolveComplaintsForVisit(tx, { id, visitReport: report }, user.id);
+      // The assigned technician's START / DONE check-in, with the phone's location when given.
+      if (hasPermission(user, "checkins.record") && existing.technicians.some((t) => t.technicianId === user.id)) {
+        await insertCheckIn(
+          tx,
+          user,
+          input.outcome === "IN_PROGRESS" ? "START" : "DONE",
+          {
+            id,
+            number: existing.number,
+            createdById: existing.createdById,
+            customerName: existing.customer.name,
+            latitude: decimalToNumber(existing.location.latitude),
+            longitude: decimalToNumber(existing.location.longitude),
+          },
+          input.geo ?? null,
+          settings,
+          {},
+          now,
+        );
+      }
       if (status.blocksSchedule !== existing.status.blocksSchedule) {
         await tx.appointmentTechnician.updateMany({ where: { appointmentId: id }, data: { blocksSchedule: status.blocksSchedule } });
       }

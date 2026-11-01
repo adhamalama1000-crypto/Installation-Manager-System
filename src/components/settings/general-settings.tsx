@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Checkbox, Field, Input, Select } from "@/components/ui/field";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
+import { extractCoordinates, isValidLatitude, isValidLongitude } from "@/lib/maps";
 import type { SettingsValues } from "@/lib/validation";
 
 export function GeneralSettings({ initial }: { initial: SettingsValues }) {
@@ -24,6 +25,21 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
     }
   }, [initial.timezone]);
   const upd = (patch: Partial<SettingsValues>) => setV((s) => ({ ...s, ...patch }));
+  const [place, setPlace] = useState(initial.companyLatitude !== null ? `${initial.companyLatitude}, ${initial.companyLongitude}` : "");
+  const [placeError, setPlaceError] = useState<string | undefined>();
+  /** A Google Maps link or "latitude, longitude" (Aura api_setCompany). */
+  function readPlace(text: string) {
+    setPlace(text);
+    const raw = text.trim();
+    if (!raw) {
+      setPlaceError(undefined);
+      return upd({ companyLatitude: null, companyLongitude: null });
+    }
+    const m = raw.match(/^(-?\d{1,2}(?:\.\d+)?)\s*,\s*(-?\d{1,3}(?:\.\d+)?)$/);
+    const c = m && isValidLatitude(Number(m[1])) && isValidLongitude(Number(m[2])) ? { latitude: Number(m[1]), longitude: Number(m[2]) } : extractCoordinates(raw);
+    setPlaceError(c ? undefined : t("settings.companyLocationInvalid"));
+    if (c) upd({ companyLatitude: c.latitude, companyLongitude: c.longitude });
+  }
 
   async function save(e: React.FormEvent) {
     e.preventDefault();
@@ -117,6 +133,27 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
           onChange={(e) => upd({ technicianCanSeeContacts: e.target.checked })}
         />
       </div>
+      <fieldset>
+        <legend className="mb-1 text-sm font-medium text-fg">{t("settings.fieldWork")}</legend>
+        <p className="mb-3 text-xs text-fg-muted">{t("settings.fieldWorkText")}</p>
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
+          <Field label={t("settings.companyLocation")} hint={t("settings.companyLocationHint")} error={placeError ?? errors.companyLatitude} className="sm:col-span-2 xl:col-span-3">
+            {(p) => <Input {...p} dir="ltr" value={place} placeholder="https://www.google.com/maps/@30.0444,31.2357,17z" onChange={(e) => readPlace(e.target.value)} />}
+          </Field>
+          <Field label={t("settings.workStart")} error={errors.workStart}>
+            {(p) => <Input {...p} type="time" value={v.workStart} onChange={(e) => upd({ workStart: e.target.value })} />}
+          </Field>
+          <Field label={t("settings.workGrace")} error={errors.workGraceMinutes}>
+            {(p) => <Input {...p} type="number" min={0} max={120} step={5} value={v.workGraceMinutes} onChange={(e) => upd({ workGraceMinutes: Number(e.target.value) })} />}
+          </Field>
+          <Field label={t("settings.workEnd")} error={errors.workEnd}>
+            {(p) => <Input {...p} type="time" value={v.workEnd} onChange={(e) => upd({ workEnd: e.target.value })} />}
+          </Field>
+          <Field label={t("settings.revisitFee")} hint={t("settings.revisitFeeHint")} error={errors.revisitFee}>
+            {(p) => <Input {...p} type="number" min={0} step={50} value={v.revisitFee} onChange={(e) => upd({ revisitFee: Number(e.target.value) })} />}
+          </Field>
+        </div>
+      </fieldset>
       <fieldset>
         <legend className="mb-1 text-sm font-medium text-fg">{t("settings.delivery")}</legend>
         <p className="mb-2 text-xs text-fg-muted">{t("settings.deliveryText")}</p>

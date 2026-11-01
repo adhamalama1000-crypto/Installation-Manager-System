@@ -115,6 +115,21 @@ enum ComplaintStatus {
   CLOSED
 }
 
+/// Aura's check-in stages, in the order of a working day: arrive at the company, pick up the
+/// lock, confirm with the customer that the site is ready, leave, arrive, start, finish (or report
+/// a problem), and leave for the day.
+enum CheckInKind {
+  COMPANY
+  PICKUP
+  READY
+  DEPART
+  ARRIVE
+  START
+  DONE
+  PROBLEM
+  LEAVE
+}
+
 enum StatusKind {
   SCHEDULED
   IN_PROGRESS
@@ -177,6 +192,8 @@ model User {
   complaintsResolved    Complaint[]             @relation("ComplaintResolver")
   complaintsClosed      Complaint[]             @relation("ComplaintCloser")
   maintenanceCalls      MaintenanceCall[]       @relation("MaintenanceCaller")
+  checkIns              CheckIn[]               @relation("CheckInUser")
+  position              TechnicianPosition?
 
   @@index([role, isActive])
   @@map("users")
@@ -372,6 +389,7 @@ model Appointment {
   maintenanceCalls MaintenanceCall[]
   complaints       Complaint[]       @relation("ComplaintAppointment")
   complaintVisits  Complaint[]       @relation("ComplaintVisit")
+  checkIns         CheckIn[]
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -672,4 +690,63 @@ model MaintenanceCall {
 
   @@unique([appointmentId, milestone])
   @@map("maintenance_calls")
+}
+
+/// A technician's check-in (Aura DB_Checkins): where and when each stage of the day happened.
+/// Append-only (trigger). Coordinates are null when the browser gave no location.
+model CheckIn {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation("CheckInUser", fields: [userId], references: [id], onDelete: Restrict)
+  kind          CheckInKind
+  /// The visit, for visit stages (null for COMPANY and LEAVE).
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  /// Company-local day of the check-in.
+  day           DateTime     @db.Date
+  latitude      Decimal?     @db.Decimal(9, 6)
+  longitude     Decimal?     @db.Decimal(9, 6)
+  accuracyM     Int?
+  /// Metres to the company (COMPANY, LEAVE) or to the customer's pin (visit stages).
+  distanceM     Int?
+  /// Expected arrival at the customer, estimated on DEPART.
+  etaAt         DateTime?    @db.Timestamptz(3)
+  /// Minutes after the start of the working day (plus grace) on COMPANY.
+  lateMinutes   Int?
+  /// Minutes before the end of the working day on LEAVE.
+  earlyMinutes  Int?
+  /// More than 400 m from the company or 300 m from the customer.
+  far           Boolean      @default(false)
+  /// PROBLEM reason (lib/field.ts PROBLEM_REASONS).
+  reason        String?
+  note          String?
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([day, userId])
+  @@index([appointmentId, kind])
+  @@index([userId, createdAt])
+  @@map("check_ins")
+}
+
+/// A technician's latest position while on the way to a customer (Aura api_ping), one row per
+/// technician, overwritten. Used only to refresh the expected arrival on the live board.
+model TechnicianPosition {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  latitude  Decimal  @db.Decimal(9, 6)
+  longitude Decimal  @db.Decimal(9, 6)
+  accuracyM Int?
+  at        DateTime @db.Timestamptz(3)
+
+  @@map("technician_positions")
+}
+
+/// Late alerts already sent, so each one goes out once a day (Aura ALERTED_<date>).
+model AlertSent {
+  day       DateTime @db.Date
+  key       String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([day, key])
+  @@map("alerts_sent")
 }

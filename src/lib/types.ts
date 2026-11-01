@@ -255,3 +255,21 @@ export type FeedbackDTO = {
   calls: { milestone: 6 | 12; note: string | null; calledBy: { id: string; name: string }; createdAt: string }[];
   rights: { rate: boolean; grade: boolean; call: boolean };
 };
+
+/** A technician's check-in (see server/services/field.ts). */
+export type CheckInDTO = {
+  id: string;
+  kind: "COMPANY" | "PICKUP" | "READY" | "DEPART" | "ARRIVE" | "START" | "DONE" | "PROBLEM" | "LEAVE";
+  at: string;
+  user: { id: string; name: string };
+  appointmentId: string | null;
+  hasLocation: boolean;
+  distanceM: number | null;
+  etaAt: string | null;
+  lateMinutes: number | null;
+  earlyMinutes: number | null;
+  far: boolean;
+  reason: string | null;
+  note: string | null;
+  duplicate?: boolean;
+};

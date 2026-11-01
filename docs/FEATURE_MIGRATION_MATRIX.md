@@ -8,7 +8,7 @@ The legacy source was re-audited function by function on 2026-10-31:
 - **`src/Legacy.gs`:** real customer orders from December and January. These are not imported.
 - **`اقرأني_التشغيل.md`:** the setup notes.
 
-The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phases A and B are implemented on their branches and waiting for review.
+The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phases A, B and C are implemented on their branches and waiting for review.
 
 ## How Aura works
 
@@ -65,25 +65,25 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 |---|---|:-:|:-:|
 | Technician sees only their own visits | Enforced on the server | ✅ | — |
 | Mark done / needs another visit with a mandatory report | Start the job; done / unable / needs another visit with a required report; Sales notified | ✅ | — |
-| Problem reasons list, with client-fault reasons (`PROBLEMS`, `CLIENT_FAULT`) | Free-text report | ✗ | C: a reason list on the outcome and the "problem" check-in |
-| Repeat-visit fee set automatically on a client-fault problem (`REVISIT_FEE`, `api_setFee`) | The extra fee is typed by Sales | ◐ | C: an Admin-set fee, applied on a client-fault "needs another visit" |
+| Problem reasons list, with client-fault reasons (`PROBLEMS`, `CLIENT_FAULT`) | The five Aura reasons on the "Report a problem" check-in, the first four counted as the customer's fault | ✅ | C |
+| Repeat-visit fee set automatically on a client-fault problem (`REVISIT_FEE`, `api_setFee`) | Admin setting; added once as the visit's extra fee when the technician reports a customer-caused problem, audited (as in Aura's `api_checkin`) | ✅ | C |
 | Before photos from Sales, after photos from the technician, up to 20 per order (`api_uploadPhoto`, `api_deletePhoto`) | Up to 20 per kind, shrunk in the browser (location metadata stripped), served through a permission-checked route; removal hides the file and keeps it | ✅ | A |
 | Customer signature (`api_uploadFile` sign) | On-screen signature pad, PNG; a new signature replaces the old one, which is kept | ✅ | A |
 | Transfer screenshot for a non-cash collection (`api_uploadFile` pay) | Transfer proof, seen only by people who see money and the visit's technicians | ✅ | A |
 | Deposit proof photo (`api_depositPhoto`) | Deposit proof, added by whoever manages the booking | ✅ | A |
 | Delivery checklist, lock or smart, required before "done" on installation and completion (`CHECKLIST`, `deliveryMissing_`) | Checklist with Aura's items; "Require delivery proof" setting (off by default) enforces checklist, after photo, signature and transfer proof as in `deliveryMissing_`; managers are not blocked | ✅ | A |
 | "Serial required" before "done" (`api_setSerialRequired`) | "Require the installed serial number" setting (off by default) | ✅ | A |
-| GPS check-in stages: company, pickup, ready (photo), depart, arrive, start, done, problem, leave (`api_checkin`, `checkin_`) | — | ✗ | C: browser geolocation with the user's consent; nothing is faked when location is denied |
-| Distance flags: more than 400 m from the company, more than 300 m from the client (`checkin_`) | — | ✗ | C |
-| ETA on "depart": distance × 1.4 ÷ speed by time of day, plus 5 min (`etaMin_`) | — | ✗ | C |
-| Live position pings (`api_ping`) | — | ✗ | C: the latest position only, while a visit is open; no history beyond check-ins |
-| Live board of every technician: free, not yet, at company, at client, finished (`api_tracking`, `api_live`) | Calendar and dashboard | ✗ | C |
-| Office TV screen link, token login (`api_screenLogin`, `api_screenReset`) | — | ⚠ | C: the board refreshes itself; on the office screen it runs under a Viewer account rather than a shared token URL |
-| Sales notified on depart, arrive and problem; heads on late arrival or early leave (`notifyStage_`) | In-app notifications exist | ✗ | C |
-| Late alerts every 15 minutes (`lateCheck`, `lateItems_`) | — | ✗ | C: a protected endpoint for a scheduler (Windows Task Scheduler, cron), sending in-app notifications |
-| Morning e-mail summary (`morningReport`, `alertEmail_`) | — | ✗ | Blocked: no e-mail provider is configured. The summary page is built in C; sending needs SMTP settings. |
-| Attendance per month: days, late, minutes late, left early, leave/sick/absence days, absent on a visit day (`attendance_`, `api_attendance`, `api_myAttendance`) | Leave records only | ✗ | C |
-| Monthly points: punctuality 40, rating 30, quality 20, visits 10, minus revisits, complaints, late days and absences (`api_stats`, `api_myPoints`) | — | ✗ | C, after B (ratings, quality and complaints feed the score) |
+| GPS check-in stages: company, pickup, ready (photo), depart, arrive, start, done, problem, leave (`api_checkin`, `checkin_`) | All nine stages with the browser's location (asked once); START and DONE come with the visit outcome; "call the customer" required before setting off; repeated presses return the first check-in; without permission the check-in is saved and marked "no location". The "ready" photo is covered by phase A's before photos. | ✅ | C |
+| Distance flags: more than 400 m from the company, more than 300 m from the client (`checkin_`) | Same thresholds, from the company location setting and the visit's saved coordinates. Aura saved the first company check-in as the company location; here an Admin sets it. | ✅ | C |
+| ETA on "depart": distance × 1.4 ÷ speed by time of day, plus 5 min (`etaMin_`) | Same formula and speeds, when the visit has coordinates (the area fallback comes with phase E's areas list) | ✅ | C |
+| Live position pings (`api_ping`) | The open visit page sends the position every 2 minutes while on the way; only the latest one is kept, to refresh the board's arrival time | ✅ | C |
+| Live board of every technician: free, not yet, at company, at client, finished (`api_tracking`, `api_live`) | **Live board** with Aura's states and red/yellow/green/grey rules, worst first, refreshing itself | ✅ | C |
+| Office TV screen link, token login (`api_screenLogin`, `api_screenReset`) | A Viewer account with the "Live board" permission on the office screen, instead of a shared token URL | ⚠ | C: safer than a link anyone can copy |
+| Sales notified on depart, arrive and problem; heads on late arrival or early leave (`notifyStage_`) | Same recipients, in-app | ✅ | C |
+| Late alerts every 15 minutes (`lateCheck`, `lateItems_`) | `POST /api/cron/late-check` (needs `CRON_SECRET`) for Windows Task Scheduler or cron; same three checks, once per item and day, working days and hours only; in-app to the Admins | ✅ | C |
+| Morning e-mail summary (`morningReport`, `alertEmail_`) | The same content is on the day plan page (visits per technician) and the dashboard (unconfirmed customers) | ◐ | Blocked: sending e-mail needs an e-mail provider, which is not configured |
+| Attendance per month: days, late, minutes late, left early, leave/sick/absence days, absent on a visit day (`attendance_`, `api_attendance`, `api_myAttendance`) | **Attendance & points** page for Admins and the Accountant; technicians see their own | ✅ | C |
+| Monthly points: punctuality 40, rating 30, quality 20, visits 10, minus revisits, complaints, late days and absences (`api_stats`, `api_myPoints`) | Same rule, on the attendance page and on the technician's dashboard | ✅ | C |
 | Day plan: one WhatsApp message per technician (`api_dayPlan`) | Day plan page, Arabic or English | ✅ | — |
 | Technician specialty: lock / smart home / both (`spec`) | — | ✗ | E |
 | Leave, sick and absence requests that block booking (`api_leave*`) | Requests, approval, booking block, clash alerts | ✅ | — |
@@ -96,7 +96,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Deposit proof, transfer proof | Both, with money-only visibility | ✅ | A |
 | Cash custody until the accountant receives it (`api_cash`, `api_cashReceive`) | Custody until the Accountant or Admin confirms receipt | ✅ | — |
 | Monthly statement: sales, deposits and collections by method, owed per client, cash held (`api_statement`) | Finance page and CSV | ✅ | — |
-| Statement includes transport expenses and attendance (`api_statement`, `api_exportStatement`) | — | ✗ | D (expenses), C (attendance) |
+| Statement includes transport expenses and attendance (`api_statement`, `api_exportStatement`) | Attendance is on its own page | ◐ | D (expenses on the finance page) |
 | Transport expenses with a receipt photo, paid per user per month by the accountant (`api_expenseAdd`, `api_expenses`, `api_expensePay`) | — | ✗ | D |
 
 ## 4. Company car
@@ -128,7 +128,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Dashboard counters: today, tomorrow, week, conflicts, missing, overdue, no engineer, by Sales | Dashboard counters and "Needs attention" | ✅ | — |
 | Dashboard: complaints open, satisfaction calls, quality reviews, maintenance due | After-sales counters on the dashboard | ✅ | B |
 | Dashboard: pending expenses, pending leave requests, cash held | Leave and cash: yes; expenses: no | ◐ | D |
-| Monthly stats by Sales, engineer, type and area; ratings; visit durations from check-ins (`api_stats`) | Reports by status, Sales, category, technician, day; ratings and grades are stored per visit | ◐ | C (ratings, grades and durations per technician, with points), E (area) |
+| Monthly stats by Sales, engineer, type and area; ratings; visit durations from check-ins (`api_stats`) | Reports by status, Sales, category, technician, day; ratings, grades and average visit duration per technician on the attendance page | ◐ | E (by area) |
 | Month export (`api_export`) | CSV exports | ✅ | — |
 
 ## 7. Platform and administration
@@ -138,7 +138,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | 6-digit PIN login | E-mail and password (bcrypt), server sessions, rate limiting, invitations | ⚠ | No: PINs are weaker |
 | 10 roles: admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant | Admin, Sales, Technician, Accountant, Store keeper, Viewer (with per-viewer permissions) | ◐ | D adds Driver. Heads and supervisor stay Admin; engineer stays Technician. |
 | Editable lists: engineers, sales, areas, types, doors, devices, models (`api_adminSaveLists`) | Users, statuses, product models | ◐ | E: an areas list with coordinates (`AREA_GEO`), used for ETA and routes when a site has no pin |
-| Company location setting (`api_setCompany`) | — | ✗ | C |
+| Company location setting (`api_setCompany`) | Settings → Field work: a full Google Maps link or coordinates; working-day start, grace and end | ✅ | C |
 | In-app notifications | Yes, stored as message keys, shown in each reader's language | ✅ | — |
 | Arabic interface | Arabic-first RTL with an English switch | ✅ | PR #3 |
 | Google Sheet sync, sheet lock, re-import from month tabs (`sync*`, `lockSheet`, `reimportOrders`) | PostgreSQL is the only store | — | No: specific to Google Sheets |
