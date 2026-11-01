@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Phone, Radar } from "lucide-react";
+import { Phone, Radar, Truck } from "lucide-react";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { Card } from "@/components/ui/card";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
@@ -10,6 +10,7 @@ import { longDate } from "@/lib/format";
 import { timeKey } from "@/lib/time";
 import { cn } from "@/lib/utils";
 import { requirePagePermission } from "@/server/auth/session";
+import { carLive } from "@/server/services/car";
 import { liveBoard, type BoardRow, type BoardTone } from "@/server/services/field";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -50,11 +51,28 @@ function stateText(r: BoardRow, t: T, tz: string): string {
 export default async function BoardPage() {
   const [user, t] = await Promise.all([requirePagePermission("board.view"), getT()]);
   const tz = user.settings.timezone;
-  const board = await liveBoard(user);
+  const [board, car] = await Promise.all([liveBoard(user), carLive(user)]);
   return (
     <>
       <AutoRefresh />
       <PageHeader title={t("board.title")} description={`${longDate(new Date(), tz, t.locale)} · ${t("board.text")}`} />
+      {car && car.total > 0 && (
+        <div className={cn("mb-3 rounded-xl border border-line border-s-4 bg-surface p-4 shadow-card", tones[car.tone])}>
+          <p className="flex flex-wrap items-center gap-2 font-semibold text-fg">
+            <Truck className="h-4 w-4 text-brand-text" /> {t("board.car", { name: car.driver.name })}
+            <span className="sr-only">{t.dyn(`board.tone.${car.tone}`)}</span>
+          </p>
+          <p className="mt-1 text-sm text-fg">
+            {car.state === "notYet"
+              ? t("board.carNotYet", { count: car.total })
+              : car.state === "onWay"
+                ? `${t("board.carOnWay", { where: [car.next?.customerName, car.next?.area].filter(Boolean).join(" · "), dropped: car.dropped, total: car.total })}${car.etaAt ? ` · ${t("field.eta", { time: timeKey(car.etaAt, tz) })}` : ""}`
+                : car.state === "done"
+                  ? t("board.carDone", { count: car.total })
+                  : t("board.carBack", { time: car.since ? timeKey(car.since, tz) : "", count: car.dropped })}
+          </p>
+        </div>
+      )}
       {board.rows.length === 0 ? (
         <Card>
           <EmptyState title={t("board.noTechnicians")} icon={<Radar className="h-6 w-6" />} />

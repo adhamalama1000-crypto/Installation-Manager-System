@@ -46,6 +46,7 @@ const USERS: { name: string; email: string; role: Role; color?: string; isActive
   { name: "Nadia Fawzy", email: "nadia.accounts@example.com", role: "ACCOUNTANT", phone: "+20 100 444 5566" },
   { name: "Sameh Store", email: "store@example.com", role: "STORE", phone: "+20 100 555 6677" },
   { name: "Laila Viewer", email: "viewer@example.com", role: "VIEWER", viewerPermissions: ["appointments.view", "location.view", "reports.view"] },
+  { name: "Tarek Driver", email: "driver@example.com", role: "DRIVER", phone: "+20 100 666 7788" },
 ];
 
 // Prices follow the appointment counter (not rand()) so adding them did not change the rest of the data.

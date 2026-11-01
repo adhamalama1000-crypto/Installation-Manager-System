@@ -18,8 +18,8 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 |---|---|---|---|
 | A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Done, #5 open (against `main`) |
 | B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Done, #6 open (stacked on #5) |
-| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Done, pull request open (stacked on #6) |
-| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | — | Not started |
+| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Done, #7 open (stacked on #6) |
+| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Done, pull request open (stacked on phase C) |
 | E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | — | Not started |
 
 ## Check results by phase
@@ -74,4 +74,20 @@ Found and fixed while testing:
 Not done in this phase:
 - Sending e-mail (Aura's morning e-mail and e-mailed late alerts): no e-mail provider is configured. Late alerts are in-app; the morning summary is the day plan and the dashboard.
 - The estimated arrival needs the visit's coordinates; Aura's fallback to the area's centre comes with phase E's areas list.
+
+### Phase D: expenses and the company car (2026-11-01)
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 21 files, **164 / 164 passed** (6 new service tests; the role test was updated for the Driver and expense permissions) |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **25 / 25 passed** on a freshly migrated and seeded database (the seed now has a demo driver) |
+| Overflow sweep | **0 problems** on the route, expenses, board, booking form and users pages for an Admin, the driver, the Accountant and a technician, at 320–1024 px in Arabic and English |
+| Migrations on the development database | `20261031090000_role_driver` and `20261031090100_expenses_car` applied with `migrate deploy`; row counts unchanged; `migrate diff`: no difference |
+
+Not done in this phase:
+- Expenses are not yet in the finance CSV export; they have their own page per month.
+- Drivers are not notified of every status change of a car visit (Aura did); they see changes on the route page, which refreshes itself.
 

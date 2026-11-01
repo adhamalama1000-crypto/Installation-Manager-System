@@ -8,7 +8,7 @@ The legacy source was re-audited function by function on 2026-10-31:
 - **`src/Legacy.gs`:** real customer orders from December and January. These are not imported.
 - **`اقرأني_التشغيل.md`:** the setup notes.
 
-The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phases A, B and C are implemented on their branches and waiting for review.
+The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phases A to D are implemented on their branches and waiting for review.
 
 ## How Aura works
 
@@ -57,7 +57,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Quotation link from aura.eg parsed into items, totals and Sales person; prices hidden from technicians (`api_quote`, `parseQuote_`, `noPrices_`) | — | ✗ | E: server fetch limited to an allow-listed host, with a size and time limit; technicians see items without prices |
 | Temporary 10-minute hold on a slot while on the phone (`api_hold`, `HOLD_MIN`) | — | ✗ | E |
 | Best-technician suggestion by specialty, load and distance (`api_free`, `specFits_`) | Live available/busy list in the booking form | ◐ | E: specialty per technician and a ranked suggestion |
-| Car warning at booking: more than 3 drops in a period, or drops 20 km or more apart (`api_carWarn`) | — | ✗ | D |
+| Car warning at booking: more than 3 drops in a period, or drops 20 km or more apart (`api_carWarn`) | Shown under the "Company car" box of the booking form, from the same rules | ✅ | D |
 
 ## 2. Field work: technicians
 
@@ -96,19 +96,19 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Deposit proof, transfer proof | Both, with money-only visibility | ✅ | A |
 | Cash custody until the accountant receives it (`api_cash`, `api_cashReceive`) | Custody until the Accountant or Admin confirms receipt | ✅ | — |
 | Monthly statement: sales, deposits and collections by method, owed per client, cash held (`api_statement`) | Finance page and CSV | ✅ | — |
-| Statement includes transport expenses and attendance (`api_statement`, `api_exportStatement`) | Attendance is on its own page | ◐ | D (expenses on the finance page) |
-| Transport expenses with a receipt photo, paid per user per month by the accountant (`api_expenseAdd`, `api_expenses`, `api_expensePay`) | — | ✗ | D |
+| Statement includes transport expenses and attendance (`api_statement`, `api_exportStatement`) | Expenses (totals and pending by person) and attendance each have their own page for the month | ◐ | Not in the finance CSV yet |
+| Transport expenses with a receipt photo, paid per user per month by the accountant (`api_expenseAdd`, `api_expenses`, `api_expensePay`) | **Transport expenses** page: add with a receipt, cancel a mistake, the Accountant pays a person's pending month; the person is notified | ✅ | D |
 
 ## 4. Company car
 
 | Aura feature (function) | This app today | Status | Phase |
 |---|---|:-:|:-:|
-| Driver role (`driver`) | — | ✗ | D |
-| Car flag on an order, with a manual stop order (`car`, `carSeq`, `api_routeOrder`) | — | ✗ | D |
-| Route per day: manual order, then nearest neighbour per slot from the company (`routeStops_`, `api_route`) | — | ✗ | D |
-| Route warnings: more than 3 drops per period, drops 20 km or more apart (`routeWarnings_`) | — | ✗ | D |
-| Car check-ins: go, drop, pick up, back (`api_carCheckin`, `CAR_STAGES`) | — | ✗ | D, after C (GPS check-ins) |
-| Car on the live board (`carLive_`) | — | ✗ | D |
+| Driver role (`driver`) | Driver role: sees only the car's visits, the route and the car's check-ins; records expenses | ✅ | D |
+| Car flag on an order, with a manual stop order (`car`, `carSeq`, `api_routeOrder`) | "Company car drops the team" on the booking; the head of installations (Admin) moves stops up and down | ✅ | D |
+| Route per day: manual order, then nearest neighbour per slot from the company (`routeStops_`, `api_route`) | **Car route** page, same ordering; Aura's periods come from each visit's start time | ✅ | D |
+| Route warnings: more than 3 drops per period, drops 20 km or more apart (`routeWarnings_`) | Same rules on the route page | ✅ | D |
+| Car check-ins: go, drop, pick up, back (`api_carCheckin`, `CAR_STAGES`) | Same four stages with the phone's location; leaving late and coming back early count in the driver's attendance | ✅ | D |
+| Car on the live board (`carLive_`) | Car card on the live board with Aura's states and colours | ✅ | D |
 
 ## 5. Inventory and after-sales
 
@@ -127,7 +127,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 |---|---|:-:|:-:|
 | Dashboard counters: today, tomorrow, week, conflicts, missing, overdue, no engineer, by Sales | Dashboard counters and "Needs attention" | ✅ | — |
 | Dashboard: complaints open, satisfaction calls, quality reviews, maintenance due | After-sales counters on the dashboard | ✅ | B |
-| Dashboard: pending expenses, pending leave requests, cash held | Leave and cash: yes; expenses: no | ◐ | D |
+| Dashboard: pending expenses, pending leave requests, cash held | Leave and cash on the dashboard; pending expenses on the expenses page | ◐ | — |
 | Monthly stats by Sales, engineer, type and area; ratings; visit durations from check-ins (`api_stats`) | Reports by status, Sales, category, technician, day; ratings, grades and average visit duration per technician on the attendance page | ◐ | E (by area) |
 | Month export (`api_export`) | CSV exports | ✅ | — |
 
@@ -136,7 +136,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Aura feature | This app today | Status | Phase |
 |---|---|:-:|:-:|
 | 6-digit PIN login | E-mail and password (bcrypt), server sessions, rate limiting, invitations | ⚠ | No: PINs are weaker |
-| 10 roles: admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant | Admin, Sales, Technician, Accountant, Store keeper, Viewer (with per-viewer permissions) | ◐ | D adds Driver. Heads and supervisor stay Admin; engineer stays Technician. |
+| 10 roles: admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant | Admin, Sales, Technician, Accountant, Store keeper, Driver, Viewer (with per-viewer permissions) | ◐ | Heads and supervisor are Admin; engineer is Technician |
 | Editable lists: engineers, sales, areas, types, doors, devices, models (`api_adminSaveLists`) | Users, statuses, product models | ◐ | E: an areas list with coordinates (`AREA_GEO`), used for ETA and routes when a site has no pin |
 | Company location setting (`api_setCompany`) | Settings → Field work: a full Google Maps link or coordinates; working-day start, grace and end | ✅ | C |
 | In-app notifications | Yes, stored as message keys, shown in each reader's language | ✅ | — |

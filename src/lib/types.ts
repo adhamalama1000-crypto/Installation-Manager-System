@@ -40,6 +40,8 @@ export type AppointmentDTO = {
   productCategory: ProductCategory;
   categoryOther: string | null;
   visitType: VisitType | null;
+  /** The company car drops the team at this visit. */
+  needsCar: boolean;
   customerConfirmation: CustomerConfirmation;
   /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
   followUpOf: { id: string; code: string } | null;
@@ -259,7 +261,7 @@ export type FeedbackDTO = {
 /** A technician's check-in (see server/services/field.ts). */
 export type CheckInDTO = {
   id: string;
-  kind: "COMPANY" | "PICKUP" | "READY" | "DEPART" | "ARRIVE" | "START" | "DONE" | "PROBLEM" | "LEAVE";
+  kind: "COMPANY" | "PICKUP" | "READY" | "DEPART" | "ARRIVE" | "START" | "DONE" | "PROBLEM" | "LEAVE" | "CAR_GO" | "CAR_DROP" | "CAR_PICK" | "CAR_BACK";
   at: string;
   user: { id: string; name: string };
   appointmentId: string | null;

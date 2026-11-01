@@ -4,7 +4,7 @@ import type { T } from "@/i18n/translator";
 
 export const DEFAULT_TIMEZONE = "Africa/Cairo";
 
-export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "ACCOUNTANT", "STORE", "VIEWER"];
+export const ROLES: Role[] = ["ADMIN", "SALES", "TECHNICIAN", "ACCOUNTANT", "STORE", "DRIVER", "VIEWER"];
 
 export const STOCK_STATUSES: StockStatus[] = ["IN_STORE", "WITH_TECHNICIAN", "INSTALLED", "RETURNED", "FAULTY"];
 

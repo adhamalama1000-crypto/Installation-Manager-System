@@ -51,6 +51,16 @@ export const PERMISSIONS = [
   "board.view",
   /** Monthly attendance and points of every technician. */
   "attendance.view",
+  /** Record one's own transport expenses (technicians and the driver). */
+  "expenses.record",
+  /** See everyone's transport expenses and pay them out (accountant). */
+  "expenses.pay",
+  /** The company car's route for a day. */
+  "route.view",
+  /** The car's check-ins: left the company, dropped a team, picked a team up, back (driver). */
+  "car.checkin",
+  /** Change the order of the car's stops (head of installations). */
+  "route.manage",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -66,6 +76,7 @@ export const VIEWER_GRANTABLE: Permission[] = [
   "reports.view",
   "complaints.view",
   "board.view",
+  "route.view",
 ];
 
 export const DEFAULT_VIEWER_PERMISSIONS: Permission[] = ["appointments.view"];
@@ -102,12 +113,15 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record", "expenses.record"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }
     case "ACCOUNTANT":
-      return new Set<Permission>(["appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive", "stock.view", "attendance.view"]);
+      return new Set<Permission>(["appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive", "stock.view", "attendance.view", "expenses.pay"]);
+    case "DRIVER":
+      // Sees only the visits the car serves (see access.ts), to drop and pick up the teams.
+      return new Set<Permission>(["appointments.view", "location.view", "customers.contact", "route.view", "car.checkin", "expenses.record"]);
     case "STORE":
       return new Set<Permission>(["appointments.view", "stock.view", "stock.manage"]);
     case "VIEWER": {
@@ -123,7 +137,7 @@ export function can(user: PermissionSubject, permission: Permission, settings: P
   return permissionsFor(user, settings).has(permission);
 }
 
-/** Technicians only ever see appointments they are assigned to. */
+/** Technicians only ever see appointments they are assigned to (drivers: the car's visits). */
 export function isAssignmentScoped(role: Role): boolean {
-  return role === "TECHNICIAN";
+  return role === "TECHNICIAN" || role === "DRIVER";
 }

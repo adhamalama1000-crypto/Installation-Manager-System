@@ -22,7 +22,7 @@ import {
 import type { CustomerConfirmation, LeaveType, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert, Badge, SalesTag } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
@@ -32,6 +32,7 @@ import { dayRangeLabel, weekdayOfKey } from "@/lib/time";
 import { timeRange } from "@/lib/format";
 import { checkMapUrl, extractCoordinates } from "@/lib/maps";
 import type { AppointmentDTO, ConflictDTO, StatusDTO } from "@/lib/types";
+import { CarWarning } from "./car-warning";
 import type { FormValues } from "./form-values";
 import { appointmentInputSchema, fieldErrorsFromZod } from "@/lib/validation";
 import { cn } from "@/lib/utils";
@@ -204,6 +205,7 @@ export function AppointmentForm({
       location: v.location,
       productCategory: v.productCategory,
       visitType: v.visitType || null,
+      needsCar: v.needsCar,
       customerConfirmation: v.customerConfirmation,
       followUpOfId: mode === "create" ? v.followUpOfId : undefined,
       allowClosedDay: isAdmin && closedDay ? allowClosedDay : undefined,
@@ -499,6 +501,10 @@ export function AppointmentForm({
                   </Select>
                 )}
               </Field>
+            </div>
+            <div data-field="needsCar" className="sm:col-span-2">
+              <Checkbox label={t("car.needsCar")} description={t("car.needsCarText")} checked={v.needsCar} onChange={(e) => set("needsCar", e.target.checked)} />
+              {v.needsCar && <CarWarning date={v.date} time={v.startTime} latitude={v.location.latitude} longitude={v.location.longitude} excludeId={appointmentId} />}
             </div>
             {v.productCategory === "OTHER" ? (
               <div data-field="categoryOther">

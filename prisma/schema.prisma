@@ -25,6 +25,8 @@ enum Role {
   ACCOUNTANT
   /// Store keeper: registers serial-numbered stock and hands it to technicians.
   STORE
+  /// Company car driver: drops the teams at their visits and picks them up (Aura: سواق).
+  DRIVER
 }
 
 /// Where a serial-numbered item is (Aura: في المخزن / عهدة / اتركب / مرتجع / عطلان).
@@ -128,6 +130,18 @@ enum CheckInKind {
   DONE
   PROBLEM
   LEAVE
+  /// The company car leaves the company, drops a team, picks a team up, is back.
+  CAR_GO
+  CAR_DROP
+  CAR_PICK
+  CAR_BACK
+}
+
+/// A transport expense: PENDING until the accountant pays it out; CANCELLED by its owner before then.
+enum ExpenseStatus {
+  PENDING
+  PAID
+  CANCELLED
 }
 
 enum StatusKind {
@@ -194,6 +208,8 @@ model User {
   maintenanceCalls      MaintenanceCall[]       @relation("MaintenanceCaller")
   checkIns              CheckIn[]               @relation("CheckInUser")
   position              TechnicianPosition?
+  expenses              TransportExpense[]      @relation("ExpenseUser")
+  expensesPaid          TransportExpense[]      @relation("ExpensePayer")
 
   @@index([role, isActive])
   @@map("users")
@@ -376,20 +392,24 @@ model Appointment {
   stockMovements    StockMovement[]
 
   /// Customer satisfaction (1-5 stars) from the follow-up call after the visit, with their words.
-  customerRating   Int?              @db.SmallInt
+  customerRating   Int?               @db.SmallInt
   ratingNote       String?
-  ratedAt          DateTime?         @db.Timestamptz(3)
+  ratedAt          DateTime?          @db.Timestamptz(3)
   ratedById        String?
-  ratedBy          User?             @relation("AppointmentRater", fields: [ratedById], references: [id], onDelete: Restrict)
+  ratedBy          User?              @relation("AppointmentRater", fields: [ratedById], references: [id], onDelete: Restrict)
   /// Quality grade (1-5) given by the head of installations after reviewing the work.
-  qualityGrade     Int?              @db.SmallInt
-  gradedAt         DateTime?         @db.Timestamptz(3)
+  qualityGrade     Int?               @db.SmallInt
+  gradedAt         DateTime?          @db.Timestamptz(3)
   gradedById       String?
-  gradedBy         User?             @relation("AppointmentGrader", fields: [gradedById], references: [id], onDelete: Restrict)
+  gradedBy         User?              @relation("AppointmentGrader", fields: [gradedById], references: [id], onDelete: Restrict)
   maintenanceCalls MaintenanceCall[]
-  complaints       Complaint[]       @relation("ComplaintAppointment")
-  complaintVisits  Complaint[]       @relation("ComplaintVisit")
+  complaints       Complaint[]        @relation("ComplaintAppointment")
+  complaintVisits  Complaint[]        @relation("ComplaintVisit")
   checkIns         CheckIn[]
+  expenses         TransportExpense[]
+  /// The company car drops the team at this visit (Aura car = نعم), and its place in the day's route.
+  needsCar         Boolean            @default(false)
+  carSeq           Int?
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -425,6 +445,7 @@ model Appointment {
   @@index([locationId])
   @@index([productCategory])
   @@index([followUpOfId])
+  @@index([needsCar, startsAt])
   @@map("appointments")
 }
 
@@ -749,4 +770,29 @@ model AlertSent {
 
   @@id([day, key])
   @@map("alerts_sent")
+}
+
+/// Transport a technician or the driver paid for (Aura DB_Expenses), paid back by the accountant.
+model TransportExpense {
+  id                 String        @id @default(cuid())
+  userId             String
+  user               User          @relation("ExpenseUser", fields: [userId], references: [id], onDelete: Restrict)
+  appointmentId      String?
+  appointment        Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  /// Company-local day of the expense.
+  day                DateTime      @db.Date
+  amount             Decimal       @db.Decimal(12, 2)
+  note               String?
+  /// Receipt photo in file storage (UPLOAD_DIR), served only to the owner and finance.
+  receiptKey         String?       @unique
+  receiptContentType String?
+  status             ExpenseStatus @default(PENDING)
+  paidAt             DateTime?     @db.Timestamptz(3)
+  paidById           String?
+  paidBy             User?         @relation("ExpensePayer", fields: [paidById], references: [id], onDelete: Restrict)
+  createdAt          DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, day])
+  @@index([status, day])
+  @@map("transport_expenses")
 }

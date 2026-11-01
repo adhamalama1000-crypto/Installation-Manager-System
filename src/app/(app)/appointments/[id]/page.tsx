@@ -170,6 +170,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               <DefinitionList
                 items={[
                   { label: t("appointment.visitType"), value: a.visitType ? t.dyn(`enums.visitType.${a.visitType}`) : null },
+                  ...(a.needsCar ? [{ label: t("car.needsCar"), value: t("common.yes") }] : []),
                   { label: t("appointment.category"), value: categoryText(a, t) },
                   { label: t("appointment.brandModel"), value: [a.brand, a.model].filter(Boolean).join(" ") || null },
                   { label: t("appointment.description"), value: a.description && <span className="whitespace-pre-line">{a.description}</span>, full: true },

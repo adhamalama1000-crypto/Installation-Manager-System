@@ -78,20 +78,24 @@ export async function insertCheckIn(
   let late: number | null = null;
   let early: number | null = null;
   let far = false;
-  if (kind === "COMPANY") {
+  // The car leaving and coming back count like arriving at and leaving the company (Aura attendance_).
+  if (kind === "COMPANY" || kind === "CAR_GO") {
     if (geo && company) {
       distance = distanceM(geo, company);
-      far = distance > FAR_FROM_COMPANY_M;
+      far = kind === "COMPANY" && distance > FAR_FROM_COMPANY_M;
     }
     if (minutesOf(hhmm) > minutesOf(settings.workStart) + settings.workGraceMinutes) late = minutesOf(hhmm) - minutesOf(settings.workStart);
-  } else if (kind === "LEAVE") {
-    if (geo && company) distance = distanceM(geo, company);
+  } else if (kind === "LEAVE" || kind === "CAR_BACK") {
+    if (geo && company) {
+      distance = distanceM(geo, company);
+      far = kind === "CAR_BACK" && distance > FAR_FROM_COMPANY_M;
+    }
     if (minutesOf(hhmm) < minutesOf(settings.workEnd)) early = minutesOf(settings.workEnd) - minutesOf(hhmm);
   } else if (geo && client) {
     if (kind === "DEPART") etaAt = new Date(now.getTime() + etaMinutes(geo, client, Number(hhmm.slice(0, 2))) * 60_000);
     else {
       distance = distanceM(geo, client);
-      far = (kind === "ARRIVE" || kind === "START") && distance > FAR_FROM_CUSTOMER_M;
+      far = (kind === "ARRIVE" || kind === "START" || kind === "CAR_DROP" || kind === "CAR_PICK") && distance > FAR_FROM_CUSTOMER_M;
     }
   }
   const row = await tx.checkIn.create({
@@ -113,7 +117,7 @@ export async function insertCheckIn(
       createdAt: now,
     },
   });
-  if (geo && kind !== "LEAVE") {
+  if (geo && kind !== "LEAVE" && kind !== "CAR_BACK") {
     await tx.technicianPosition.upsert({
       where: { userId: user.id },
       create: { userId: user.id, latitude: row.latitude!, longitude: row.longitude!, accuracyM: row.accuracyM, at: now },
@@ -542,14 +546,16 @@ const round1 = (n: number) => Math.round(n * 10) / 10;
  */
 export async function attendance(user: CurrentUser, monthRaw: string | undefined, now: Date = new Date()): Promise<{ month: string; rows: AttendanceRow[] }> {
   const all = hasPermission(user, "attendance.view");
-  if (!all && !hasPermission(user, "checkins.record")) throw new ForbiddenError();
+  if (!all && !hasPermission(user, "checkins.record") && !hasPermission(user, "car.checkin")) throw new ForbiddenError();
   const tz = user.settings.timezone;
   const today = todayKey(tz, now);
   const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthRaw ?? "") ? monthRaw! : today.slice(0, 7);
   const first = `${month}-01`;
   const last = addDaysToKey(addMonthsToKey(startOfMonthKey(first), 1), -1);
   const range = dayRangeUtc(first, last, tz);
-  const techWhere: Prisma.UserWhereInput = all ? { role: "TECHNICIAN", OR: [{ isActive: true }, { checkIns: { some: { day: { gte: dbDate(first), lte: dbDate(last) } } } }] } : { id: user.id };
+  const techWhere: Prisma.UserWhereInput = all
+    ? { role: { in: ["TECHNICIAN", "DRIVER"] }, OR: [{ isActive: true }, { checkIns: { some: { day: { gte: dbDate(first), lte: dbDate(last) } } } }] }
+    : { id: user.id };
   const [techs, checkIns, leaves, visits, complaints] = await Promise.all([
     prisma.user.findMany({ where: techWhere, select: { id: true, name: true }, orderBy: { name: "asc" } }),
     prisma.checkIn.findMany({
@@ -578,14 +584,14 @@ export async function attendance(user: CurrentUser, monthRaw: string | undefined
       const k = keyOf(c.day);
       const d = byDay.get(k) ?? { any: false };
       d.any = true;
-      if (c.kind === "COMPANY" && d.in === undefined) {
+      if ((c.kind === "COMPANY" || c.kind === "CAR_GO") && d.in === undefined) {
         d.in = minutesOf(timeKey(c.createdAt, tz));
         if (c.lateMinutes) {
           lateDays++;
           lateMinutes += c.lateMinutes;
         }
       }
-      if (c.kind === "LEAVE") {
+      if (c.kind === "LEAVE" || c.kind === "CAR_BACK") {
         d.out = minutesOf(timeKey(c.createdAt, tz));
         if (c.earlyMinutes) earlyLeaves++;
       }

@@ -18,6 +18,8 @@ export type FormValues = {
   };
   productCategory: ProductCategory | "";
   visitType: VisitType | "";
+  /** The company car drops the team. */
+  needsCar: boolean;
   customerConfirmation: CustomerConfirmation;
   /** Create only: the visit this one follows up. */
   followUpOfId: string | null;
@@ -62,6 +64,7 @@ export function valuesFromAppointment(a: AppointmentDTO, tz: string): FormValues
     },
     productCategory: a.productCategory,
     visitType: a.visitType ?? "",
+    needsCar: a.needsCar,
     customerConfirmation: a.customerConfirmation,
     followUpOfId: null,
     categoryOther: s(a.categoryOther),
@@ -91,6 +94,7 @@ export function emptyValues(opts: { date: string; durationMinutes: number; statu
     location: { id: null, area: "", streetAddress: "", building: "", apartment: "", floor: "", accessInstructions: "", mapUrl: "", latitude: "", longitude: "" },
     productCategory: "",
     visitType: "INSTALLATION",
+    needsCar: false,
     customerConfirmation: "PENDING",
     followUpOfId: null,
     categoryOther: "",

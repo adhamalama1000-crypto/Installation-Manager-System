@@ -129,6 +129,8 @@ export const appointmentInputSchema = z
     location: locationInputSchema,
     productCategory: z.enum(PRODUCT_CATEGORIES as [string, ...string[]], { error: msg("validation.category") }),
     visitType: z.preprocess((v) => (v === "" ? null : v), z.enum(VISIT_TYPES as [string, ...string[]], { error: msg("validation.visitType") }).nullable().optional()),
+    /** The company car drops the team (Aura car); left out = unchanged on edits. */
+    needsCar: z.boolean().optional(),
     customerConfirmation: z.enum(CONFIRMATIONS as [string, ...string[]]).optional(),
     /** Create only: the earlier appointment this visit follows up. */
     followUpOfId: idField.optional().nullable(),
