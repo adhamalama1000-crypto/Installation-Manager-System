@@ -121,6 +121,9 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           {t("appointment.cancelledText")}
         </Alert>
       )}
+      {a.lockAt === "COMPANY" && (a.status.kind === "SCHEDULED" || a.status.kind === "IN_PROGRESS") && (
+        <Alert tone="info" className="mb-6" title={t("booking.lockFromCompanyAlert")} />
+      )}
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-[minmax(0,1fr)_380px]">
         <div className="space-y-6">

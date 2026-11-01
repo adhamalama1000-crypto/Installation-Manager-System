@@ -64,9 +64,10 @@ test.describe("Sales booking workflow", () => {
     const firstTech = page.locator('[data-field="technicianIds"] label').first();
     await expect(firstTech).toContainText("Available");
     const techName = (await firstTech.locator("span.font-medium").first().textContent())!.trim();
-    await firstTech.click();
 
-    // Meanwhile a colleague books the same technician for an overlapping slot through the API.
+    // Meanwhile, before Sara picks him, a colleague books the same technician for an overlapping
+    // slot through the API; Sara's screen still shows him as available. (Once she has picked him,
+    // he is held for her and the colleague would be refused - see booking-helpers.spec.ts.)
     const omar = await playwright.request.newContext({ baseURL: page.url().split("/appointments")[0] });
     const loginRes = await omar.post("/api/auth/login", { data: { email: "omar.sales@example.com", password: "ChangeMe123!" } });
     expect(loginRes.ok()).toBeTruthy();
@@ -84,6 +85,9 @@ test.describe("Sales booking workflow", () => {
     });
     expect(booked.status()).toBe(201);
     void request;
+    await firstTech.click();
+    // Holding him fails at once, which already warns her.
+    await expect(page.getByText(`${techName} is already booked at that time.`)).toBeVisible();
 
     await page.getByRole("button", { name: "Create appointment" }).click();
     await expect(page.getByText("Scheduling conflict", { exact: true })).toBeVisible();

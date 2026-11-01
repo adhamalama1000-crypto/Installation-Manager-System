@@ -17,6 +17,10 @@ export type AttentionItem = {
   reason: string;
 };
 
+/** Smart-home installations whose wiring or internet is not confirmed ready (Aura alerts_). */
+const SITE_NOT_READY = Prisma.sql`(a."productCategory" = 'SMART_HOME' AND a."visitType" IS DISTINCT FROM 'INSPECTION'
+  AND (a."siteFoundation" IS NULL OR a."siteFoundation" <> 'READY' OR a."siteInternet" IS NULL OR a."siteInternet" <> 'READY'))`;
+
 export async function dashboardSummary(user: CurrentUser, now: Date = new Date()) {
   assertCan(user, "appointments.view");
   const tz = user.settings.timezone;
@@ -34,7 +38,8 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   // Everything is independent, so it all runs in one wave. The six counters are a single statement:
   // with six separate ones the page needed more statements than the connection pool (9 by default)
   // has connections, which costs an extra round trip to the database.
-  const [[counts], overdue, unassigned, noLocation, unconfirmed, revisit, onLeave, todays] = await Promise.all([
+  const canLocation = hasPermission(user, "location.view");
+  const [[counts], overdue, unassigned, weekChecks, unconfirmed, revisit, onLeave, todays] = await Promise.all([
     prisma.$queryRaw<
       { today: number; upcoming: number; scheduled: number; completed: number; postponed: number; cancelled: number; complaints: number; satisfaction: number; quality: number; maintenance: number }[]
     >`
@@ -66,9 +71,16 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
       soonest,
       20,
     ),
-    hasPermission(user, "location.view")
-      ? appointmentListRows(user, Prisma.sql`${upcomingWeek} AND l."mapUrl" IS NULL AND l.latitude IS NULL`, soonest, 20)
-      : Promise.resolve([]),
+    // Two checks of the coming week in one statement (no extra round trip): visits without a map
+    // location (only for readers allowed to see locations), and smart-home installations whose site
+    // is not confirmed ready - wiring or internet not checked or not ready (Aura alerts_). Inspections
+    // are where readiness gets checked, so they are left out.
+    appointmentListRows(
+      user,
+      Prisma.sql`${upcomingWeek} AND (${canLocation ? Prisma.sql`(l."mapUrl" IS NULL AND l.latitude IS NULL)` : Prisma.sql`FALSE`} OR ${SITE_NOT_READY})`,
+      soonest,
+      20,
+    ),
     appointmentListRows(
       user,
       Prisma.sql`${scopeSql} AND s.kind IN ('SCHEDULED', 'IN_PROGRESS') AND a."startsAt" >= ${now} AND a."startsAt" < ${endOfTomorrow}
@@ -114,7 +126,12 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
   push(overdue, msg("dashboard.reasons.overdue"));
   push(unassigned, msg("dashboard.reasons.unassigned"));
   push(onLeave, msg("dashboard.reasons.onLeave"));
+  // A row of the combined check is "no location" when it has none (readers without location access
+  // never get those rows); every other row is there because its site is not confirmed ready.
+  const noLocation = weekChecks.filter((a) => a.hasLocation === false);
+  const siteNotReady = weekChecks.filter((a) => a.hasLocation !== false);
   push(noLocation, msg("dashboard.reasons.noLocation"));
+  push(siteNotReady, msg("dashboard.reasons.siteNotReady"));
   push(unconfirmed, msg("dashboard.reasons.unconfirmed"));
   push(revisit, msg("dashboard.reasons.revisit"));
 
@@ -124,6 +141,8 @@ export async function dashboardSummary(user: CurrentUser, now: Date = new Date()
     counts: { ...rest, attention: attention.length },
     afterSales: afterSales.lists.length || afterSales.complaints ? { complaints: afterSales.complaints ? complaints : null, satisfaction, quality, maintenance, lists: afterSales.lists } : null,
     attention: attention.slice(0, 15),
+    /** Smart-home installations of the coming week whose site is not confirmed ready (at most 20). */
+    siteNotReady: siteNotReady.length,
     todays,
   };
 }

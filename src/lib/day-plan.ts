@@ -35,6 +35,8 @@ export type PlanVisit = {
   notes: string | null;
   toCollect: number | null;
   withOthers: string[];
+  /** The lock is kept at the company: the technician picks it up before setting off (Aura lockWhere). */
+  lockFromCompany?: boolean;
 };
 
 /** Texts are in the sender's language (`t`). */
@@ -46,6 +48,7 @@ export function technicianMessage(t: T, name: string, dayLabel: string, visits: 
     if (v.address) lines.push(`📍 ${v.address}`);
     if (v.mapLink) lines.push(`🗺️ ${v.mapLink}`);
     if (v.equipment) lines.push(`🔧 ${v.equipment}`);
+    if (v.lockFromCompany) lines.push(t("dayPlanText.lockFromCompany"));
     if (v.toCollect) lines.push(t("dayPlanText.toCollect", { amount: money(v.toCollect, t.locale) }));
     if (v.notes) lines.push(`📝 ${v.notes}`);
     if (v.withOthers.length) lines.push(t("dayPlanText.with", { names: v.withOthers.join(t.locale === "ar" ? "، " : ", ") }));

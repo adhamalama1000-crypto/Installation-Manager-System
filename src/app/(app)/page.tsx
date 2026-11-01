@@ -22,7 +22,7 @@ import { MyDayCard } from "@/components/field/my-day-card";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { ButtonLink } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { EmptyState, PageHeader } from "@/components/ui/misc";
+import { Alert, EmptyState, PageHeader } from "@/components/ui/misc";
 import { getT } from "@/i18n/server";
 import type { T } from "@/i18n/translator";
 import { addDaysToKey, addMonthsToKey, startOfMonthKey } from "@/lib/time";
@@ -98,6 +98,15 @@ export default async function DashboardPage() {
         <div className="mb-4">
           <MyDayCard company={day.company} leave={day.leave} tz={tz} points={mine?.rows[0]?.points ?? null} />
         </div>
+      )}
+
+      {summary.siteNotReady > 0 && (
+        <Alert tone="warning" className="mb-4" title={t("dashboard.siteNotReady", { count: summary.siteNotReady })}>
+          {t("dashboard.siteNotReadyText")}{" "}
+          <Link href="#attention" className="font-medium text-brand-text hover:underline">
+            {t("dashboard.siteNotReadyLink")}
+          </Link>
+        </Alert>
       )}
 
       <section aria-label={t("dashboard.summary")} className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 xl:grid-cols-7">

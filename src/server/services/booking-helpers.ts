@@ -10,7 +10,7 @@ import { prisma, type Db } from "../db";
 import { assertCan } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
-import { findTechnicianConflicts } from "./scheduling";
+import { findTechnicianConflicts, lockTechnicians } from "./scheduling";
 import { carSlot } from "./car";
 
 /**
@@ -40,9 +40,12 @@ export async function assertNotHeld(db: Db, user: CurrentUser, technicianIds: st
   throw new ValidationError({ technicianIds: text }, text);
 }
 
-/** The holder's own holds end when they book. */
-export async function releaseOwnHolds(db: Db, userId: string) {
-  await db.slotHold.deleteMany({ where: { userId } });
+/**
+ * The holder's own holds end when they book or leave the form. Expired holds of anyone are removed
+ * at the same time; they never block anything, this only keeps the table small.
+ */
+export async function releaseOwnHolds(db: Db, userId: string, now: Date = new Date()) {
+  await db.slotHold.deleteMany({ where: { OR: [{ userId }, { expiresAt: { lte: now } }] } });
 }
 
 const holdSchema = z.object({
@@ -62,12 +65,15 @@ export async function holdSlot(user: CurrentUser, raw: unknown, now: Date = new 
   const tz = user.settings.timezone;
   const startsAt = zonedToUtc(date, startTime, tz);
   const endsAt = computeEnd(startsAt, durationMinutes);
+  const ids = [...new Set(technicianIds)];
   return prisma.$transaction(async (tx) => {
-    // One hold change at a time, so two people cannot take the same technician at once.
-    await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext('slot_holds'))`;
-    await tx.slotHold.deleteMany({ where: { OR: [{ userId: user.id }, { expiresAt: { lte: now } }] } });
-    const ids = [...new Set(technicianIds)];
+    // The same per-technician lock as bookings and leave (lockTechnicians): a hold and a booking of
+    // the same technician run one after the other, so they can never both go through.
+    await lockTechnicians(tx, ids);
+    await releaseOwnHolds(tx, user.id, now);
     if (!ids.length) return { ok: true as const, until: null, technicianIds: [] as string[] };
+    const active = await tx.user.count({ where: { id: { in: ids }, role: "TECHNICIAN", isActive: true } });
+    if (active !== ids.length) return { ok: false as const, reason: msg("holds.unknownTechnician") };
     const held = await activeHolds(tx, ids, startsAt, endsAt, user.id, now);
     if (held.length) {
       return { ok: false as const, reason: msg("holds.heldByOther", { technician: held[0]!.technician.name, name: held[0]!.user.name, until: timeKey(held[0]!.expiresAt, tz) }) };
