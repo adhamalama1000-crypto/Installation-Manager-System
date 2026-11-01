@@ -545,7 +545,8 @@ ALTER TABLE "warehouses" ADD CONSTRAINT "warehouses_technician_check" CHECK ("te
 ALTER TABLE "warehouse_bins" ADD CONSTRAINT "warehouse_bins_code_check" CHECK ("code" ~ '^[A-Z0-9][A-Z0-9_-]{0,19}$');
 ALTER TABLE "stock_balances" ADD CONSTRAINT "stock_balances_binKey_check" CHECK ("binKey" = COALESCE("binId", ''));
 ALTER TABLE "stocktake_lines" ADD CONSTRAINT "stocktake_lines_binKey_check" CHECK ("binKey" = COALESCE("binId", ''));
-ALTER TABLE "stocktake_lines" ADD CONSTRAINT "stocktake_lines_quantities_check" CHECK ("systemQuantity" >= 0 AND ("countedQuantity" IS NULL OR "countedQuantity" >= 0));
+-- The system quantity can be negative only where the warehouse allows negative stock; a count never is.
+ALTER TABLE "stocktake_lines" ADD CONSTRAINT "stocktake_lines_quantities_check" CHECK ("countedQuantity" IS NULL OR "countedQuantity" >= 0);
 ALTER TABLE "document_sequences" ADD CONSTRAINT "document_sequences_lastNumber_check" CHECK ("lastNumber" >= 0);
 
 -- Which warehouses each document type uses: opening / receipt / customer return bring stock in
