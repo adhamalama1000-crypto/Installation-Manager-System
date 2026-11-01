@@ -32,6 +32,7 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   workGraceMinutes: 15,
   workEnd: "19:00",
   revisitFee: 0,
+  inspectionOnlyWeekdays: [],
 };
 
 /** Stored settings JSON (or null when never saved) merged over the defaults. */

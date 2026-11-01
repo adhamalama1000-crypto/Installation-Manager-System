@@ -8,7 +8,7 @@ The legacy source was re-audited function by function on 2026-10-31:
 - **`src/Legacy.gs`:** real customer orders from December and January. These are not imported.
 - **`اقرأني_التشغيل.md`:** the setup notes.
 
-The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phases A to D are implemented on their branches and waiting for review.
+The modern side was compared from the actual code on the `claude/aura-delivery-proof` branch: the Prisma schema, services, API routes and pages. Rows marked ✅ in phases A to E are implemented on their branches and waiting for review.
 
 ## How Aura works
 
@@ -42,21 +42,21 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Double-booking prevention (`busyMap_`, `conflictsFor_`) | Server check plus a PostgreSQL exclusion constraint, safe under concurrency | ✅ | — |
 | Admin "book anyway" over a conflict | Not possible | ⚠ | No: it would break the no-double-booking guarantee |
 | Friday closed (`alerts_`) | Configurable closed weekdays; only an Admin can book one, explicitly | ✅ | — |
-| Saturday: smart-home inspections only (`alerts_`) | — | ✗ | E: configurable "inspection-only weekdays" warning |
-| No booking in the past, except managers (`api_save`) | Anyone who can book may pick a past date | ✗ | E |
+| Saturday: smart-home inspections only (`alerts_`) | "Inspection-only days" setting (none by default); the booking form warns, as Aura did | ✅ | E |
+| No booking in the past, except managers (`api_save`) | Only Admins may book or move a booking to a past date; old bookings stay editable | ✅ | E |
 | Phone must be an Egyptian mobile (`api_save`) | 7–15 digits, international formats allowed | ⚠ | No: a stricter rule would reject numbers already stored |
 | Order kind: inspection, installation, completion, programming, maintenance × lock / smart home (`VISIT_KIND`) | Product category and visit type | ✅ | — |
 | Customer confirmation, plus a "confirm with the client" alert for today and tomorrow | Confirmation on every booking; dashboard alert | ✅ | — |
-| Site readiness for smart home: foundation and internet, with a "check readiness" alert (`alerts_`) | Free-text notes only | ◐ | E: structured fields and an alert |
-| Where the lock is (company / client / not decided), electrician needed, door type, quantity, devices, size (`lockWhere`, `electrician`, `door`, `count`, `devices`, `size`) | Brand, model, description, required equipment (free text) | ◐ | E: `lockWhere` and `electrician` as structured fields, since check-ins and the live board use them; the rest stays free text |
+| Site readiness for smart home: foundation and internet, with a "check readiness" alert (`alerts_`) | Foundation and internet fields on smart-home bookings, with the reminder on the form and the visit | ◐ | Not on the dashboard (it would add a database round trip to every dashboard load) |
+| Where the lock is (company / client / not decided), electrician needed, door type, quantity, devices, size (`lockWhere`, `electrician`, `door`, `count`, `devices`, `size`) | Lock location and electrician as fields; door type, quantity, devices and size stay in the free-text description and equipment (or come from the quotation) | ◐ | No: structured door/devices lists only if reports need them |
 | Status set: confirmed, done, postponed, needs another visit, cancelled | Configurable statuses with kinds, Arabic names | ✅ | — |
 | Follow-up visit linked to the original (`followOf`) | Linked both ways; dashboard asks for one | ✅ | — |
 | Missing-data, overdue and postponed alerts (`alerts_`, `missing_`) | Dashboard "Needs attention" | ✅ | — |
 | Change log (`log_`, `diff_`) | Field-level history plus an append-only audit log | ✅ | — |
 | Client history by phone while booking (`api_clientLookup`) | Repeat-customer lookup while booking | ✅ | — |
-| Quotation link from aura.eg parsed into items, totals and Sales person; prices hidden from technicians (`api_quote`, `parseQuote_`, `noPrices_`) | — | ✗ | E: server fetch limited to an allow-listed host, with a size and time limit; technicians see items without prices |
-| Temporary 10-minute hold on a slot while on the phone (`api_hold`, `HOLD_MIN`) | — | ✗ | E |
-| Best-technician suggestion by specialty, load and distance (`api_free`, `specFits_`) | Live available/busy list in the booking form | ◐ | E: specialty per technician and a ranked suggestion |
+| Quotation link from aura.eg parsed into items, totals and Sales person; prices hidden from technicians (`api_quote`, `parseQuote_`, `noPrices_`) | Quotation link on the booking: "Read" fills customer, phone, price and items; the items are kept on the visit; only hosts in `QUOTE_HOSTS` (default aura.eg), HTTPS, 8 s, 1 MB; prices hidden from technicians | ✅ | E |
+| Temporary 10-minute hold on a slot while on the phone (`api_hold`, `HOLD_MIN`) | "Hold 10 minutes" in the booking form; others see "Held by …" and cannot book it; booking releases it; Admins may book over it | ✅ | E |
+| Best-technician suggestion by specialty, load and distance (`api_free`, `specFits_`) | "Suggested" on the two best technicians, "Not their specialty" hints, with Aura's score | ✅ | E |
 | Car warning at booking: more than 3 drops in a period, or drops 20 km or more apart (`api_carWarn`) | Shown under the "Company car" box of the booking form, from the same rules | ✅ | D |
 
 ## 2. Field work: technicians
@@ -75,7 +75,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | "Serial required" before "done" (`api_setSerialRequired`) | "Require the installed serial number" setting (off by default) | ✅ | A |
 | GPS check-in stages: company, pickup, ready (photo), depart, arrive, start, done, problem, leave (`api_checkin`, `checkin_`) | All nine stages with the browser's location (asked once); START and DONE come with the visit outcome; "call the customer" required before setting off; repeated presses return the first check-in; without permission the check-in is saved and marked "no location". The "ready" photo is covered by phase A's before photos. | ✅ | C |
 | Distance flags: more than 400 m from the company, more than 300 m from the client (`checkin_`) | Same thresholds, from the company location setting and the visit's saved coordinates. Aura saved the first company check-in as the company location; here an Admin sets it. | ✅ | C |
-| ETA on "depart": distance × 1.4 ÷ speed by time of day, plus 5 min (`etaMin_`) | Same formula and speeds, when the visit has coordinates (the area fallback comes with phase E's areas list) | ✅ | C |
+| ETA on "depart": distance × 1.4 ÷ speed by time of day, plus 5 min (`etaMin_`) | Same formula and speeds, from the site's pin or else its area's centre | ✅ | C, E |
 | Live position pings (`api_ping`) | The open visit page sends the position every 2 minutes while on the way; only the latest one is kept, to refresh the board's arrival time | ✅ | C |
 | Live board of every technician: free, not yet, at company, at client, finished (`api_tracking`, `api_live`) | **Live board** with Aura's states and red/yellow/green/grey rules, worst first, refreshing itself | ✅ | C |
 | Office TV screen link, token login (`api_screenLogin`, `api_screenReset`) | A Viewer account with the "Live board" permission on the office screen, instead of a shared token URL | ⚠ | C: safer than a link anyone can copy |
@@ -85,7 +85,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Attendance per month: days, late, minutes late, left early, leave/sick/absence days, absent on a visit day (`attendance_`, `api_attendance`, `api_myAttendance`) | **Attendance & points** page for Admins and the Accountant; technicians see their own | ✅ | C |
 | Monthly points: punctuality 40, rating 30, quality 20, visits 10, minus revisits, complaints, late days and absences (`api_stats`, `api_myPoints`) | Same rule, on the attendance page and on the technician's dashboard | ✅ | C |
 | Day plan: one WhatsApp message per technician (`api_dayPlan`) | Day plan page, Arabic or English | ✅ | — |
-| Technician specialty: lock / smart home / both (`spec`) | — | ✗ | E |
+| Technician specialty: lock / smart home / both (`spec`) | Specialty on technician accounts (Users) | ✅ | E |
 | Leave, sick and absence requests that block booking (`api_leave*`) | Requests, approval, booking block, clash alerts | ✅ | — |
 
 ## 3. Money
@@ -128,7 +128,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Dashboard counters: today, tomorrow, week, conflicts, missing, overdue, no engineer, by Sales | Dashboard counters and "Needs attention" | ✅ | — |
 | Dashboard: complaints open, satisfaction calls, quality reviews, maintenance due | After-sales counters on the dashboard | ✅ | B |
 | Dashboard: pending expenses, pending leave requests, cash held | Leave and cash on the dashboard; pending expenses on the expenses page | ◐ | — |
-| Monthly stats by Sales, engineer, type and area; ratings; visit durations from check-ins (`api_stats`) | Reports by status, Sales, category, technician, day; ratings, grades and average visit duration per technician on the attendance page | ◐ | E (by area) |
+| Monthly stats by Sales, engineer, type and area; ratings; visit durations from check-ins (`api_stats`) | Reports by status, Sales, category, technician, day and the top 10 areas; ratings, grades and average visit duration per technician on the attendance page | ✅ | E |
 | Month export (`api_export`) | CSV exports | ✅ | — |
 
 ## 7. Platform and administration
@@ -137,7 +137,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 |---|---|:-:|:-:|
 | 6-digit PIN login | E-mail and password (bcrypt), server sessions, rate limiting, invitations | ⚠ | No: PINs are weaker |
 | 10 roles: admin, head of installations, head of sales, supervisor, sales, engineer, technician, driver, store, accountant | Admin, Sales, Technician, Accountant, Store keeper, Driver, Viewer (with per-viewer permissions) | ◐ | Heads and supervisor are Admin; engineer is Technician |
-| Editable lists: engineers, sales, areas, types, doors, devices, models (`api_adminSaveLists`) | Users, statuses, product models | ◐ | E: an areas list with coordinates (`AREA_GEO`), used for ETA and routes when a site has no pin |
+| Editable lists: engineers, sales, areas, types, doors, devices, models (`api_adminSaveLists`) | Users, statuses, product models; Aura's area centres (`AREA_GEO`, Arabic and English names) are built in and used for the arrival estimate, the car route and the suggestion when a site has no pin | ◐ | Area, door and device lists are not editable |
 | Company location setting (`api_setCompany`) | Settings → Field work: a full Google Maps link or coordinates; working-day start, grace and end | ✅ | C |
 | In-app notifications | Yes, stored as message keys, shown in each reader's language | ✅ | — |
 | Arabic interface | Arabic-first RTL with an English switch | ✅ | PR #3 |

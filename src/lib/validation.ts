@@ -2,6 +2,7 @@
  * Zod schemas shared by the browser (instant feedback) and the API (authoritative validation).
  */
 import { z } from "zod";
+import type { ProductCategory as ProductCategoryValue } from "@prisma/client";
 import { msg, type MessageKey } from "@/i18n/translator";
 import { HEX_COLOR_RE } from "./colors";
 import { CONFIRMATIONS, LEAVE_TYPES, PAYMENT_METHODS, PRODUCT_CATEGORIES, ROLES, SERIAL_RE, STATUS_KINDS, VISIT_TYPES, parseSerials, phoneDigits } from "./constants";
@@ -26,6 +27,11 @@ const requiredText = (label: MessageKey, max: number) => {
   const required = msg("validation.required", { field: `@${label}` });
   return z.preprocess((v) => (typeof v === "string" ? v.trim() : v), z.string({ error: required }).min(1, required).max(max, maxChars(max)));
 };
+
+export const READINESS = ["UNKNOWN", "NOT_READY", "READY"] as const;
+/** A choice from a list; "" means none, left out means unchanged. */
+const optionalEnum = (values: readonly [string, ...string[]]) =>
+  z.preprocess((v) => (v === "" ? null : v), z.enum(values as [string, ...string[]], { error: msg("validation.invalid") }).nullable().optional());
 
 const phoneField = (label: MessageKey) =>
   requiredText(label, 30)
@@ -131,6 +137,16 @@ export const appointmentInputSchema = z
     visitType: z.preprocess((v) => (v === "" ? null : v), z.enum(VISIT_TYPES as [string, ...string[]], { error: msg("validation.visitType") }).nullable().optional()),
     /** The company car drops the team (Aura car); left out = unchanged on edits. */
     needsCar: z.boolean().optional(),
+    /** Smart-home site readiness, where the lock is and whether an electrician is needed; left out = unchanged. */
+    siteFoundation: optionalEnum(READINESS),
+    siteInternet: optionalEnum(READINESS),
+    lockAt: optionalEnum(["COMPANY", "CUSTOMER", "UNDECIDED"]),
+    electrician: optionalEnum(["CUSTOMER_PROVIDES", "COMPANY_PROVIDES", "NOT_NEEDED"]),
+    /** The quotation link from the company website. */
+    quoteUrl: z.preprocess(
+      (v) => (typeof v === "string" ? v.trim() || null : v),
+      z.string().max(500, maxChars(500)).regex(/^https?:\/\//, msg("validation.url")).nullable().optional(),
+    ),
     customerConfirmation: z.enum(CONFIRMATIONS as [string, ...string[]]).optional(),
     /** Create only: the earlier appointment this visit follows up. */
     followUpOfId: idField.optional().nullable(),
@@ -267,6 +283,11 @@ export const availabilitySchema = z.object({
   startTime: z.string().regex(TIME_RE, msg("validation.time")),
   durationMinutes: z.coerce.number().int().min(15).max(1440),
   excludeAppointmentId: idField.optional().nullable(),
+  /** For the technician suggestion: what is installed and where. */
+  productCategory: z.enum(PRODUCT_CATEGORIES as [ProductCategoryValue, ...ProductCategoryValue[]]).optional().nullable().catch(null),
+  latitude: z.string().max(30).optional().nullable(),
+  longitude: z.string().max(30).optional().nullable(),
+  area: z.string().max(120).optional().nullable(),
 });
 
 const dateField = z.string({ error: msg("validation.date") }).refine(isValidDateString, msg("validation.date"));
@@ -365,6 +386,8 @@ export const userCreateSchema = z.object({
   role: z.enum(ROLES as [string, ...string[]], { error: msg("validation.role") }),
   color: colorField.optional(),
   viewerPermissions: viewerPermissionsField.optional(),
+  /** Technicians: lock, smart home or both (used for the booking suggestion). */
+  specialty: z.preprocess((v) => (v === "" ? null : v), z.enum(["LOCK", "SMART_HOME", "BOTH"]).nullable().optional()),
   /** Optional: set an initial password directly instead of sending an invitation link. */
   password: z.preprocess((v) => (v === "" ? undefined : v), passwordSchema.optional()),
 });
@@ -377,6 +400,8 @@ export const userUpdateSchema = z.object({
   isActive: z.boolean().optional(),
   color: colorField.optional(),
   viewerPermissions: viewerPermissionsField.optional(),
+  /** Technicians: lock, smart home or both (used for the booking suggestion). */
+  specialty: z.preprocess((v) => (v === "" ? null : v), z.enum(["LOCK", "SMART_HOME", "BOTH"]).nullable().optional()),
 });
 
 export const statusInputSchema = z.object({
@@ -422,6 +447,8 @@ export const settingsSchema = z
     workEnd: z.string().regex(TIME_RE, msg("validation.time")),
     /** Added once to a visit when the technician reports a problem caused by the customer (0 = off). */
     revisitFee: z.coerce.number().min(0).max(100_000),
+    /** Weekdays on which smart-home visits should only be inspections (a warning while booking; Aura's Saturday rule). */
+    inspectionOnlyWeekdays: z.array(z.coerce.number().int().min(0).max(6)).max(7).refine((d) => new Set(d).size === d.length, msg("validation.dayTwice")),
   })
   .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: msg("validation.afterStartHour") })
   .refine((s) => (s.companyLatitude === null) === (s.companyLongitude === null), { path: ["companyLatitude"], message: msg("validation.coordinatesPair") })

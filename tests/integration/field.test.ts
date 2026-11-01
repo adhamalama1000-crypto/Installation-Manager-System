@@ -44,7 +44,8 @@ let seq = 0;
 async function book(date: string, overrides: Record<string, unknown> = {}) {
   seq++;
   return createAppointment(
-    asCurrent(sales),
+    // Past visits can only be booked by an Admin; on behalf of the Sales employee.
+    asCurrent(admin),
     appointmentPayload({
       date,
       startTime: "12:00",
@@ -52,6 +53,7 @@ async function book(date: string, overrides: Record<string, unknown> = {}) {
       technicianIds: [tech.id],
       location: { area: "Shubra", latitude: String(CUSTOMER.lat), longitude: String(CUSTOMER.lng) },
       customer: { name: `Customer ${seq}`, phone: `+20 100 000 ${String(1000 + seq)}` },
+      salesUserId: sales.id,
       ...overrides,
     }),
   );

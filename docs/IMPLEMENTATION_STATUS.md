@@ -19,8 +19,8 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 | A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Done, #5 open (against `main`) |
 | B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Done, #6 open (stacked on #5) |
 | C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Done, #7 open (stacked on #6) |
-| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Done, pull request open (stacked on phase C) |
-| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | — | Not started |
+| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Done, #8 open (stacked on #7) |
+| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Done, pull request open (stacked on #8) |
 
 ## Check results by phase
 
@@ -90,4 +90,20 @@ Not done in this phase:
 Not done in this phase:
 - Expenses are not yet in the finance CSV export; they have their own page per month.
 - Drivers are not notified of every status change of a car visit (Aura did); they see changes on the route page, which refreshes itself.
+
+### Phase E: booking helpers (2026-11-01)
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 23 files, **175 / 175 passed** (11 new: 4 unit tests of the quotation parser and area matching, 7 service tests including a local stand-in for the quotation site; two older test files now book past visits as the Admin, as the new rule requires) |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **27 / 27 passed** on a freshly migrated and seeded database (one older test now books its past visit as the Admin) |
+| Overflow sweep | **0 problems** on the booking form (new and edit), a visit, reports, users and settings at 320–1024 px in Arabic and English |
+| Migration on the development database | `20261101090000_booking_helpers` applied with `migrate deploy`; row counts unchanged; `migrate diff`: no difference |
+
+Not done in this phase:
+- The quotation reader was tested against saved pages and a local stand-in server, not against the live aura.eg site: this environment's network proxy refuses connections to it (HTTP 403). Set `QUOTE_HOSTS` if the quotation pages live on another host.
+- The smart-home readiness reminder is not on the dashboard; area, door and device lists are not editable.
 

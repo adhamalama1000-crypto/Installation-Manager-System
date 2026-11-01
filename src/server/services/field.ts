@@ -5,6 +5,7 @@ import { appointmentCode } from "@/lib/constants";
 import { CLIENT_FAULT, distanceM, etaMinutes, FAR_FROM_COMPANY_M, FAR_FROM_CUSTOMER_M, minutesOf, monthlyPoints, PROBLEM_REASONS, type Geo, type ProblemReason } from "@/lib/field";
 import { addDaysToKey, addMonthsToKey, dateKey, dayRangeUtc, startOfMonthKey, timeKey, todayKey, weekdayOfKey } from "@/lib/time";
 import { checkInSchema, fieldErrorsFromZod, geoSchema, type SettingsValues } from "@/lib/validation";
+import { areaGeo } from "@/lib/areas";
 import type { CheckInDTO } from "@/lib/types";
 import { prisma, type Tx } from "../db";
 import { appointmentScope, assertCan, hasPermission } from "../access";
@@ -38,6 +39,8 @@ type VisitForCheckIn = {
   customerName: string;
   latitude: number | null;
   longitude: number | null;
+  /** The site's area: its centre gives an estimated arrival when there is no pin (never a distance flag). */
+  area?: string | null;
 };
 
 function companyGeo(s: SettingsValues): Geo | null {
@@ -91,12 +94,12 @@ export async function insertCheckIn(
       far = kind === "CAR_BACK" && distance > FAR_FROM_COMPANY_M;
     }
     if (minutesOf(hhmm) < minutesOf(settings.workEnd)) early = minutesOf(settings.workEnd) - minutesOf(hhmm);
+  } else if (geo && kind === "DEPART") {
+    const to = client ?? areaGeo(visit?.area);
+    if (to) etaAt = new Date(now.getTime() + etaMinutes(geo, to, Number(hhmm.slice(0, 2))) * 60_000);
   } else if (geo && client) {
-    if (kind === "DEPART") etaAt = new Date(now.getTime() + etaMinutes(geo, client, Number(hhmm.slice(0, 2))) * 60_000);
-    else {
-      distance = distanceM(geo, client);
-      far = (kind === "ARRIVE" || kind === "START" || kind === "CAR_DROP" || kind === "CAR_PICK") && distance > FAR_FROM_CUSTOMER_M;
-    }
+    distance = distanceM(geo, client);
+    far = (kind === "ARRIVE" || kind === "START" || kind === "CAR_DROP" || kind === "CAR_PICK") && distance > FAR_FROM_CUSTOMER_M;
   }
   const row = await tx.checkIn.create({
     data: {
@@ -153,7 +156,7 @@ const visitSelect = {
   number: true,
   createdById: true,
   customer: { select: { name: true } },
-  location: { select: { latitude: true, longitude: true } },
+  location: { select: { latitude: true, longitude: true, area: true } },
   status: { select: { kind: true } },
   extraFee: true,
   version: true,
@@ -195,7 +198,15 @@ export async function recordCheckIn(user: CurrentUser, raw: unknown, now: Date =
     }
 
     const v: VisitForCheckIn | null = visit
-      ? { id: visit.id, number: visit.number, createdById: visit.createdById, customerName: visit.customer.name, latitude: num(visit.location.latitude), longitude: num(visit.location.longitude) }
+      ? {
+          id: visit.id,
+          number: visit.number,
+          createdById: visit.createdById,
+          customerName: visit.customer.name,
+          latitude: num(visit.location.latitude),
+          longitude: num(visit.location.longitude),
+          area: visit.location.area,
+        }
       : null;
     const { row, duplicate } = await insertCheckIn(tx, user, kind, v, geo ?? null, settings, { reason, note }, now);
     if (duplicate) return { row, duplicate };

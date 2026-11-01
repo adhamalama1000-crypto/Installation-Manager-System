@@ -5,6 +5,8 @@ import { assertCan } from "@/server/access";
 import { ValidationError } from "@/server/errors";
 import { apiRoute, readJson } from "@/server/http";
 import { technicianAvailability } from "@/server/services/scheduling";
+import { suggestTechnicians } from "@/server/services/booking-helpers";
+import { areaGeo } from "@/lib/areas";
 
 /** Live availability of all active technicians for a proposed slot (booking form). */
 export const POST = apiRoute(async ({ req, user }) => {
@@ -21,5 +23,20 @@ export const POST = apiRoute(async ({ req, user }) => {
     bufferMinutes: settings.travelBufferMinutes,
     timezone: settings.timezone,
   });
-  return { startsAt: startsAt.toISOString(), endsAt: endsAt.toISOString(), technicians };
+  // Aura's suggestion: specialty, holds by others, how full their day is and how close their next visit is.
+  const lat = Number(parsed.data.latitude);
+  const lng = Number(parsed.data.longitude);
+  const suggestions = await suggestTechnicians(user, {
+    startsAt,
+    endsAt,
+    category: parsed.data.productCategory ?? null,
+    here: parsed.data.latitude && parsed.data.longitude && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : areaGeo(parsed.data.area),
+    excludeAppointmentId: parsed.data.excludeAppointmentId,
+    available: Object.fromEntries(technicians.map((t) => [t.id, t.available])),
+  });
+  return {
+    startsAt: startsAt.toISOString(),
+    endsAt: endsAt.toISOString(),
+    technicians: technicians.map((t) => ({ ...t, ...suggestions[t.id], available: t.available && !suggestions[t.id]?.heldBy })),
+  };
 });

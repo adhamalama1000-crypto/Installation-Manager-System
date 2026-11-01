@@ -4,6 +4,7 @@ import type { CheckInKind, Prisma } from "@prisma/client";
 import { msg } from "@/i18n/translator";
 import { appointmentCode } from "@/lib/constants";
 import { distanceM, etaMinutes, minutesOf, type Geo } from "@/lib/field";
+import { areaGeo } from "@/lib/areas";
 import { resolveLocationLink } from "@/lib/maps";
 import { addDaysToKey, dateKey, dayRangeUtc, isValidDateString, timeKey, todayKey, zonedToUtc } from "@/lib/time";
 import type { CheckInDTO } from "@/lib/types";
@@ -113,7 +114,9 @@ async function dayStops(day: string, tz: string) {
   return rows.map((r) => {
     const lat = num(r.location.latitude);
     const lng = num(r.location.longitude);
-    return { row: r, id: r.id, number: r.number, startsAt: r.startsAt, slot: carSlot(r.startsAt, tz), carSeq: r.carSeq, geo: lat !== null && lng !== null ? { lat, lng } : null, area: r.location.area, customerName: r.customer.name };
+    // Without a pin, the area's centre is close enough to order the stops (Aura clientGeo_).
+    const geo = lat !== null && lng !== null ? { lat, lng } : areaGeo(r.location.area);
+    return { row: r, id: r.id, number: r.number, startsAt: r.startsAt, slot: carSlot(r.startsAt, tz), carSeq: r.carSeq, geo, area: r.location.area, customerName: r.customer.name };
   });
 }
 
@@ -292,14 +295,14 @@ export async function carCheckIn(user: CurrentUser, raw: unknown, now: Date = ne
  * A warning for the booking form when the car is asked for (Aura api_carWarn): other drops in the
  * same period far from this site, too many drops, or just how many there are.
  */
-export async function carWarning(user: CurrentUser, q: { date?: string | null; time?: string | null; lat?: string | null; lng?: string | null; exclude?: string | null }) {
+export async function carWarning(user: CurrentUser, q: { date?: string | null; time?: string | null; lat?: string | null; lng?: string | null; area?: string | null; exclude?: string | null }) {
   assertCan(user, "appointments.manage");
   if (!q.date || !isValidDateString(q.date) || !q.time || !/^\d{2}:\d{2}$/.test(q.time)) return { message: null };
   const tz = user.settings.timezone;
   const slot = carSlot(zonedToUtc(q.date, q.time, tz), tz);
   const lat = Number(q.lat);
   const lng = Number(q.lng);
-  const here = q.lat && q.lng && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : null;
+  const here = q.lat && q.lng && Number.isFinite(lat) && Number.isFinite(lng) ? { lat, lng } : areaGeo(q.area);
   const same = (await dayStops(q.date, tz)).filter((s) => s.slot === slot && s.id !== q.exclude);
   if (!same.length) return { message: null };
   const far = here ? same.filter((s) => s.geo && distanceM(here, s.geo) >= FAR_APART_M) : [];

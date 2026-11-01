@@ -43,7 +43,11 @@ beforeEach(async () => {
 let seq = 0;
 async function book(overrides: Record<string, unknown> = {}) {
   seq++;
-  return createAppointment(asCurrent(sales), appointmentPayload({ technicianIds: [tech.id], visitType: "INSTALLATION", startTime: `${String(8 + (seq % 10)).padStart(2, "0")}:00`, durationMinutes: 30, ...overrides }));
+  // Past visits can only be booked by an Admin (Aura's rule); booked on behalf of the Sales employee.
+  return createAppointment(
+    asCurrent(admin),
+    appointmentPayload({ technicianIds: [tech.id], visitType: "INSTALLATION", startTime: `${String(8 + (seq % 10)).padStart(2, "0")}:00`, durationMinutes: 30, salesUserId: sales.id, ...overrides }),
+  );
 }
 
 async function done(a: { id: string; version: number }, by: User = tech, report = "Installed") {
@@ -118,7 +122,7 @@ describe("complaints", () => {
   it("is resolved by finishing the maintenance visit linked to it", async () => {
     const a = await done(await book({ date: daysAgo(30) }));
     let c = await openComplaint(asCurrent(sales), a.id, { description: "App does not connect" });
-    const other = await createAppointment(asCurrent(sales), appointmentPayload({ customer: { name: "Someone Else", phone: "+20 100 999 8888" }, technicianIds: [], date: daysAgo(1) }));
+    const other = await createAppointment(asCurrent(admin), appointmentPayload({ customer: { name: "Someone Else", phone: "+20 100 999 8888" }, technicianIds: [], date: daysAgo(1), salesUserId: sales.id }));
     await expect(updateComplaint(asCurrent(admin), c.id, { action: "linkVisit", visitId: other.id, version: c.version })).rejects.toBeInstanceOf(ValidationError);
     await expect(updateComplaint(asCurrent(admin), c.id, { action: "linkVisit", visitId: a.id, version: c.version })).rejects.toBeInstanceOf(ValidationError);
 

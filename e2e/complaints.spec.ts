@@ -67,11 +67,13 @@ test("Sales records the customer's satisfaction from the after-sales list", asyn
   const baseURL = test.info().project.use.baseURL!;
   const api = await playwright.request.newContext({ baseURL });
   await api.post("/api/auth/login", { data: { email: "mona.sales@example.com", password: PASSWORD } });
-  // A visit 5 or 6 days ago (whichever is not the seeded closed Friday). No technician, so reruns
-  // never clash; Sales records it as done from the office.
+  // A visit 5 or 6 days ago (whichever is not the seeded closed Friday), booked by the Admin (only
+  // an Admin may book a past date). No technician, so reruns never clash; Sales records it as done.
   const day = [5, 6].map((n) => new Date(Date.now() - n * 86_400_000)).find((d) => d.getUTCDay() !== 5)!.toISOString().slice(0, 10);
   const customer = `E2E Rating ${Date.now()}`;
-  const created = await api.post("/api/appointments", {
+  const admin = await playwright.request.newContext({ baseURL });
+  await admin.post("/api/auth/login", { data: { email: "admin@example.com", password: PASSWORD } });
+  const created = await admin.post("/api/appointments", {
     data: {
       customer: { name: customer, phone: "+20 100 555 0155" },
       location: { area: "Maadi" },
@@ -85,6 +87,7 @@ test("Sales records the customer's satisfaction from the after-sales list", asyn
   });
   expect(created.status()).toBe(201);
   const { appointment } = await created.json();
+  await admin.dispose();
   const outcome = await api.post(`/api/appointments/${appointment.id}/outcome`, { data: { outcome: "COMPLETED", report: "Installed", version: appointment.version } });
   expect(outcome.status()).toBe(200);
 

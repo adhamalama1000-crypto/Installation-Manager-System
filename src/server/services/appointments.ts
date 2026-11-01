@@ -1,5 +1,16 @@
 import "server-only";
-import { Prisma, type AppointmentStatus, type CustomerConfirmation, type PaymentMethod, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
+import {
+  Prisma,
+  type AppointmentStatus,
+  type CustomerConfirmation,
+  type ElectricianNeed,
+  type LockLocation,
+  type PaymentMethod,
+  type ProductCategory,
+  type ReadinessState,
+  type StatusKind,
+  type VisitType,
+} from "@prisma/client";
 import { z } from "zod";
 import { msg } from "@/i18n/translator";
 import {
@@ -12,8 +23,9 @@ import { deliveryMissing } from "@/lib/delivery";
 import { statusName } from "@/lib/format";
 import { resolveLocationLink } from "@/lib/maps";
 import { type Permission } from "@/lib/permissions";
-import type { AppointmentDTO, AppointmentListItem, AuditEntryDTO } from "@/lib/types";
-import { computeEnd, dateKey, dayRangeUtc, isValidDateString, weekdayOfKey, zonedToUtc } from "@/lib/time";
+import type { AppointmentDTO, AppointmentListItem, AuditEntryDTO, QuoteDTO } from "@/lib/types";
+import { quoteForReader } from "@/lib/quote";
+import { computeEnd, dateKey, dayRangeUtc, isValidDateString, todayKey, weekdayOfKey, zonedToUtc } from "@/lib/time";
 import {
   appointmentInputSchema,
   cancelSchema,
@@ -37,6 +49,7 @@ import {
 import { diffValues, recordAudit } from "./audit";
 import { resolveComplaintsForVisit } from "./complaints";
 import { insertCheckIn } from "./field";
+import { assertNotHeld, canBookInPast, releaseOwnHolds } from "./booking-helpers";
 import { localized, notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
 import { assertTechniciansNotOnLeave } from "./leaves";
@@ -114,6 +127,12 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     categoryOther: a.categoryOther,
     visitType: a.visitType,
     needsCar: a.needsCar,
+    siteFoundation: a.siteFoundation,
+    siteInternet: a.siteInternet,
+    lockAt: a.lockAt,
+    electrician: a.electrician,
+    quoteUrl: a.quoteUrl,
+    quote: a.quoteData ? quoteForReader(a.quoteData as unknown as QuoteDTO, canSeePrices(user)) : null,
     customerConfirmation: a.customerConfirmation,
     followUpOf: a.links.followUpOf,
     followUps: a.links.followUps,
@@ -504,6 +523,11 @@ function snapshot(a: AppointmentFull | null) {
     categoryOther: a.categoryOther,
     visitType: a.visitType,
     needsCar: a.needsCar,
+    siteFoundation: a.siteFoundation,
+    siteInternet: a.siteInternet,
+    lockAt: a.lockAt,
+    electrician: a.electrician,
+    quoteUrl: a.quoteUrl,
     customerConfirmation: a.customerConfirmation,
     brand: a.brand,
     model: a.model,
@@ -533,6 +557,29 @@ function moneyData(input: AppointmentInput, before?: MoneyBefore) {
   }
   if (depositAmount && !depositMethod) throw new ValidationError({ depositMethod: msg("validation.depositMethod") });
   return { totalPrice, depositAmount, depositMethod, extraFee };
+}
+
+type DetailBefore = { siteFoundation: ReadinessState | null; siteInternet: ReadinessState | null; lockAt: LockLocation | null; electrician: ElectricianNeed | null; quoteUrl: string | null; quoteData: Prisma.JsonValue };
+
+/** Site readiness, lock location, electrician and quotation link; left out = unchanged on edits. */
+function detailData(input: AppointmentInput, before?: DetailBefore) {
+  const keep = <T,>(v: T | null | undefined, old: T | null | undefined) => (v === undefined ? (old ?? null) : v);
+  const quoteUrl = keep(input.quoteUrl, before?.quoteUrl);
+  return {
+    siteFoundation: keep(input.siteFoundation as ReadinessState | null | undefined, before?.siteFoundation),
+    siteInternet: keep(input.siteInternet as ReadinessState | null | undefined, before?.siteInternet),
+    lockAt: keep(input.lockAt as LockLocation | null | undefined, before?.lockAt),
+    electrician: keep(input.electrician as ElectricianNeed | null | undefined, before?.electrician),
+    quoteUrl,
+    // What was read from the link belongs to that link only.
+    ...(before && quoteUrl !== before.quoteUrl ? { quoteData: Prisma.DbNull } : {}),
+  };
+}
+
+/** Aura: only managers may book on a date that has passed (company-local day). */
+function assertNotPast(user: CurrentUser, date: string, tz: string) {
+  if (canBookInPast(user) || date >= todayKey(tz)) return;
+  throw new ValidationError({ date: msg("appointmentErrors.pastDate") }, msg("appointmentErrors.pastDate"));
 }
 
 /** Closed weekdays (Settings) cannot be booked; only an Admin may book one, and only explicitly. */
@@ -617,10 +664,12 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
       }
       const status = await resolveStatus(tx, input.statusId);
       if (status.blocksSchedule) assertOpenDay(user, input.date, settings.closedWeekdays, input.allowClosedDay);
+      assertNotPast(user, input.date, tz);
       await validateTechnicians(tx, input.technicianIds, []);
       await lockTechnicians(tx, input.technicianIds);
       if (status.blocksSchedule) {
         await assertTechniciansNotOnLeave(tx, input.technicianIds, startsAt, endsAt, tz);
+        await assertNotHeld(tx, user, input.technicianIds, startsAt, endsAt);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
           startsAt,
@@ -638,6 +687,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
           categoryOther: input.productCategory === "OTHER" ? input.categoryOther : null,
           visitType: (input.visitType as VisitType | null | undefined) ?? null,
           needsCar: input.needsCar ?? false,
+          ...detailData(input),
           customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? "PENDING",
           followUpOfId: input.followUpOfId ?? null,
           ...moneyData(input),
@@ -697,6 +747,8 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         },
         user.id,
       );
+      // Booked: the slot the holder was keeping is no longer needed.
+      await releaseOwnHolds(tx, user.id);
       return appt.id;
     }, TX_OPTIONS);
     return getAppointment(user, id);
@@ -746,6 +798,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
       if (status.blocksSchedule && dateKey(existing.startsAt, tz) !== input.date) {
         assertOpenDay(user, input.date, settings.closedWeekdays, input.allowClosedDay);
       }
+      if (dateKey(existing.startsAt, tz) !== input.date) assertNotPast(user, input.date, tz);
       const currentTechIds = existing.technicians.map((t) => t.technicianId);
       await validateTechnicians(tx, input.technicianIds, currentTechIds);
       await lockTechnicians(tx, [...currentTechIds, ...input.technicianIds]);
@@ -756,6 +809,8 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
         const recheck = daysChanged || !existing.status.blocksSchedule;
         const onLeaveCheck = recheck ? input.technicianIds : input.technicianIds.filter((t) => !currentTechIds.includes(t));
         await assertTechniciansNotOnLeave(tx, onLeaveCheck, startsAt, endsAt, tz);
+        const timeChanged = existing.startsAt.getTime() !== startsAt.getTime() || existing.endsAt.getTime() !== endsAt.getTime();
+        await assertNotHeld(tx, user, timeChanged ? input.technicianIds : input.technicianIds.filter((t) => !currentTechIds.includes(t)), startsAt, endsAt);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
           startsAt,
@@ -776,6 +831,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           categoryOther: input.productCategory === "OTHER" ? input.categoryOther : null,
           visitType: input.visitType === undefined ? existing.visitType : ((input.visitType as VisitType | null) ?? null),
           ...(input.needsCar === undefined ? {} : { needsCar: input.needsCar, ...(input.needsCar ? {} : { carSeq: null }) }),
+          ...detailData(input, existing),
           customerConfirmation: (input.customerConfirmation as CustomerConfirmation | undefined) ?? existing.customerConfirmation,
           // followUpOfId is set at creation only.
           ...moneyData(input, existing),

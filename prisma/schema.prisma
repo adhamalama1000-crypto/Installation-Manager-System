@@ -144,6 +144,34 @@ enum ExpenseStatus {
   CANCELLED
 }
 
+/// What a technician installs (Aura spec: لوك / سمارت هوم / الاتنين); null = both.
+enum TechnicianSpecialty {
+  LOCK
+  SMART_HOME
+  BOTH
+}
+
+/// Smart-home site readiness (Aura foundation / internet).
+enum ReadinessState {
+  UNKNOWN
+  NOT_READY
+  READY
+}
+
+/// Where the lock is picked up (Aura lockWhere: مقر الشركة / عند العميل / لسه مش متحدد).
+enum LockLocation {
+  COMPANY
+  CUSTOMER
+  UNDECIDED
+}
+
+/// Whether an electrician is needed (Aura electrician).
+enum ElectricianNeed {
+  CUSTOMER_PROVIDES
+  COMPANY_PROVIDES
+  NOT_NEEDED
+}
+
 enum StatusKind {
   SCHEDULED
   IN_PROGRESS
@@ -156,25 +184,27 @@ enum StatusKind {
 }
 
 model User {
-  id                String    @id @default(cuid())
+  id                String               @id @default(cuid())
   name              String
   /// Stored lower-cased; used as the login identifier.
-  email             String    @unique
+  email             String               @unique
   phone             String?
   role              Role
-  isActive          Boolean   @default(true)
+  isActive          Boolean              @default(true)
   /// bcrypt hash. Null until the user sets a password through an invitation link.
   passwordHash      String?
   /// Calendar colour (hex, e.g. #E55823). Used for Sales employees; kept if the role changes so
   /// historical appointments keep their colour.
   color             String?
   /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
-  viewerPermissions String[]  @default([])
-  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
-  passwordChangedAt DateTime? @db.Timestamptz(3)
+  viewerPermissions String[]             @default([])
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+  passwordChangedAt DateTime?            @db.Timestamptz(3)
   /// Interface language chosen by the user ("ar" or "en"); null = not chosen yet (Arabic).
   locale            String?
+  /// Technicians: what they install, used to suggest the right person when booking.
+  specialty         TechnicianSpecialty?
 
   sessions              Session[]
   passwordTokens        PasswordToken[]         @relation("TokenUser")
@@ -210,6 +240,8 @@ model User {
   position              TechnicianPosition?
   expenses              TransportExpense[]      @relation("ExpenseUser")
   expensesPaid          TransportExpense[]      @relation("ExpensePayer")
+  holdsMade             SlotHold[]              @relation("HoldUser")
+  holdsOn               SlotHold[]              @relation("HoldTechnician")
 
   @@index([role, isActive])
   @@map("users")
@@ -410,6 +442,14 @@ model Appointment {
   /// The company car drops the team at this visit (Aura car = نعم), and its place in the day's route.
   needsCar         Boolean            @default(false)
   carSeq           Int?
+  /// Smart-home site readiness, where the lock is, and whether an electrician is needed.
+  siteFoundation   ReadinessState?
+  siteInternet     ReadinessState?
+  lockAt           LockLocation?
+  electrician      ElectricianNeed?
+  /// The quotation link from the company website and what was read from it (Aura quote).
+  quoteUrl         String?
+  quoteData        Json?
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -795,4 +835,21 @@ model TransportExpense {
   @@index([userId, day])
   @@index([status, day])
   @@map("transport_expenses")
+}
+
+/// A 10-minute hold on a technician's time while Sales is on the phone with a customer (Aura api_hold).
+model SlotHold {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation("HoldUser", fields: [userId], references: [id], onDelete: Cascade)
+  technicianId String
+  technician   User     @relation("HoldTechnician", fields: [technicianId], references: [id], onDelete: Cascade)
+  startsAt     DateTime @db.Timestamptz(3)
+  endsAt       DateTime @db.Timestamptz(3)
+  expiresAt    DateTime @db.Timestamptz(3)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([technicianId, expiresAt])
+  @@index([userId])
+  @@map("slot_holds")
 }

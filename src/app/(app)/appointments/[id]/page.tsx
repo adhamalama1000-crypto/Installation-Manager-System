@@ -3,6 +3,7 @@ import { Boxes, CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, Ma
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
 import { DeliveryCard } from "@/components/appointments/delivery-card";
+import { QuoteCard } from "@/components/appointments/quote-card";
 import { FeedbackCard } from "@/components/after-sales/feedback-card";
 import { ComplaintBadge } from "@/components/complaints/complaint-badge";
 import { OpenComplaintButton } from "@/components/complaints/complaint-forms";
@@ -171,6 +172,16 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
                 items={[
                   { label: t("appointment.visitType"), value: a.visitType ? t.dyn(`enums.visitType.${a.visitType}`) : null },
                   ...(a.needsCar ? [{ label: t("car.needsCar"), value: t("common.yes") }] : []),
+                  { label: t("booking.lockAt"), value: a.lockAt ? t.dyn(`enums.lockAt.${a.lockAt}`) : null },
+                  { label: t("booking.electrician"), value: a.electrician ? t.dyn(`enums.electrician.${a.electrician}`) : null },
+                  ...(a.productCategory === "SMART_HOME"
+                    ? (["siteFoundation", "siteInternet"] as const).map((key) => ({
+                        label: t(key === "siteFoundation" ? "booking.siteFoundation" : "booking.siteInternet"),
+                        value: (
+                          <span className={a[key] === "READY" ? "text-success" : "text-warning"}>{t.dyn(`enums.readiness.${key}.${a[key] ?? "UNKNOWN"}`)}</span>
+                        ),
+                      }))
+                    : []),
                   { label: t("appointment.category"), value: categoryText(a, t) },
                   { label: t("appointment.brandModel"), value: [a.brand, a.model].filter(Boolean).join(" ") || null },
                   { label: t("appointment.description"), value: a.description && <span className="whitespace-pre-line">{a.description}</span>, full: true },
@@ -189,6 +200,8 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               />
             </CardBody>
           </Card>
+
+          {a.quoteUrl && <QuoteCard appointmentId={a.id} url={a.quoteUrl} quote={a.quote} canRefresh={a.canManage} />}
 
           {checksIn && (
             <CheckInPanel appointmentId={a.id} checkIns={checkIns} tz={tz} active={a.status.kind === "SCHEDULED" || a.status.kind === "IN_PROGRESS"} />

@@ -18,6 +18,11 @@ const ENUM_KEYS: Record<string, string> = {
   type: "enums.leaveType",
   to: "enums.stockStatus",
   kind: "enums.statusKind",
+  lockAt: "enums.lockAt",
+  electrician: "enums.electrician",
+  siteFoundation: "enums.readiness.siteFoundation",
+  siteInternet: "enums.readiness.siteInternet",
+  specialty: "enums.specialty",
 };
 
 export function formatAuditValue(v: unknown, tz: string, t: T, key?: string): string {

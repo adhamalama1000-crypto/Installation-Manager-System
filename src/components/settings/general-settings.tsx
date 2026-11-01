@@ -155,6 +155,26 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
         </div>
       </fieldset>
       <fieldset>
+        <legend className="mb-1 text-sm font-medium text-fg">{t("settings.inspectionDays")}</legend>
+        <p className="mb-2 text-xs text-fg-muted">{t("settings.inspectionDaysText")}</p>
+        <div className="flex flex-wrap gap-2">
+          {WEEKDAYS.map((d, i) => {
+            const on = v.inspectionOnlyWeekdays.includes(i);
+            return (
+              <label key={d} className={`inline-flex cursor-pointer items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${on ? "border-brand bg-brand-soft text-fg" : "border-line text-fg-muted"}`}>
+                <input
+                  type="checkbox"
+                  className="h-4 w-4 accent-[var(--brand-strong)]"
+                  checked={on}
+                  onChange={(e) => upd({ inspectionOnlyWeekdays: e.target.checked ? [...v.inspectionOnlyWeekdays, i].sort() : v.inspectionOnlyWeekdays.filter((x) => x !== i) })}
+                />
+                {d}
+              </label>
+            );
+          })}
+        </div>
+      </fieldset>
+      <fieldset>
         <legend className="mb-1 text-sm font-medium text-fg">{t("settings.delivery")}</legend>
         <p className="mb-2 text-xs text-fg-muted">{t("settings.deliveryText")}</p>
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">

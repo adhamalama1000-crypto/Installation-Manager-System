@@ -42,6 +42,13 @@ export type AppointmentDTO = {
   visitType: VisitType | null;
   /** The company car drops the team at this visit. */
   needsCar: boolean;
+  siteFoundation: "UNKNOWN" | "NOT_READY" | "READY" | null;
+  siteInternet: "UNKNOWN" | "NOT_READY" | "READY" | null;
+  lockAt: "COMPANY" | "CUSTOMER" | "UNDECIDED" | null;
+  electrician: "CUSTOMER_PROVIDES" | "COMPANY_PROVIDES" | "NOT_NEEDED" | null;
+  quoteUrl: string | null;
+  /** What was read from the quotation link; prices only for readers who see money. */
+  quote: QuoteDTO | null;
   customerConfirmation: CustomerConfirmation;
   /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
   followUpOf: { id: string; code: string } | null;
@@ -150,6 +157,8 @@ export type UserDTO = {
   isActive: boolean;
   color: string | null;
   viewerPermissions: string[];
+  /** Technicians only: LOCK, SMART_HOME or BOTH. */
+  specialty: "LOCK" | "SMART_HOME" | "BOTH" | null;
   hasPassword: boolean;
   createdAt: string;
   updatedAt: string;
@@ -274,4 +283,17 @@ export type CheckInDTO = {
   reason: string | null;
   note: string | null;
   duplicate?: boolean;
+};
+
+/** A quotation read from the company website (Aura parseQuote_). */
+export type QuoteDTO = {
+  number: string;
+  client: string;
+  phone: string;
+  sales: string;
+  items: { name: string; qty: number; spec?: string; sku?: string; unit?: string; total?: string }[];
+  count: number;
+  total?: string;
+  install?: string;
+  fetchedAt: string;
 };

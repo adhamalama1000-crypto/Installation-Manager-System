@@ -29,7 +29,7 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
   // never granted to assignment-scoped roles (technicians); guard against that changing.
   if (user.role === "TECHNICIAN") throw new ValidationError({ _form: msg("reportErrors.technicians") });
 
-  const [total, byStatusRaw, bySalesRaw, byCategoryRaw, statuses, users, workloadRaw, dailyRaw] = await Promise.all([
+  const [total, byStatusRaw, bySalesRaw, byCategoryRaw, statuses, users, workloadRaw, dailyRaw, byAreaRaw] = await Promise.all([
     prisma.appointment.count({ where }),
     prisma.appointment.groupBy({ by: ["statusId"], where, _count: { _all: true } }),
     prisma.appointment.groupBy({ by: ["createdById"], where, _count: { _all: true } }),
@@ -48,6 +48,14 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
       FROM appointments a
       WHERE a."startsAt" >= ${start} AND a."startsAt" < ${end}
       GROUP BY day ORDER BY day`,
+    // Aura's statistics by area (top 10); areas are address details, so only for readers who may see them.
+    hasPermission(user, "location.view")
+      ? prisma.$queryRaw<{ area: string; jobs: bigint }[]>`
+          SELECT min(trim(l.area)) AS area, COUNT(*)::bigint AS jobs
+          FROM appointments a JOIN customer_locations l ON l.id = a."locationId"
+          WHERE a."startsAt" >= ${start} AND a."startsAt" < ${end} AND trim(coalesce(l.area, '')) <> ''
+          GROUP BY lower(trim(l.area)) ORDER BY jobs DESC, area LIMIT 10`
+      : Promise.resolve([]),
   ]);
 
   const statusById = new Map(statuses.map((s) => [s.id, s]));
@@ -98,6 +106,7 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
     byStatus,
     bySales,
     byCategory,
+    byArea: byAreaRaw.map((r) => ({ area: r.area, count: Number(r.jobs) })),
     byTechnician,
     daily: dailyRaw.map((d) => ({ day: d.day, count: Number(d.jobs) })),
   };
