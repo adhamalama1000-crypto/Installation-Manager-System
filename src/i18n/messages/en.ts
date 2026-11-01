@@ -95,6 +95,7 @@ const messages = {
       ACCOUNTANT: "Accountant",
       STORE: "Store keeper",
       DRIVER: "Driver",
+      WAREHOUSE_MANAGER: "Warehouse manager",
     },
     productCategory: {
       SMART_LOCK: "Smart Lock",
@@ -212,6 +213,16 @@ const messages = {
     },
     route: {
       view: { label: "Car route", description: "The company car's stops for a day (read-only)." },
+    },
+    products: {
+      view: { label: "Product catalogue", description: "Products, units, categories and brands (read-only)." },
+    },
+    warehouses: {
+      view: { label: "Warehouses", description: "Warehouses, technicians' vehicles and bins (read-only)." },
+    },
+    inventory: {
+      view: { label: "Stock balances & documents", description: "Stock on hand, stock documents and the stock ledger (read-only)." },
+      reports: { label: "Stock value & costs", description: "Purchase and average costs, stock value and inventory exports." },
     },
   },
   money: {
@@ -1304,8 +1315,9 @@ const messages = {
       SALES: "Sees all appointments; creates, edits, reschedules and cancels bookings.",
       TECHNICIAN: "Sees their own assigned appointments, records how each visit went and what was collected, and asks for leave. Appears in technician selection automatically.",
       ACCOUNTANT: "Sees appointments, customers and the finance statement; confirms cash handed over by technicians. Cannot change bookings.",
-      STORE: "Registers stock by serial number, hands items to technicians and takes them back. Sees appointments read-only.",
+      STORE: "Registers stock by serial number, hands items to technicians and takes them back. Receives, issues and transfers warehouse stock and counts it (approval is the warehouse manager's). Sees appointments read-only.",
       DRIVER: "Drives the company car: sees only the visits the car serves, the day's route, and checks in when dropping and picking up the teams. Records transport expenses.",
+      WAREHOUSE_MANAGER: "Runs the warehouses: products, warehouses and vehicles, receipts, issues, transfers, stocktakes, approves adjustments and cancels posted documents. Sees stock value. Sees appointments read-only.",
       VIEWER: "Read-only. You choose exactly what they can see below.",
     },
     colourText: "Appointments booked by this person use this colour everywhere. Leave empty for Sales to get the next free colour.",
