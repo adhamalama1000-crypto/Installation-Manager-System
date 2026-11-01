@@ -25,6 +25,14 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   // Off by default so existing workflows keep working; an Admin turns them on in Settings.
   requireDeliveryProof: false,
   serialRequired: false,
+  // Aura's working day (10:00 with 15 minutes' grace, until 19:00); no company location or fee until set.
+  companyLatitude: null,
+  companyLongitude: null,
+  workStart: "10:00",
+  workGraceMinutes: 15,
+  workEnd: "19:00",
+  revisitFee: 0,
+  inspectionOnlyWeekdays: [],
 };
 
 /** Stored settings JSON (or null when never saved) merged over the defaults. */

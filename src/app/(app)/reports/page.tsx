@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { BarChart3, Download, PieChart, UserCheck, Users, Wrench } from "lucide-react";
+import { BarChart3, Download, MapPin, PieChart, UserCheck, Users, Wrench } from "lucide-react";
 import { BarList, DailyColumns, StatTile } from "@/components/reports/charts";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
@@ -160,6 +160,15 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
             <BarList emptyText={t("reports.noData")} rows={r.byCategory.map((c) => ({ key: c.category, label: c.label, value: c.count }))} />
           </CardBody>
         </Card>
+
+        {r.byArea.length > 0 && (
+          <Card>
+            <CardHeader title={t("reports.byArea")} description={t("reports.byAreaText")} icon={<MapPin className="h-4 w-4" />} />
+            <CardBody>
+              <BarList emptyText={t("reports.noData")} rows={r.byArea.map((a) => ({ key: a.area, label: a.area, value: a.count }))} />
+            </CardBody>
+          </Card>
+        )}
 
         <Card>
           <CardHeader title={t("reports.workload")} description={t("reports.workloadText")} icon={<Users className="h-4 w-4" />} actions={<ExportButton type="technicians" from={from} to={to} />} />

@@ -26,6 +26,7 @@ type Draft = {
   isActive: boolean;
   color: string;
   viewerPermissions: string[];
+  specialty: "" | "LOCK" | "SMART_HOME" | "BOTH";
   password: string;
 };
 
@@ -80,14 +81,14 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
   function openCreate() {
     setErrors({});
     setEditing(null);
-    setDraft({ name: "", email: "", phone: "", role: "SALES", isActive: true, color: "", viewerPermissions: [...DEFAULT_VIEWER_PERMISSIONS], password: "" });
+    setDraft({ name: "", email: "", phone: "", role: "SALES", isActive: true, color: "", viewerPermissions: [...DEFAULT_VIEWER_PERMISSIONS], specialty: "", password: "" });
     setCreating(true);
   }
   function openEdit(u: UserDTO) {
     setErrors({});
     setCreating(false);
     setEditing(u);
-    setDraft({ name: u.name, email: u.email, phone: u.phone ?? "", role: u.role, isActive: u.isActive, color: u.color ?? "", viewerPermissions: u.viewerPermissions, password: "" });
+    setDraft({ name: u.name, email: u.email, phone: u.phone ?? "", role: u.role, isActive: u.isActive, color: u.color ?? "", viewerPermissions: u.viewerPermissions, specialty: u.specialty ?? "", password: "" });
   }
   const close = () => {
     setCreating(false);
@@ -108,6 +109,7 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
         role: draft.role,
         color: draft.color || null,
         viewerPermissions: draft.role === "VIEWER" ? draft.viewerPermissions : undefined,
+        specialty: draft.role === "TECHNICIAN" ? draft.specialty || null : undefined,
         ...(creating ? { password: draft.password } : { isActive: draft.isActive }),
       };
       if (creating) {
@@ -266,6 +268,17 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
                   </Select>
                 )}
               </Field>
+              {draft.role === "TECHNICIAN" && (
+                <Field label={t("users.specialty")} hint={t("users.specialtyHint")} error={errors.specialty}>
+                  {(p) => (
+                    <Select {...p} value={draft.specialty} onChange={(e) => upd({ specialty: e.target.value as Draft["specialty"] })}>
+                      <option value="">{t("enums.specialty.BOTH")}</option>
+                      <option value="LOCK">{t("enums.specialty.LOCK")}</option>
+                      <option value="SMART_HOME">{t("enums.specialty.SMART_HOME")}</option>
+                    </Select>
+                  )}
+                </Field>
+              )}
             </div>
             {showColor && (
               <div>

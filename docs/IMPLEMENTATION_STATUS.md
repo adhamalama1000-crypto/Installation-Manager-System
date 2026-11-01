@@ -2,6 +2,8 @@
 
 This page is updated after each completed phase. The feature-by-feature comparison with Aura is in [FEATURE_MIGRATION_MATRIX.md](FEATURE_MIGRATION_MATRIX.md).
 
+Merge order for what is still open: **#10 → #7 → #8 → #9** (each pull request targets `main`; its diff also shows the lower phases until they are merged).
+
 A phase is marked **done** only when its code is committed, and lint, typecheck, unit and integration tests, the production build and the browser tests all passed on that commit. A phase is **merged** only after the owner approves and merges its pull request.
 
 ## Delivered
@@ -10,17 +12,17 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 |---|---|---|
 | Performance fixes, Aura phases 1–6 (booking details, visit outcome, leave, payments, inventory, day plan) | #1 | Merged |
 | Dashboard counters in one statement, auto-refresh paused while typing | #2 | Merged |
-| Arabic-first interface (RTL) with an Arabic/English switch | #3 | Open, awaiting review |
+| Arabic-first interface (RTL) with an Arabic/English switch | #3 | Merged |
 
 ## Remaining Aura features
 
 | Phase | Scope | Branch | State |
 |---|---|---|---|
-| A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Done, pull request open (stacked on #3) |
-| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Done, pull request open (stacked on phase A) |
-| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | — | Not started |
-| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | — | Not started |
-| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | — | Not started |
+| A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Merged (#5) |
+| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Approved in #6 (merged into the phase A branch); #10 lands it on `main` |
+| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Done, #7 open (against `main`) |
+| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Done, #8 open (against `main`) |
+| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Done, #9 open (against `main`) |
 
 ## Check results by phase
 
@@ -55,4 +57,55 @@ Found and fixed while testing:
 Found and fixed while testing:
 - English text typed on an Arabic page showed its punctuation on the wrong side. Complaint texts, resolutions and customer notes now take their own direction (`dir="auto"`).
 - The after-sales dashboard counts are extra columns of the existing counter statement, so the dashboard does not need more database connections than before.
+
+### Phase C: field tracking (2026-11-01)
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 20 files, **158 / 158 passed** (10 new: 4 unit tests of the distance, arrival-time and points rules, 6 service tests including the late-alert endpoint; the role test was updated for the new permissions) |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **23 / 23 passed** on a freshly migrated and seeded database (the new test uses a simulated phone location) |
+| Overflow sweep | **0 problems** on the live board, attendance, settings, the dashboard and a visit with check-ins, for an Admin and a technician, at 320–1024 px in Arabic and English |
+| Migration on the development database | `20261030090000_field_tracking` applied with `migrate deploy`; row counts unchanged; `migrate diff`: no difference |
+
+Found and fixed while testing:
+- Admins hold every permission, including the technician's check-in permission, so the field log was hidden from them and the dashboard would have shown them "My day". The log is now hidden only from the technician assigned to the visit, and "My day" is shown to technicians only.
+
+Not done in this phase:
+- Sending e-mail (Aura's morning e-mail and e-mailed late alerts): no e-mail provider is configured. Late alerts are in-app; the morning summary is the day plan and the dashboard.
+- The estimated arrival needs the visit's coordinates; Aura's fallback to the area's centre comes with phase E's areas list.
+
+### Phase D: expenses and the company car (2026-11-01)
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 21 files, **164 / 164 passed** (6 new service tests; the role test was updated for the Driver and expense permissions) |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **25 / 25 passed** on a freshly migrated and seeded database (the seed now has a demo driver) |
+| Overflow sweep | **0 problems** on the route, expenses, board, booking form and users pages for an Admin, the driver, the Accountant and a technician, at 320–1024 px in Arabic and English |
+| Migrations on the development database | `20261031090000_role_driver` and `20261031090100_expenses_car` applied with `migrate deploy`; row counts unchanged; `migrate diff`: no difference |
+
+Not done in this phase:
+- Expenses are not yet in the finance CSV export; they have their own page per month.
+- Drivers are not notified of every status change of a car visit (Aura did); they see changes on the route page, which refreshes itself.
+
+### Phase E: booking helpers (2026-11-01)
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 23 files, **175 / 175 passed** (11 new: 4 unit tests of the quotation parser and area matching, 7 service tests including a local stand-in for the quotation site; two older test files now book past visits as the Admin, as the new rule requires) |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **27 / 27 passed** on a freshly migrated and seeded database (one older test now books its past visit as the Admin) |
+| Overflow sweep | **0 problems** on the booking form (new and edit), a visit, reports, users and settings at 320–1024 px in Arabic and English |
+| Migration on the development database | `20261101090000_booking_helpers` applied with `migrate deploy`; row counts unchanged; `migrate diff`: no difference |
+
+Not done in this phase:
+- The quotation reader was tested against saved pages and a local stand-in server, not against the live aura.eg site: this environment's network proxy refuses connections to it (HTTP 403). Set `QUOTE_HOSTS` if the quotation pages live on another host.
+- The smart-home readiness reminder is not on the dashboard; area, door and device lists are not editable.
 

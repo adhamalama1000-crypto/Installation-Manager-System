@@ -25,6 +25,8 @@ enum Role {
   ACCOUNTANT
   /// Store keeper: registers serial-numbered stock and hands it to technicians.
   STORE
+  /// Company car driver: drops the teams at their visits and picks them up (Aura: سواق).
+  DRIVER
 }
 
 /// Where a serial-numbered item is (Aura: في المخزن / عهدة / اتركب / مرتجع / عطلان).
@@ -115,6 +117,61 @@ enum ComplaintStatus {
   CLOSED
 }
 
+/// Aura's check-in stages, in the order of a working day: arrive at the company, pick up the
+/// lock, confirm with the customer that the site is ready, leave, arrive, start, finish (or report
+/// a problem), and leave for the day.
+enum CheckInKind {
+  COMPANY
+  PICKUP
+  READY
+  DEPART
+  ARRIVE
+  START
+  DONE
+  PROBLEM
+  LEAVE
+  /// The company car leaves the company, drops a team, picks a team up, is back.
+  CAR_GO
+  CAR_DROP
+  CAR_PICK
+  CAR_BACK
+}
+
+/// A transport expense: PENDING until the accountant pays it out; CANCELLED by its owner before then.
+enum ExpenseStatus {
+  PENDING
+  PAID
+  CANCELLED
+}
+
+/// What a technician installs (Aura spec: لوك / سمارت هوم / الاتنين); null = both.
+enum TechnicianSpecialty {
+  LOCK
+  SMART_HOME
+  BOTH
+}
+
+/// Smart-home site readiness (Aura foundation / internet).
+enum ReadinessState {
+  UNKNOWN
+  NOT_READY
+  READY
+}
+
+/// Where the lock is picked up (Aura lockWhere: مقر الشركة / عند العميل / لسه مش متحدد).
+enum LockLocation {
+  COMPANY
+  CUSTOMER
+  UNDECIDED
+}
+
+/// Whether an electrician is needed (Aura electrician).
+enum ElectricianNeed {
+  CUSTOMER_PROVIDES
+  COMPANY_PROVIDES
+  NOT_NEEDED
+}
+
 enum StatusKind {
   SCHEDULED
   IN_PROGRESS
@@ -127,25 +184,27 @@ enum StatusKind {
 }
 
 model User {
-  id                String    @id @default(cuid())
+  id                String               @id @default(cuid())
   name              String
   /// Stored lower-cased; used as the login identifier.
-  email             String    @unique
+  email             String               @unique
   phone             String?
   role              Role
-  isActive          Boolean   @default(true)
+  isActive          Boolean              @default(true)
   /// bcrypt hash. Null until the user sets a password through an invitation link.
   passwordHash      String?
   /// Calendar colour (hex, e.g. #E55823). Used for Sales employees; kept if the role changes so
   /// historical appointments keep their colour.
   color             String?
   /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
-  viewerPermissions String[]  @default([])
-  createdAt         DateTime  @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime  @updatedAt @db.Timestamptz(3)
-  passwordChangedAt DateTime? @db.Timestamptz(3)
+  viewerPermissions String[]             @default([])
+  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
+  passwordChangedAt DateTime?            @db.Timestamptz(3)
   /// Interface language chosen by the user ("ar" or "en"); null = not chosen yet (Arabic).
   locale            String?
+  /// Technicians: what they install, used to suggest the right person when booking.
+  specialty         TechnicianSpecialty?
 
   sessions              Session[]
   passwordTokens        PasswordToken[]         @relation("TokenUser")
@@ -177,6 +236,12 @@ model User {
   complaintsResolved    Complaint[]             @relation("ComplaintResolver")
   complaintsClosed      Complaint[]             @relation("ComplaintCloser")
   maintenanceCalls      MaintenanceCall[]       @relation("MaintenanceCaller")
+  checkIns              CheckIn[]               @relation("CheckInUser")
+  position              TechnicianPosition?
+  expenses              TransportExpense[]      @relation("ExpenseUser")
+  expensesPaid          TransportExpense[]      @relation("ExpensePayer")
+  holdsMade             SlotHold[]              @relation("HoldUser")
+  holdsOn               SlotHold[]              @relation("HoldTechnician")
 
   @@index([role, isActive])
   @@map("users")
@@ -359,19 +424,32 @@ model Appointment {
   stockMovements    StockMovement[]
 
   /// Customer satisfaction (1-5 stars) from the follow-up call after the visit, with their words.
-  customerRating   Int?              @db.SmallInt
+  customerRating   Int?               @db.SmallInt
   ratingNote       String?
-  ratedAt          DateTime?         @db.Timestamptz(3)
+  ratedAt          DateTime?          @db.Timestamptz(3)
   ratedById        String?
-  ratedBy          User?             @relation("AppointmentRater", fields: [ratedById], references: [id], onDelete: Restrict)
+  ratedBy          User?              @relation("AppointmentRater", fields: [ratedById], references: [id], onDelete: Restrict)
   /// Quality grade (1-5) given by the head of installations after reviewing the work.
-  qualityGrade     Int?              @db.SmallInt
-  gradedAt         DateTime?         @db.Timestamptz(3)
+  qualityGrade     Int?               @db.SmallInt
+  gradedAt         DateTime?          @db.Timestamptz(3)
   gradedById       String?
-  gradedBy         User?             @relation("AppointmentGrader", fields: [gradedById], references: [id], onDelete: Restrict)
+  gradedBy         User?              @relation("AppointmentGrader", fields: [gradedById], references: [id], onDelete: Restrict)
   maintenanceCalls MaintenanceCall[]
-  complaints       Complaint[]       @relation("ComplaintAppointment")
-  complaintVisits  Complaint[]       @relation("ComplaintVisit")
+  complaints       Complaint[]        @relation("ComplaintAppointment")
+  complaintVisits  Complaint[]        @relation("ComplaintVisit")
+  checkIns         CheckIn[]
+  expenses         TransportExpense[]
+  /// The company car drops the team at this visit (Aura car = نعم), and its place in the day's route.
+  needsCar         Boolean            @default(false)
+  carSeq           Int?
+  /// Smart-home site readiness, where the lock is, and whether an electrician is needed.
+  siteFoundation   ReadinessState?
+  siteInternet     ReadinessState?
+  lockAt           LockLocation?
+  electrician      ElectricianNeed?
+  /// The quotation link from the company website and what was read from it (Aura quote).
+  quoteUrl         String?
+  quoteData        Json?
 
   startsAt        DateTime @db.Timestamptz(3)
   endsAt          DateTime @db.Timestamptz(3)
@@ -407,6 +485,7 @@ model Appointment {
   @@index([locationId])
   @@index([productCategory])
   @@index([followUpOfId])
+  @@index([needsCar, startsAt])
   @@map("appointments")
 }
 
@@ -672,4 +751,105 @@ model MaintenanceCall {
 
   @@unique([appointmentId, milestone])
   @@map("maintenance_calls")
+}
+
+/// A technician's check-in (Aura DB_Checkins): where and when each stage of the day happened.
+/// Append-only (trigger). Coordinates are null when the browser gave no location.
+model CheckIn {
+  id            String       @id @default(cuid())
+  userId        String
+  user          User         @relation("CheckInUser", fields: [userId], references: [id], onDelete: Restrict)
+  kind          CheckInKind
+  /// The visit, for visit stages (null for COMPANY and LEAVE).
+  appointmentId String?
+  appointment   Appointment? @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  /// Company-local day of the check-in.
+  day           DateTime     @db.Date
+  latitude      Decimal?     @db.Decimal(9, 6)
+  longitude     Decimal?     @db.Decimal(9, 6)
+  accuracyM     Int?
+  /// Metres to the company (COMPANY, LEAVE) or to the customer's pin (visit stages).
+  distanceM     Int?
+  /// Expected arrival at the customer, estimated on DEPART.
+  etaAt         DateTime?    @db.Timestamptz(3)
+  /// Minutes after the start of the working day (plus grace) on COMPANY.
+  lateMinutes   Int?
+  /// Minutes before the end of the working day on LEAVE.
+  earlyMinutes  Int?
+  /// More than 400 m from the company or 300 m from the customer.
+  far           Boolean      @default(false)
+  /// PROBLEM reason (lib/field.ts PROBLEM_REASONS).
+  reason        String?
+  note          String?
+  createdAt     DateTime     @default(now()) @db.Timestamptz(3)
+
+  @@index([day, userId])
+  @@index([appointmentId, kind])
+  @@index([userId, createdAt])
+  @@map("check_ins")
+}
+
+/// A technician's latest position while on the way to a customer (Aura api_ping), one row per
+/// technician, overwritten. Used only to refresh the expected arrival on the live board.
+model TechnicianPosition {
+  userId    String   @id
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  latitude  Decimal  @db.Decimal(9, 6)
+  longitude Decimal  @db.Decimal(9, 6)
+  accuracyM Int?
+  at        DateTime @db.Timestamptz(3)
+
+  @@map("technician_positions")
+}
+
+/// Late alerts already sent, so each one goes out once a day (Aura ALERTED_<date>).
+model AlertSent {
+  day       DateTime @db.Date
+  key       String
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+
+  @@id([day, key])
+  @@map("alerts_sent")
+}
+
+/// Transport a technician or the driver paid for (Aura DB_Expenses), paid back by the accountant.
+model TransportExpense {
+  id                 String        @id @default(cuid())
+  userId             String
+  user               User          @relation("ExpenseUser", fields: [userId], references: [id], onDelete: Restrict)
+  appointmentId      String?
+  appointment        Appointment?  @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  /// Company-local day of the expense.
+  day                DateTime      @db.Date
+  amount             Decimal       @db.Decimal(12, 2)
+  note               String?
+  /// Receipt photo in file storage (UPLOAD_DIR), served only to the owner and finance.
+  receiptKey         String?       @unique
+  receiptContentType String?
+  status             ExpenseStatus @default(PENDING)
+  paidAt             DateTime?     @db.Timestamptz(3)
+  paidById           String?
+  paidBy             User?         @relation("ExpensePayer", fields: [paidById], references: [id], onDelete: Restrict)
+  createdAt          DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([userId, day])
+  @@index([status, day])
+  @@map("transport_expenses")
+}
+
+/// A 10-minute hold on a technician's time while Sales is on the phone with a customer (Aura api_hold).
+model SlotHold {
+  id           String   @id @default(cuid())
+  userId       String
+  user         User     @relation("HoldUser", fields: [userId], references: [id], onDelete: Cascade)
+  technicianId String
+  technician   User     @relation("HoldTechnician", fields: [technicianId], references: [id], onDelete: Cascade)
+  startsAt     DateTime @db.Timestamptz(3)
+  endsAt       DateTime @db.Timestamptz(3)
+  expiresAt    DateTime @db.Timestamptz(3)
+  createdAt    DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([technicianId, expiresAt])
+  @@index([userId])
+  @@map("slot_holds")
 }

@@ -22,23 +22,25 @@ import {
 import type { CustomerConfirmation, LeaveType, PaymentMethod, ProductCategory, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert, Badge, SalesTag } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
 import { colorOrFallback } from "@/lib/colors";
 import { CONFIRMATIONS, DURATION_PRESETS, PAYMENT_METHODS, PRODUCT_CATEGORIES, VISIT_TYPES, minutesLabel, money } from "@/lib/constants";
-import { dayRangeLabel, weekdayOfKey } from "@/lib/time";
+import { dayRangeLabel, timeKey, todayKey, weekdayOfKey } from "@/lib/time";
 import { timeRange } from "@/lib/format";
 import { checkMapUrl, extractCoordinates } from "@/lib/maps";
-import type { AppointmentDTO, ConflictDTO, StatusDTO } from "@/lib/types";
+import type { AppointmentDTO, ConflictDTO, QuoteDTO, StatusDTO } from "@/lib/types";
+import { CarWarning } from "./car-warning";
 import type { FormValues } from "./form-values";
 import { appointmentInputSchema, fieldErrorsFromZod } from "@/lib/validation";
 import { cn } from "@/lib/utils";
 
 type TechOption = { id: string; name: string; isActive: boolean };
 type LeaveInfo = { type: LeaveType; startDate: string; endDate: string } | null;
-type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }>;
+type Suggestion = { suggested?: boolean; fits?: boolean; heldBy?: { name: string; until: string } | null; specialty?: string | null };
+type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo } & Suggestion>;
 export type SavedLocation = {
   id: string;
   area: string | null;
@@ -80,6 +82,7 @@ export function AppointmentForm({
   closedWeekdays = [],
   isAdmin = false,
   followUpOf,
+  inspectionOnlyWeekdays = [],
 }: {
   mode: "create" | "edit";
   initial: FormValues;
@@ -100,6 +103,8 @@ export function AppointmentForm({
   isAdmin?: boolean;
   /** Code of the visit this one follows up (create only). */
   followUpOf?: { id: string; code: string };
+  /** Weekdays on which smart-home visits should only be inspections (Settings, Aura's Saturday rule). */
+  inspectionOnlyWeekdays?: number[];
 }) {
   const t = useT();
   const router = useRouter();
@@ -114,6 +119,10 @@ export function AppointmentForm({
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>(initialLocations);
   const [customDuration, setCustomDuration] = useState(!DURATION_PRESETS.includes(initial.durationMinutes));
   const [allowClosedDay, setAllowClosedDay] = useState(false);
+  const [hold, setHold] = useState<{ until: string } | null>(null);
+  const [holding, setHolding] = useState(false);
+  const [quote, setQuote] = useState<{ url: string; data: QuoteDTO } | null>(null);
+  const [readingQuote, setReadingQuote] = useState(false);
   const requestId = useRef<string>("");
   const techSection = useRef<HTMLDivElement>(null);
 
@@ -155,12 +164,28 @@ export function AppointmentForm({
     const timer = setTimeout(async () => {
       setChecking(true);
       try {
-        const res = await api<{ technicians: { id: string; available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo }[] }>("/api/appointments/availability", {
+        const res = await api<{ technicians: ({ id: string; available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo } & Suggestion)[] }>("/api/appointments/availability", {
           method: "POST",
-          body: { date: v.date, startTime: v.startTime, durationMinutes: v.durationMinutes, excludeAppointmentId: appointmentId ?? null },
+          body: {
+            date: v.date,
+            startTime: v.startTime,
+            durationMinutes: v.durationMinutes,
+            excludeAppointmentId: appointmentId ?? null,
+            productCategory: v.productCategory || null,
+            latitude: v.location.latitude || null,
+            longitude: v.location.longitude || null,
+            area: v.location.area || null,
+          },
           signal: ctrl.signal,
         });
-        setAvailability(Object.fromEntries(res.technicians.map((t2) => [t2.id, { available: t2.available, conflicts: t2.conflicts, leave: t2.leave ?? null }])));
+        setAvailability(
+          Object.fromEntries(
+            res.technicians.map((t2) => [
+              t2.id,
+              { available: t2.available, conflicts: t2.conflicts, leave: t2.leave ?? null, suggested: t2.suggested, fits: t2.fits, heldBy: t2.heldBy ?? null, specialty: t2.specialty ?? null },
+            ]),
+          ),
+        );
       } catch (e) {
         if ((e as Error).name !== "AbortError") setAvailability(null);
       } finally {
@@ -171,7 +196,58 @@ export function AppointmentForm({
       clearTimeout(timer);
       ctrl.abort();
     };
-  }, [v.date, v.startTime, v.durationMinutes, appointmentId]);
+  }, [v.date, v.startTime, v.durationMinutes, appointmentId, v.productCategory, v.location.latitude, v.location.longitude, v.location.area]);
+
+  /** Holds the chosen technicians for 10 minutes while on the phone (Aura api_hold). */
+  async function holdTechnicians() {
+    setHolding(true);
+    try {
+      const res = await api<{ ok: boolean; until?: string | null; reason?: string }>("/api/holds", {
+        method: "POST",
+        body: { date: v.date, startTime: v.startTime, durationMinutes: v.durationMinutes, technicianIds: v.technicianIds, excludeAppointmentId: appointmentId ?? null },
+      });
+      if (res.ok && res.until) {
+        setHold({ until: res.until });
+        toast.success(t("holds.held", { time: timeKey(res.until, tz) }));
+      } else if (res.reason) {
+        toast.error(t.msg(res.reason));
+      }
+    } catch (e) {
+      toast.error(e instanceof ApiError ? e.message : t("common.couldNotSave"));
+    } finally {
+      setHolding(false);
+    }
+  }
+
+  /** Reads the quotation link from the company website (Aura api_quote). */
+  async function readQuote() {
+    setReadingQuote(true);
+    try {
+      const res = await api<{ quote: QuoteDTO }>("/api/quote", { method: "POST", body: { url: v.quoteUrl } });
+      setQuote({ url: v.quoteUrl.trim(), data: res.quote });
+      setErrors((e) => {
+        const next = { ...e };
+        delete next.quoteUrl;
+        return next;
+      });
+    } catch (e) {
+      const err = e instanceof ApiError ? e : new ApiError(t("common.couldNotSave"), 0, "UNKNOWN");
+      setErrors((x) => ({ ...x, quoteUrl: err.fieldErrors.quoteUrl ?? err.message }));
+    } finally {
+      setReadingQuote(false);
+    }
+  }
+
+  /** Fills empty fields from the quotation: customer, phone, price and the items to bring. */
+  function applyQuote() {
+    if (!quote) return;
+    const q = quote.data;
+    if (!v.customer.name.trim() && q.client) setCustomer({ name: q.client });
+    if (!v.customer.phone.trim() && q.phone) setCustomer({ phone: q.phone });
+    if (!v.totalPrice.trim() && q.total) set("totalPrice", q.total.replace(/,/g, ""));
+    const lines = q.items.map((i) => `${i.qty} × ${i.name}${i.sku ? ` (${i.sku})` : ""}`).join("\n");
+    if (lines && !v.requiredEquipment.includes(lines)) set("requiredEquipment", [v.requiredEquipment.trim(), lines].filter(Boolean).join("\n"));
+  }
 
   const closedDay = /^\d{4}-\d{2}-\d{2}$/.test(v.date) && closedWeekdays.includes(weekdayOfKey(v.date));
   const toCollect = useMemo(() => {
@@ -204,6 +280,12 @@ export function AppointmentForm({
       location: v.location,
       productCategory: v.productCategory,
       visitType: v.visitType || null,
+      needsCar: v.needsCar,
+      siteFoundation: v.productCategory === "SMART_HOME" ? v.siteFoundation || null : undefined,
+      siteInternet: v.productCategory === "SMART_HOME" ? v.siteInternet || null : undefined,
+      lockAt: v.lockAt || null,
+      electrician: v.electrician || null,
+      quoteUrl: v.quoteUrl.trim() || null,
       customerConfirmation: v.customerConfirmation,
       followUpOfId: mode === "create" ? v.followUpOfId : undefined,
       allowClosedDay: isAdmin && closedDay ? allowClosedDay : undefined,
@@ -254,6 +336,10 @@ export function AppointmentForm({
           ? await api<{ appointment: AppointmentDTO }>("/api/appointments", { method: "POST", body })
           : await api<{ appointment: AppointmentDTO }>(`/api/appointments/${appointmentId}`, { method: "PATCH", body });
       setDirty(false);
+      // Keep what was read from the quotation link on the visit.
+      if (quote && quote.url === v.quoteUrl.trim()) {
+        await api(`/api/appointments/${res.appointment.id}/quote`, { method: "POST", body: { url: quote.url } }).catch(() => toast.warning(t("quote.notSaved")));
+      }
       toast.success(t(mode === "create" ? "form.created" : "form.updated", { code: res.appointment.code }));
       router.push(`/appointments/${res.appointment.id}`);
       router.refresh();
@@ -500,6 +586,95 @@ export function AppointmentForm({
                 )}
               </Field>
             </div>
+            <div data-field="needsCar" className="sm:col-span-2">
+              <Checkbox label={t("car.needsCar")} description={t("car.needsCarText")} checked={v.needsCar} onChange={(e) => set("needsCar", e.target.checked)} />
+              {v.needsCar && <CarWarning date={v.date} time={v.startTime} latitude={v.location.latitude} longitude={v.location.longitude} area={v.location.area} excludeId={appointmentId} />}
+            </div>
+            <div data-field="lockAt">
+              <Field label={t("booking.lockAt")} error={err("lockAt")}>
+                {(p) => (
+                  <Select {...p} value={v.lockAt} onChange={(e) => set("lockAt", e.target.value as FormValues["lockAt"])}>
+                    <option value="">{t("common.notSpecified")}</option>
+                    {(["COMPANY", "CUSTOMER", "UNDECIDED"] as const).map((x) => (
+                      <option key={x} value={x}>
+                        {t.dyn(`enums.lockAt.${x}`)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            <div data-field="electrician">
+              <Field label={t("booking.electrician")} error={err("electrician")}>
+                {(p) => (
+                  <Select {...p} value={v.electrician} onChange={(e) => set("electrician", e.target.value as FormValues["electrician"])}>
+                    <option value="">{t("common.notSpecified")}</option>
+                    {(["CUSTOMER_PROVIDES", "COMPANY_PROVIDES", "NOT_NEEDED"] as const).map((x) => (
+                      <option key={x} value={x}>
+                        {t.dyn(`enums.electrician.${x}`)}
+                      </option>
+                    ))}
+                  </Select>
+                )}
+              </Field>
+            </div>
+            {v.productCategory === "SMART_HOME" && (
+              <>
+                {(["siteFoundation", "siteInternet"] as const).map((key) => (
+                  <div key={key} data-field={key}>
+                    <Field label={t(key === "siteFoundation" ? "booking.siteFoundation" : "booking.siteInternet")} error={err(key)}>
+                      {(p) => (
+                        <Select {...p} value={v[key]} onChange={(e) => set(key, e.target.value as FormValues["siteFoundation"])}>
+                          <option value="">{t("common.notSpecified")}</option>
+                          {(["UNKNOWN", "NOT_READY", "READY"] as const).map((x) => (
+                            <option key={x} value={x}>
+                              {t.dyn(`enums.readiness.${key}.${x}`)}
+                            </option>
+                          ))}
+                        </Select>
+                      )}
+                    </Field>
+                  </div>
+                ))}
+                {(v.siteFoundation !== "READY" || v.siteInternet !== "READY") && (
+                  <div className="sm:col-span-2">
+                    <Alert tone="info">{t("booking.checkReadiness")}</Alert>
+                  </div>
+                )}
+              </>
+            )}
+            <div data-field="quoteUrl" className="sm:col-span-2">
+              <Field label={t("quote.link")} hint={t("quote.linkHint")} error={err("quoteUrl")}>
+                {(p) => (
+                  <div className="flex gap-2">
+                    <Input {...p} dir="ltr" inputMode="url" value={v.quoteUrl} onChange={(e) => set("quoteUrl", e.target.value)} className="min-w-0 flex-1" />
+                    <Button type="button" variant="outline" loading={readingQuote} disabled={!v.quoteUrl.trim()} onClick={readQuote}>
+                      {t("quote.read")}
+                    </Button>
+                  </div>
+                )}
+              </Field>
+              {quote && quote.url === v.quoteUrl.trim() && (
+                <div className="mt-2 rounded-lg border border-line bg-surface-muted p-3 text-sm">
+                  <p className="flex flex-wrap items-center justify-between gap-2 font-medium text-fg">
+                    <span>
+                      {quote.data.number ? <bdi className="font-mono">{quote.data.number}</bdi> : t("quote.title")} · {t("quote.items", { count: quote.data.count })}
+                      {quote.data.total ? ` · ${quote.data.total}` : ""}
+                    </span>
+                    <Button type="button" size="sm" onClick={applyQuote}>
+                      {t("quote.use")}
+                    </Button>
+                  </p>
+                  <ul className="mt-1 list-disc ps-5 text-fg-muted">
+                    {quote.data.items.slice(0, 8).map((i, k) => (
+                      <li key={k}>
+                        {i.qty} × <span dir="auto">{i.name}</span>
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
             {v.productCategory === "OTHER" ? (
               <div data-field="categoryOther">
                 <Field label={t("form.categoryOther")} required error={err("categoryOther")}>
@@ -595,6 +770,16 @@ export function AppointmentForm({
                 {(p) => <Input {...p} type="date" value={v.date} onChange={(e) => set("date", e.target.value)} />}
               </Field>
             </div>
+            {!isAdmin && /^\d{4}-\d{2}-\d{2}$/.test(v.date) && v.date < todayKey(tz) && (
+              <div className="sm:col-span-2">
+                <Alert tone="warning">{t("appointmentErrors.pastDate")}</Alert>
+              </div>
+            )}
+            {/^\d{4}-\d{2}-\d{2}$/.test(v.date) && inspectionOnlyWeekdays.includes(weekdayOfKey(v.date)) && v.productCategory === "SMART_HOME" && v.visitType !== "INSPECTION" && (
+              <div className="sm:col-span-2">
+                <Alert tone="warning">{t("form.inspectionOnly", { day: t.dyn(`enums.weekday.${weekdayOfKey(v.date)}`) })}</Alert>
+              </div>
+            )}
             {closedDay && (
               <div className="sm:col-span-2">
                 <Alert tone="warning" title={t("form.closedDay", { day: t.dyn(`enums.weekday.${weekdayOfKey(v.date)}`) })}>
@@ -778,6 +963,8 @@ export function AppointmentForm({
                         <span className="flex flex-wrap items-center gap-2">
                           <span className="text-sm font-medium text-fg">{tech.name}</span>
                           {!tech.isActive && <Badge>{t("common.inactive")}</Badge>}
+                          {a?.suggested && <Badge className="bg-brand-soft text-brand-text">{t("holds.suggested")}</Badge>}
+                          {a && a.fits === false && <span className="text-xs text-warning">{t("holds.notSpecialty")}</span>}
                           {a &&
                             (busy && a.leave ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
@@ -793,6 +980,9 @@ export function AppointmentForm({
                               </span>
                             ))}
                         </span>
+                        {a?.heldBy && (
+                          <span className="mt-0.5 block text-xs text-fg-muted">{t("holds.heldBy", { name: a.heldBy.name, time: timeKey(a.heldBy.until, tz) })}</span>
+                        )}
                         {busy && a!.leave && (
                           <span className="mt-0.5 block text-xs text-fg-muted">
                             {t.dyn(`enums.leaveType.${a!.leave.type}`)} · {dayRangeLabel(a!.leave.startDate, a!.leave.endDate, t.locale)}
@@ -811,7 +1001,16 @@ export function AppointmentForm({
                 );
               })}
             </ul>
-            {v.technicianIds.length === 0 && <p className="text-xs text-fg-subtle">{t("form.noTechnicianHint")}</p>}
+            {v.technicianIds.length === 0 ? (
+              <p className="text-xs text-fg-subtle">{t("form.noTechnicianHint")}</p>
+            ) : (
+              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
+                <Button type="button" size="sm" variant="outline" loading={holding} disabled={busySelected.length > 0} onClick={holdTechnicians}>
+                  {t("holds.hold")}
+                </Button>
+                <span className="text-xs text-fg-muted">{hold ? t("holds.heldUntil", { time: timeKey(hold.until, tz) }) : t("holds.holdHint")}</span>
+              </div>
+            )}
           </div>
         </Card>
         </div>

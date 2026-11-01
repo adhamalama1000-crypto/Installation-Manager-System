@@ -3,9 +3,12 @@ import { Boxes, CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, Ma
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
 import { DeliveryCard } from "@/components/appointments/delivery-card";
+import { QuoteCard } from "@/components/appointments/quote-card";
 import { FeedbackCard } from "@/components/after-sales/feedback-card";
 import { ComplaintBadge } from "@/components/complaints/complaint-badge";
 import { OpenComplaintButton } from "@/components/complaints/complaint-forms";
+import { CheckInPanel } from "@/components/field/check-in-panel";
+import { FieldLog } from "@/components/field/field-log";
 import { OutcomePanel } from "@/components/appointments/outcome-panel";
 import { PaymentCard } from "@/components/appointments/payment-card";
 import { HistoryList } from "@/components/appointments/history-list";
@@ -22,6 +25,7 @@ import { getAppointment, getAppointmentHistory } from "@/server/services/appoint
 import { listAttachments } from "@/server/services/attachments";
 import { getFeedback } from "@/server/services/after-sales";
 import { canOpenComplaint, complaintsForAppointment } from "@/server/services/complaints";
+import { visitCheckIns } from "@/server/services/field";
 import { listStatuses } from "@/server/services/statuses";
 import { heldBy } from "@/server/services/stock";
 import { loadOr404 } from "./load";
@@ -41,7 +45,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const L = t.locale;
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [a, history, allStatuses, myStock, files, feedback, complaints] = await Promise.all([
+  const [a, history, allStatuses, myStock, files, feedback, complaints, checkIns] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
     canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
     user.permissions.includes("appointments.manage") ? listStatuses(L) : Promise.resolve([]),
@@ -50,12 +54,15 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
     loadOr404(() => listAttachments(user, id)),
     loadOr404(() => getFeedback(user, id)),
     complaintsForAppointment(user, id),
+    visitCheckIns(user, id),
   ]);
   const today = todayKey(tz);
   const statuses = a.canManage ? allStatuses : [];
   const loc = a.location;
   const cancelled = a.status.kind === "CANCELLED";
   const salesColor = colorOrFallback(a.createdBy.color);
+  // The assigned technician checks in from this page; everyone else who may see check-ins gets the log.
+  const checksIn = user.permissions.includes("checkins.record") && a.technicians.some((x) => x.id === user.id);
   const reportable = a.canReport && ["SCHEDULED", "IN_PROGRESS", "COMPLETED", "UNABLE_TO_COMPLETE", "NEEDS_REVISIT"].includes(a.status.kind);
 
   return (
@@ -164,6 +171,17 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               <DefinitionList
                 items={[
                   { label: t("appointment.visitType"), value: a.visitType ? t.dyn(`enums.visitType.${a.visitType}`) : null },
+                  ...(a.needsCar ? [{ label: t("car.needsCar"), value: t("common.yes") }] : []),
+                  { label: t("booking.lockAt"), value: a.lockAt ? t.dyn(`enums.lockAt.${a.lockAt}`) : null },
+                  { label: t("booking.electrician"), value: a.electrician ? t.dyn(`enums.electrician.${a.electrician}`) : null },
+                  ...(a.productCategory === "SMART_HOME"
+                    ? (["siteFoundation", "siteInternet"] as const).map((key) => ({
+                        label: t(key === "siteFoundation" ? "booking.siteFoundation" : "booking.siteInternet"),
+                        value: (
+                          <span className={a[key] === "READY" ? "text-success" : "text-warning"}>{t.dyn(`enums.readiness.${key}.${a[key] ?? "UNKNOWN"}`)}</span>
+                        ),
+                      }))
+                    : []),
                   { label: t("appointment.category"), value: categoryText(a, t) },
                   { label: t("appointment.brandModel"), value: [a.brand, a.model].filter(Boolean).join(" ") || null },
                   { label: t("appointment.description"), value: a.description && <span className="whitespace-pre-line">{a.description}</span>, full: true },
@@ -183,6 +201,12 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
             </CardBody>
           </Card>
 
+          {a.quoteUrl && <QuoteCard appointmentId={a.id} url={a.quoteUrl} quote={a.quote} canRefresh={a.canManage} />}
+
+          {checksIn && (
+            <CheckInPanel appointmentId={a.id} checkIns={checkIns} tz={tz} active={a.status.kind === "SCHEDULED" || a.status.kind === "IN_PROGRESS"} />
+          )}
+
           <DeliveryCard
             id={a.id}
             productCategory={a.productCategory}
@@ -200,7 +224,15 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           />
 
           {reportable ? (
-            <OutcomePanel id={a.id} version={a.version} statusKind={a.status.kind} report={a.visitReport} payment={a.payment} myStock={myStock} />
+            <OutcomePanel
+              id={a.id}
+              version={a.version}
+              statusKind={a.status.kind}
+              report={a.visitReport}
+              payment={a.payment}
+              myStock={myStock}
+              withLocation={checksIn}
+            />
           ) : (
             a.visitReport && (
               <Card>
@@ -218,6 +250,8 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           )}
 
           <FeedbackCard appointmentId={a.id} feedback={feedback} tz={tz} />
+
+          {!checksIn && <FieldLog checkIns={checkIns} tz={tz} />}
 
           {(complaints.length > 0 || canOpenComplaint(user, { createdById: a.createdBy.id })) && (
             <Card>

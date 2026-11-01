@@ -19,6 +19,7 @@ export function assertCan(user: Pick<CurrentUser, "permissions">, permission: Pe
 export function appointmentScope(user: CurrentUser): Prisma.AppointmentWhereInput {
   if (!hasPermission(user, "appointments.view")) return { id: { in: [] } };
   if (user.role === "TECHNICIAN") return { technicians: { some: { technicianId: user.id } } };
+  if (user.role === "DRIVER") return { needsCar: true };
   return {};
 }
 
@@ -28,5 +29,6 @@ export function appointmentScopeSql(user: CurrentUser): Prisma.Sql {
   if (user.role === "TECHNICIAN") {
     return Prisma.sql`EXISTS (SELECT 1 FROM appointment_technicians sc WHERE sc."appointmentId" = a.id AND sc."technicianId" = ${user.id})`;
   }
+  if (user.role === "DRIVER") return Prisma.sql`a."needsCar"`;
   return Prisma.sql`TRUE`;
 }

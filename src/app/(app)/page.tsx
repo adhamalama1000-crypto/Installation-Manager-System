@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import type { StatusKind } from "@prisma/client";
 import { AgendaItem } from "@/components/appointments/agenda-item";
+import { MyDayCard } from "@/components/field/my-day-card";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
 import { ButtonLink } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -28,6 +29,7 @@ import { addDaysToKey, addMonthsToKey, startOfMonthKey } from "@/lib/time";
 import { dateTime, longDate } from "@/lib/format";
 import { requireUser } from "@/server/auth/session";
 import { dashboardSummary } from "@/server/services/dashboard";
+import { attendance, myDay } from "@/server/services/field";
 import { listStatuses } from "@/server/services/statuses";
 import { cn } from "@/lib/utils";
 
@@ -58,6 +60,8 @@ export default async function DashboardPage() {
   const monthFrom = startOfMonthKey(summary.today);
   const monthTo = addDaysToKey(addMonthsToKey(monthFrom, 1), -1);
   const tech = user.role === "TECHNICIAN";
+  // A second, small wave for technicians only: their check-ins today and this month's points.
+  const [day, mine] = tech && user.permissions.includes("checkins.record") ? await Promise.all([myDay(user), attendance(user, undefined)]) : [null, null];
   const hour = Number(new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: tz }).format(new Date()));
 
   const cards = [
@@ -89,6 +93,12 @@ export default async function DashboardPage() {
           </>
         }
       />
+
+      {day && (
+        <div className="mb-4">
+          <MyDayCard company={day.company} leave={day.leave} tz={tz} points={mine?.rows[0]?.points ?? null} />
+        </div>
+      )}
 
       <section aria-label={t("dashboard.summary")} className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 xl:grid-cols-7">
         {cards.map(({ key, label, value, icon: Icon, href, hint, attention }) => (

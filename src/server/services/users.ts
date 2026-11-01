@@ -1,5 +1,5 @@
 import "server-only";
-import { Prisma, type Role, type User } from "@prisma/client";
+import { Prisma, type Role, type TechnicianSpecialty, type User } from "@prisma/client";
 import { msg } from "@/i18n/translator";
 import { SALES_COLOR_SUGGESTIONS } from "@/lib/constants";
 import { DEFAULT_VIEWER_PERMISSIONS } from "@/lib/permissions";
@@ -28,6 +28,7 @@ export function toUserDTO(u: User): UserDTO {
     isActive: u.isActive,
     color: u.color,
     viewerPermissions: u.viewerPermissions,
+    specialty: u.specialty,
     hasPassword: Boolean(u.passwordHash),
     createdAt: u.createdAt.toISOString(),
     updatedAt: u.updatedAt.toISOString(),
@@ -113,6 +114,7 @@ export async function createUser(actor: CurrentUser, raw: unknown) {
           role,
           color,
           viewerPermissions: role === "VIEWER" ? (input.viewerPermissions ?? DEFAULT_VIEWER_PERMISSIONS) : [],
+          specialty: role === "TECHNICIAN" ? ((input.specialty as TechnicianSpecialty | null | undefined) ?? null) : null,
           passwordHash,
           passwordChangedAt: passwordHash ? new Date() : null,
         },
@@ -166,13 +168,14 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
           isActive: input.isActive,
           color,
           viewerPermissions: role === "VIEWER" ? (input.viewerPermissions ?? before.viewerPermissions) : [],
+          specialty: role === "TECHNICIAN" ? (input.specialty === undefined ? before.specialty : ((input.specialty as TechnicianSpecialty | null) ?? null)) : null,
         },
       });
 
       const changes = diffValues(
         before as unknown as Record<string, unknown>,
         after as unknown as Record<string, unknown>,
-        ["name", "email", "phone", "role", "isActive", "color", "viewerPermissions"],
+        ["name", "email", "phone", "role", "isActive", "color", "viewerPermissions", "specialty"],
       );
       if (Object.keys(changes).length) {
         const action = changes.isActive

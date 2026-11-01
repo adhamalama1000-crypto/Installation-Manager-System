@@ -18,6 +18,13 @@ export type FormValues = {
   };
   productCategory: ProductCategory | "";
   visitType: VisitType | "";
+  /** The company car drops the team. */
+  needsCar: boolean;
+  siteFoundation: "" | "UNKNOWN" | "NOT_READY" | "READY";
+  siteInternet: "" | "UNKNOWN" | "NOT_READY" | "READY";
+  lockAt: "" | "COMPANY" | "CUSTOMER" | "UNDECIDED";
+  electrician: "" | "CUSTOMER_PROVIDES" | "COMPANY_PROVIDES" | "NOT_NEEDED";
+  quoteUrl: string;
   customerConfirmation: CustomerConfirmation;
   /** Create only: the visit this one follows up. */
   followUpOfId: string | null;
@@ -62,6 +69,12 @@ export function valuesFromAppointment(a: AppointmentDTO, tz: string): FormValues
     },
     productCategory: a.productCategory,
     visitType: a.visitType ?? "",
+    needsCar: a.needsCar,
+    siteFoundation: a.siteFoundation ?? "",
+    siteInternet: a.siteInternet ?? "",
+    lockAt: a.lockAt ?? "",
+    electrician: a.electrician ?? "",
+    quoteUrl: a.quoteUrl ?? "",
     customerConfirmation: a.customerConfirmation,
     followUpOfId: null,
     categoryOther: s(a.categoryOther),
@@ -91,6 +104,12 @@ export function emptyValues(opts: { date: string; durationMinutes: number; statu
     location: { id: null, area: "", streetAddress: "", building: "", apartment: "", floor: "", accessInstructions: "", mapUrl: "", latitude: "", longitude: "" },
     productCategory: "",
     visitType: "INSTALLATION",
+    needsCar: false,
+    siteFoundation: "",
+    siteInternet: "",
+    lockAt: "",
+    electrician: "",
+    quoteUrl: "",
     customerConfirmation: "PENDING",
     followUpOfId: null,
     categoryOther: "",

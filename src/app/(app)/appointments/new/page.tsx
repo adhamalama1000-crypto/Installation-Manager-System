@@ -92,6 +92,7 @@ export default async function NewAppointmentPage({ searchParams }: { searchParam
         canSeeInternalNotes={user.permissions.includes("notes.internal")}
         tz={tz}
         closedWeekdays={user.settings.closedWeekdays}
+        inspectionOnlyWeekdays={user.settings.inspectionOnlyWeekdays}
         isAdmin={user.role === "ADMIN"}
         followUpOf={original ? { id: original.id, code: original.code } : undefined}
         initialLocations={locations}

@@ -40,6 +40,15 @@ export type AppointmentDTO = {
   productCategory: ProductCategory;
   categoryOther: string | null;
   visitType: VisitType | null;
+  /** The company car drops the team at this visit. */
+  needsCar: boolean;
+  siteFoundation: "UNKNOWN" | "NOT_READY" | "READY" | null;
+  siteInternet: "UNKNOWN" | "NOT_READY" | "READY" | null;
+  lockAt: "COMPANY" | "CUSTOMER" | "UNDECIDED" | null;
+  electrician: "CUSTOMER_PROVIDES" | "COMPANY_PROVIDES" | "NOT_NEEDED" | null;
+  quoteUrl: string | null;
+  /** What was read from the quotation link; prices only for readers who see money. */
+  quote: QuoteDTO | null;
   customerConfirmation: CustomerConfirmation;
   /** The visit this one follows up, and later visits that follow up this one (only those the viewer may see). */
   followUpOf: { id: string; code: string } | null;
@@ -148,6 +157,8 @@ export type UserDTO = {
   isActive: boolean;
   color: string | null;
   viewerPermissions: string[];
+  /** Technicians only: LOCK, SMART_HOME or BOTH. */
+  specialty: "LOCK" | "SMART_HOME" | "BOTH" | null;
   hasPassword: boolean;
   createdAt: string;
   updatedAt: string;
@@ -254,4 +265,35 @@ export type FeedbackDTO = {
   gradedAt: string | null;
   calls: { milestone: 6 | 12; note: string | null; calledBy: { id: string; name: string }; createdAt: string }[];
   rights: { rate: boolean; grade: boolean; call: boolean };
+};
+
+/** A technician's check-in (see server/services/field.ts). */
+export type CheckInDTO = {
+  id: string;
+  kind: "COMPANY" | "PICKUP" | "READY" | "DEPART" | "ARRIVE" | "START" | "DONE" | "PROBLEM" | "LEAVE" | "CAR_GO" | "CAR_DROP" | "CAR_PICK" | "CAR_BACK";
+  at: string;
+  user: { id: string; name: string };
+  appointmentId: string | null;
+  hasLocation: boolean;
+  distanceM: number | null;
+  etaAt: string | null;
+  lateMinutes: number | null;
+  earlyMinutes: number | null;
+  far: boolean;
+  reason: string | null;
+  note: string | null;
+  duplicate?: boolean;
+};
+
+/** A quotation read from the company website (Aura parseQuote_). */
+export type QuoteDTO = {
+  number: string;
+  client: string;
+  phone: string;
+  sales: string;
+  items: { name: string; qty: number; spec?: string; sku?: string; unit?: string; total?: string }[];
+  count: number;
+  total?: string;
+  install?: string;
+  fetchedAt: string;
 };
