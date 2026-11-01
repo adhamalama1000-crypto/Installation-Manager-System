@@ -2,7 +2,7 @@
 
 This page is updated after each completed phase. The feature-by-feature comparison with Aura is in [FEATURE_MIGRATION_MATRIX.md](FEATURE_MIGRATION_MATRIX.md).
 
-Phases A to E (#5 to #10) and #11 are merged into `main`. Still open: #4, the earlier parallel Arabic/English branch. Its remaining items are listed in #11; the booking follow-ups below land the last three of them. #4 is to be closed once these are reviewed, and only with the owner's approval.
+Phases A to E (#5 to #10), #11 and #12 are merged into `main`. #4, the earlier parallel Arabic/English branch, was closed as superseded on 2026-11-01. Its useful parts landed in #11 and #12, and the closing comment on #4 says where each of its changes now lives. Its branch is kept.
 
 A phase is marked **done** only when its code is committed, and lint, typecheck, unit and integration tests, the production build and the browser tests all passed on that commit. A phase is **merged** only after the owner approves and merges its pull request.
 
@@ -15,7 +15,8 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 | Arabic-first interface (RTL) with an Arabic/English switch | #3 | Merged |
 | Aura phases A to E (see below) | #5, #6 → #10, #7, #8, #9 | Merged |
 | Useful parts of #4: in-place language switch, prepare-the-site texts, text lint rule, system audit | #11 | Merged |
-| Booking follow-ups: automatic holds under the per-technician lock, dashboard readiness warning, lock pickup in the day plan | `claude/aura-booking-helpers` (follow-up pull request) | Done, open for review |
+| Booking follow-ups: automatic holds under the per-technician lock, dashboard readiness warning, lock pickup in the day plan | #12 | Merged |
+| Parallel Arabic/English branch, superseded by #3, #11 and #12 | #4 | Closed |
 
 ## Remaining Aura features
 
@@ -25,7 +26,7 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 | B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Merged (#6, landed on `main` by #10) |
 | C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Merged (#7) |
 | D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Merged (#8) |
-| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Merged (#9); follow-ups below, open for review |
+| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Merged (#9; follow-ups in #12) |
 
 ## Check results by phase
 
@@ -150,4 +151,19 @@ No migration: nothing in the database changes.
 
 Notes:
 - `e2e/field.spec.ts` assumes no field check-ins earlier the same day. Run twice against the same database on the same day, its board check sees the earlier run's visit as current. It passes on a fresh database, as in CI.
+
+### `main` after every merge (2026-11-01)
+
+All checks on `5243d5f`, the merge of #12:
+- CI passed.
+- Run locally:
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` | 25 files, **187 / 187 passed** |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **29 / 29 passed**, on a database freshly migrated and seeded as in CI |
+| `prisma migrate status` on the development database | 17 migrations, schema up to date (no reset, no reseed) |
 
