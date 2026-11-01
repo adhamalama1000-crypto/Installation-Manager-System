@@ -934,6 +934,8 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
         });
       }
       for (const a of audits) await recordAudit(tx, a);
+      // Saved: whatever the editor was holding while changing the booking is no longer needed.
+      await releaseOwnHolds(tx, user.id);
 
       const when = whenParam("when", startsAt, endsAt, tz);
       await notifyUsers(tx, added, { appointmentId: id, type: "ASSIGNED", message: msg("notify.assigned", { code, customer: customer.name, ...when }) }, user.id);

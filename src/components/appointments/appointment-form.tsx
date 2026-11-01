@@ -119,8 +119,7 @@ export function AppointmentForm({
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>(initialLocations);
   const [customDuration, setCustomDuration] = useState(!DURATION_PRESETS.includes(initial.durationMinutes));
   const [allowClosedDay, setAllowClosedDay] = useState(false);
-  const [hold, setHold] = useState<{ until: string } | null>(null);
-  const [holding, setHolding] = useState(false);
+  const [hold, setHold] = useState<{ until: string | null; error: string | null; pending: boolean } | null>(null);
   const [quote, setQuote] = useState<{ url: string; data: QuoteDTO } | null>(null);
   const [readingQuote, setReadingQuote] = useState(false);
   const requestId = useRef<string>("");
@@ -198,27 +197,6 @@ export function AppointmentForm({
     };
   }, [v.date, v.startTime, v.durationMinutes, appointmentId, v.productCategory, v.location.latitude, v.location.longitude, v.location.area]);
 
-  /** Holds the chosen technicians for 10 minutes while on the phone (Aura api_hold). */
-  async function holdTechnicians() {
-    setHolding(true);
-    try {
-      const res = await api<{ ok: boolean; until?: string | null; reason?: string }>("/api/holds", {
-        method: "POST",
-        body: { date: v.date, startTime: v.startTime, durationMinutes: v.durationMinutes, technicianIds: v.technicianIds, excludeAppointmentId: appointmentId ?? null },
-      });
-      if (res.ok && res.until) {
-        setHold({ until: res.until });
-        toast.success(t("holds.held", { time: timeKey(res.until, tz) }));
-      } else if (res.reason) {
-        toast.error(t.msg(res.reason));
-      }
-    } catch (e) {
-      toast.error(e instanceof ApiError ? e.message : t("common.couldNotSave"));
-    } finally {
-      setHolding(false);
-    }
-  }
-
   /** Reads the quotation link from the company website (Aura api_quote). */
   async function readQuote() {
     setReadingQuote(true);
@@ -264,6 +242,60 @@ export function AppointmentForm({
     () => (statusBlocks && availability ? v.technicianIds.filter((id) => availability[id] && !availability[id]!.available) : []),
     [availability, v.technicianIds, statusBlocks],
   );
+
+  /**
+   * Aura's api_hold, done automatically: the technicians picked for this slot are held for 10
+   * minutes while the booking is being made, so a colleague cannot book them meanwhile. Changing
+   * the slot or the technicians replaces the hold, unticking everyone releases it, and leaving the
+   * form lets it go. It is renewed while the form stays open. An edit page that is only being
+   * looked at holds nothing: only a changed slot or a changed choice of technicians is held.
+   */
+  const holdIds = statusBlocks ? [...v.technicianIds].sort() : [];
+  const holdKey = JSON.stringify([v.date, v.startTime, v.durationMinutes, holdIds]);
+  const initialHoldKey = useRef(holdKey);
+  const holdSeq = useRef(0);
+  const holdingSomething = useRef(false);
+  useEffect(() => {
+    if (holdKey === initialHoldKey.current && !holdingSomething.current) return;
+    const [date, startTime, durationMinutes, technicianIds] = JSON.parse(holdKey) as [string, string, number, string[]];
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !/^\d{2}:\d{2}$/.test(startTime) || !(durationMinutes >= 15)) return;
+    const seq = ++holdSeq.current;
+    const take = async () => {
+      if (technicianIds.length) setHold((h) => ({ until: h?.until ?? null, error: null, pending: true }));
+      try {
+        const res = await api<{ ok: boolean; until?: string | null; reason?: string }>("/api/holds", {
+          method: "POST",
+          body: { date, startTime, durationMinutes, technicianIds, excludeAppointmentId: appointmentId ?? null },
+        });
+        if (seq !== holdSeq.current) return; // a newer choice has been sent since
+        holdingSomething.current = Boolean(res.ok && res.until);
+        setHold(res.ok ? (res.until ? { until: res.until, error: null, pending: false } : null) : { until: null, error: res.reason ?? null, pending: false });
+      } catch (e) {
+        if (seq !== holdSeq.current) return;
+        setHold({ until: null, error: e instanceof ApiError ? e.message : t("errors.network"), pending: false });
+      }
+    };
+    const first = setTimeout(take, 400);
+    const renew = technicianIds.length ? setInterval(take, 8 * 60_000) : undefined;
+    return () => {
+      clearTimeout(first);
+      if (renew) clearInterval(renew);
+    };
+  }, [holdKey, appointmentId, t]);
+  // Leaving the form (closing the tab, navigating away, or saving) lets the hold go. Saving also
+  // releases it on the server; this covers abandoning the form.
+  useEffect(() => {
+    const release = () => {
+      if (!holdingSomething.current) return;
+      holdingSomething.current = false;
+      void fetch("/api/holds", { method: "DELETE", keepalive: true }).catch(() => undefined);
+    };
+    window.addEventListener("pagehide", release);
+    return () => {
+      window.removeEventListener("pagehide", release);
+      release();
+    };
+  }, []);
 
   const toggleTech = (id: string) => {
     const has = v.technicianIds.includes(id);
@@ -1004,11 +1036,18 @@ export function AppointmentForm({
             {v.technicianIds.length === 0 ? (
               <p className="text-xs text-fg-subtle">{t("form.noTechnicianHint")}</p>
             ) : (
-              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3">
-                <Button type="button" size="sm" variant="outline" loading={holding} disabled={busySelected.length > 0} onClick={holdTechnicians}>
-                  {t("holds.hold")}
-                </Button>
-                <span className="text-xs text-fg-muted">{hold ? t("holds.heldUntil", { time: timeKey(hold.until, tz) }) : t("holds.holdHint")}</span>
+              <div className="flex flex-wrap items-center gap-2 border-t border-line pt-3 text-xs" role="status" aria-live="polite">
+                {!statusBlocks ? null : hold?.error ? (
+                  <span className="text-warning">{t.msg(hold.error)}</span>
+                ) : hold?.pending ? (
+                  <span className="inline-flex items-center gap-1 text-fg-muted">
+                    <Loader2 className="h-3.5 w-3.5 animate-spin" /> {t("holds.holding")}
+                  </span>
+                ) : hold?.until ? (
+                  <span className="text-fg-muted">{t("holds.heldUntil", { time: timeKey(hold.until, tz) })}</span>
+                ) : (
+                  <span className="text-fg-subtle">{t("holds.autoHint")}</span>
+                )}
               </div>
             )}
           </div>

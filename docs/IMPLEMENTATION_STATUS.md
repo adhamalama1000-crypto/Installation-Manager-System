@@ -2,7 +2,7 @@
 
 This page is updated after each completed phase. The feature-by-feature comparison with Aura is in [FEATURE_MIGRATION_MATRIX.md](FEATURE_MIGRATION_MATRIX.md).
 
-Merge order for what is still open: **#10 → #7 → #8 → #9** (each pull request targets `main`; its diff also shows the lower phases until they are merged).
+Phases A to E (#5 to #10) and #11 are merged into `main`. Still open: #4, the earlier parallel Arabic/English branch. Its remaining items are listed in #11; the booking follow-ups below land the last three of them. #4 is to be closed once these are reviewed, and only with the owner's approval.
 
 A phase is marked **done** only when its code is committed, and lint, typecheck, unit and integration tests, the production build and the browser tests all passed on that commit. A phase is **merged** only after the owner approves and merges its pull request.
 
@@ -13,16 +13,19 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 | Performance fixes, Aura phases 1–6 (booking details, visit outcome, leave, payments, inventory, day plan) | #1 | Merged |
 | Dashboard counters in one statement, auto-refresh paused while typing | #2 | Merged |
 | Arabic-first interface (RTL) with an Arabic/English switch | #3 | Merged |
+| Aura phases A to E (see below) | #5, #6 → #10, #7, #8, #9 | Merged |
+| Useful parts of #4: in-place language switch, prepare-the-site texts, text lint rule, system audit | #11 | Merged |
+| Booking follow-ups: automatic holds under the per-technician lock, dashboard readiness warning, lock pickup in the day plan | `claude/aura-booking-helpers` (follow-up pull request) | Done, open for review |
 
 ## Remaining Aura features
 
 | Phase | Scope | Branch | State |
 |---|---|---|---|
 | A: Delivery proof | Photos, signature, payment and deposit proofs, delivery checklist, serial-required setting | `claude/aura-delivery-proof` | Merged (#5) |
-| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Approved in #6 (merged into the phase A branch); #10 lands it on `main` |
-| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Done, #7 open (against `main`) |
-| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Done, #8 open (against `main`) |
-| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Done, #9 open (against `main`) |
+| B: After-sales | Complaints, ratings, quality grade, satisfaction and quality lists, maintenance reminders | `claude/aura-after-sales` | Merged (#6, landed on `main` by #10) |
+| C: Field tracking | GPS check-ins, live board, attendance, points, late alerts, automatic repeat-visit fee | `claude/aura-field-tracking` | Merged (#7) |
+| D: Expenses and car | Transport expenses, Driver role, car route, car check-ins | `claude/aura-expenses-car` | Merged (#8) |
+| E: Booking helpers | Slot holds, quotation parsing, specialty suggestion, booking rules, site readiness | `claude/aura-booking-helpers` | Merged (#9); follow-ups below, open for review |
 
 ## Check results by phase
 
@@ -107,5 +110,44 @@ Not done in this phase:
 
 Not done in this phase:
 - The quotation reader was tested against saved pages and a local stand-in server, not against the live aura.eg site: this environment's network proxy refuses connections to it (HTTP 403). Set `QUOTE_HOSTS` if the quotation pages live on another host.
-- The smart-home readiness reminder is not on the dashboard; area, door and device lists are not editable.
+- Area, door and device lists are not editable.
+- The smart-home readiness reminder was not on the dashboard. It is now: see the booking follow-ups below.
+
+### Booking follow-ups (2026-11-01)
+
+These are the three items #11 left for #9's branch, built on `main` after #9 was merged.
+
+- **Automatic holds.** Picking technicians in the booking form holds them, as Aura did.
+  - The hold is renewed every 8 minutes while the form is open.
+  - It is replaced when the slot or the choice changes, and released when everyone is unticked, when the booking is saved (new or edited), or when the form is left.
+  - An edit page that is only being looked at holds nothing.
+  - The manual "Hold 10 minutes" button is gone; the form shows the hold's state instead.
+- **Same lock for holds and bookings.**
+  - **Found:** holds used one global advisory lock, while bookings lock each technician, so the two never waited for each other. A new test, in which one person holds and another books the same technician at the same moment, saw both succeed in 3 runs out of 3 on `main`.
+  - **Fixed:** holds now take the same per-technician lock (`lockTechnicians`), in the same sorted order, so there is no deadlock. The test passes in 3 runs out of 3, over 36 contested rounds.
+  - Holds also refuse anyone who is not an active technician; before, an unknown ID failed with a database error.
+  - Expired holds are removed whenever holds are released or replaced.
+- **Dashboard readiness warning.** The dashboard now warns about the coming week's smart-home installations whose wiring or internet is not confirmed ready (Aura `alerts_`):
+  - a banner, and a "Needs attention" reason, in Arabic and English
+  - only for the visits each reader may see
+  - inspections are left out
+  - the check shares the existing "no map location" statement, so the dashboard runs no extra query
+- **Lock pickup.** When the lock is kept at the company:
+  - the technician's WhatsApp day plan says "🏢 Pick up the lock from the company before you set off" / "🏢 خد اللوك من الشركة قبل ما تتحرك" under that visit
+  - the day plan page shows a badge, and the visit shows a notice until it is done
+  - the appointment CSV exports have a "Where the lock is" column
+
+No migration: nothing in the database changes.
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 25 files, **187 / 187 passed**. 11 new: 5 hold concurrency and lifecycle tests, 5 dashboard, day plan and export tests, and 1 unit test of the WhatsApp text. |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **29 / 29 passed** on a freshly migrated and seeded database. New: automatic hold, release on untick and on leaving the form. The older conflict test now has the colleague book before the technician is picked. |
+| Pages checked | The dashboard, the day plan and the booking form in Arabic and English, at 390 and 1280 px: correct direction, **0 px** horizontal overflow |
+
+Notes:
+- `e2e/field.spec.ts` assumes no field check-ins earlier the same day. Run twice against the same database on the same day, its board check sees the earlier run's visit as current. It passes on a fresh database, as in CI.
 

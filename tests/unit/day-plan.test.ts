@@ -21,6 +21,19 @@ describe("WhatsApp links", () => {
 });
 
 describe("messages", () => {
+  it("tells the technician to pick up a lock kept at the company, under that visit only, in both languages", () => {
+    const base = { time: "10:00–11:00", what: "Installation: Smart Lock", customerName: "A", customerPhone: null, address: "", mapLink: null, equipment: null, notes: null, toCollect: null, withOthers: [] };
+    const visits = [
+      { ...base, code: "APT-000001", lockFromCompany: true },
+      { ...base, code: "APT-000002", lockFromCompany: false },
+      { ...base, code: "APT-000003" },
+    ];
+    const text = technicianMessage(en, "Karim Fathy", "Saturday 14 March", visits);
+    expect(text.match(/🏢 Pick up the lock from the company before you set off/g)).toHaveLength(1);
+    expect(text.indexOf("Pick up the lock")).toBeLessThan(text.indexOf("#APT-000001"));
+    expect(technicianMessage(ar, "كريم", "السبت 14 مارس", visits)).toContain("🏢 خد اللوك من الشركة قبل ما تتحرك");
+  });
+
   it("lists each visit with what the technician needs", () => {
     const visits = [
       {

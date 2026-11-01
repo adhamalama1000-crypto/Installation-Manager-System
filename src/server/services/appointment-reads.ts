@@ -1,5 +1,5 @@
 import "server-only";
-import { Prisma, type CustomerConfirmation, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
+import { Prisma, type CustomerConfirmation, type LockLocation, type ProductCategory, type StatusKind, type VisitType } from "@prisma/client";
 import { appointmentCode, parseAppointmentCode, phoneDigits } from "@/lib/constants";
 import type { AppointmentListItem } from "@/lib/types";
 import { statusName } from "@/lib/format";
@@ -219,6 +219,7 @@ export type ExportRow = {
   mapUrl: string | null;
   creatorName: string;
   technicianNames: string | null;
+  lockAt: LockLocation | null;
 };
 
 /** Flat rows for CSV exports. Callers decide which columns the user may see. */
@@ -233,7 +234,7 @@ export async function appointmentExportRows(where: Prisma.Sql, dir: "asc" | "des
     )
     SELECT a.number, a."startsAt", a."endsAt", a."durationMinutes", a."productCategory", a."categoryOther", a.brand, a.model,
            s.name AS "statusName", s."nameAr" AS "statusNameAr", c.name AS "customerName", c.phone, c."secondaryPhone",
-           l.area, l."streetAddress", l.building, l.apartment, l.floor, l."mapUrl", u.name AS "creatorName",
+           l.area, l."streetAddress", l.building, l.apartment, l.floor, l."mapUrl", u.name AS "creatorName", a."lockAt",
            string_agg(t.name, '; ' ORDER BY t.name) AS "technicianNames"
     FROM picked
     JOIN appointments a ON a.id = picked.id

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ChevronLeft, ChevronRight, MessageCircle, Phone, UserX } from "lucide-react";
+import { Building2, ChevronLeft, ChevronRight, MessageCircle, Phone, UserX } from "lucide-react";
 import { CopyButton } from "@/components/day-plan/copy-button";
 import { buttonClasses } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -26,6 +26,11 @@ function VisitRow({ v, t }: { v: DayPlanVisit; t: T }) {
         </Link>
         <StatusBadge name={v.status.name} color={v.status.color} />
         <Badge className={cn(!v.confirmed && "border-warning/40 bg-warning-soft text-fg")}>{v.confirmation}</Badge>
+        {v.lockFromCompany && (
+          <Badge className="border-danger/40 bg-danger-soft text-fg">
+            <Building2 className="h-3 w-3" aria-hidden /> {t("dayPlan.lockFromCompany")}
+          </Badge>
+        )}
       </div>
       <p className="text-fg">
         {v.customerName} <span className="text-fg-muted">· {v.what}</span>

@@ -179,6 +179,7 @@ export function appointmentRowsCsv(user: CurrentUser, rows: ExportRow[], { detai
     t("csv.model"),
     t("csv.salesEmployee"),
     t("csv.technicians"),
+    t("csv.lockAt"),
   ];
   return toCsv([
     header,
@@ -197,6 +198,7 @@ export function appointmentRowsCsv(user: CurrentUser, rows: ExportRow[], { detai
       a.model,
       a.creatorName,
       a.technicianNames ?? "",
+      a.lockAt ? t.dyn(`enums.lockAt.${a.lockAt}`) : "",
     ]),
   ]);
 }
