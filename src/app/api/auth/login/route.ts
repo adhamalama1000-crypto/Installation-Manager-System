@@ -28,10 +28,10 @@ export const POST = publicRoute(async ({ req }) => {
   await recordLoginAttempt(email, ip, true);
   const { token, expiresAt } = await createSession(user.id, { userAgent: req.headers.get("user-agent"), ipAddress: ip });
   const res = NextResponse.json({ ok: true, user: { id: user.id, name: user.name, role: user.role } });
-  res.cookies.set(sessionCookie(token, expiresAt));
+  res.cookies.set(sessionCookie(token, expiresAt, req));
   // A language already chosen in this browser (e.g. on the sign-in page) stays; otherwise the
   // language the user chose before, on any device, comes back with them.
   const chosenHere = isLocale(cookieFromHeader(req.headers.get("cookie"), LOCALE_COOKIE));
-  if (!chosenHere && isLocale(user.locale)) res.cookies.set(localeCookie(user.locale));
+  if (!chosenHere && isLocale(user.locale)) res.cookies.set(localeCookie(user.locale, req));
   return res;
 });

@@ -15,6 +15,29 @@ test("wrong password shows a clear error", async ({ page }) => {
   await expect(page.getByText("Invalid email or password.")).toBeVisible();
 });
 
+test("signing in and out works, and a sign-in without the page's script says why instead of reloading", async ({ page, browser }) => {
+  await login(page, "admin@example.com");
+  await expect(page).not.toHaveURL(/\/login/);
+  await page.getByRole("button", { name: "Sign out" }).first().click();
+  await expect(page).toHaveURL(/\/login/);
+
+  // As when the dev server is opened by a network address: the page loads, its script does not.
+  const baseURL = test.info().project.use.baseURL!;
+  const noScript = await browser.newContext({ baseURL, javaScriptEnabled: false });
+  await noScript.addCookies([{ name: "ims_locale", value: "en", url: baseURL }]);
+  const p = await noScript.newPage();
+  await p.goto("/login?next=/calendar");
+  await p.getByLabel("Email").fill("admin@example.com");
+  await p.getByLabel("Password", { exact: true }).fill(PASSWORD);
+  await p.getByRole("button", { name: "Sign in" }).click();
+  await expect(p).toHaveURL(/\/login\?signin=noscript&next=%2Fcalendar$/);
+  await expect(p.getByText("Sign-in did not start")).toBeVisible();
+  // The email and password are never put in the address.
+  expect(p.url()).not.toContain("admin");
+  expect(p.url()).not.toContain(encodeURIComponent(PASSWORD));
+  await noScript.close();
+});
+
 test("technicians are read-only and only see their own appointments", async ({ page, playwright }) => {
   await login(page, "karim.tech@example.com");
   await expect(page.getByRole("link", { name: "New appointment" })).toHaveCount(0);

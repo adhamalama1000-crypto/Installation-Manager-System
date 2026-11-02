@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { publicRoute } from "@/server/http";
-import { SESSION_COOKIE, deleteSessionByToken, secureCookies } from "@/server/auth/session";
+import { SESSION_COOKIE, deleteSessionByToken, isSecureRequest } from "@/server/auth/session";
 
 export const POST = publicRoute(async ({ req }) => {
   const cookie = req.headers.get("cookie") ?? "";
@@ -11,6 +11,6 @@ export const POST = publicRoute(async ({ req }) => {
     ?.slice(SESSION_COOKIE.length + 1);
   await deleteSessionByToken(token ? decodeURIComponent(token) : null);
   const res = NextResponse.json({ ok: true });
-  res.cookies.set({ name: SESSION_COOKIE, value: "", path: "/", httpOnly: true, sameSite: "lax", secure: secureCookies(), maxAge: 0 });
+  res.cookies.set({ name: SESSION_COOKIE, value: "", path: "/", httpOnly: true, sameSite: "lax", secure: isSecureRequest(req), maxAge: 0 });
   return res;
 });

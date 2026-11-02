@@ -17,6 +17,6 @@ export const POST = publicRoute(async ({ req }) => {
   const user = await getUserFromRequest(req);
   if (user) await prisma.user.update({ where: { id: user.id }, data: { locale: parsed.data.locale } });
   const res = NextResponse.json({ ok: true, locale: parsed.data.locale });
-  res.cookies.set(localeCookie(parsed.data.locale));
+  res.cookies.set(localeCookie(parsed.data.locale, req));
   return res;
 });
