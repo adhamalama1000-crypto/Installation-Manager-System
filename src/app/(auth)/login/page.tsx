@@ -8,8 +8,8 @@ import { LoginForm } from "./login-form";
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getT())("auth.signInTitle") };
 }
-export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string }> }) {
-  const { next } = await searchParams;
+export default async function LoginPage({ searchParams }: { searchParams: Promise<{ next?: string; signin?: string }> }) {
+  const { next, signin } = await searchParams;
   if (await getCurrentUser()) redirect(safeNext(next));
-  return <LoginForm next={safeNext(next)} />;
+  return <LoginForm next={safeNext(next)} scriptsMissing={signin === "noscript"} />;
 }

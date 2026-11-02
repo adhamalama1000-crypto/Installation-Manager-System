@@ -111,6 +111,7 @@ Useful scripts:
 | `npm run db:seed` | Demo data (only on an empty database; `SEED_FORCE=1` wipes and reseeds - never in production) |
 | `npm run db:reset` | Drop, re-migrate and reseed the development database |
 | `npm run create-admin` | Create the first Admin in a fresh production database |
+| `npm run reset-admin-password` | Recover `admin@example.com`: `-- --check` shows its state (active, locked out); without it, sets a new password for that account only (see below) |
 | `npx tsx scripts/perf/…` | Performance measurements: large test data set, response times and SQL counts, browser timings, load test (see [docs/PERFORMANCE.md](docs/PERFORMANCE.md)) |
 
 ## Demo accounts
@@ -130,6 +131,24 @@ Created by `npm run db:seed`. Password for all of them: **`ChangeMe123!`** (or `
 | Viewer | `viewer@example.com` | appointments, address/map and reports, read-only |
 
 The seed creates ~100 non-overlapping appointments from three weeks ago to three weeks ahead (in `Africa/Cairo`), with prices, deposits, collections, cash custody and serial-numbered stock (some installed with warranty), plus a small ERP inventory: five products, the main store (bins A-01, A-02), Karim's van, a posted opening balance and a posted transfer. It only runs on an empty database, so a database seeded before the Accountant, Store keeper and Driver roles existed has none of those accounts: an Admin can create them under Users. **Never run the seed against production.**
+
+### Cannot sign in?
+
+- **The sign-in page just comes back, with no error.** Open the app at `http://localhost:<port>`.
+  - In development (`npm run dev`), Next.js runs the page's scripts only for `localhost`. A page opened by the machine's network address or name cannot sign in; it now says so. To use such an address, list it in `ALLOWED_DEV_ORIGINS` (e.g. `ALLOWED_DEV_ORIGINS="192.168.1.20"`) and restart.
+  - In a production build, the session cookie is marked `Secure` only when the browser came over HTTPS. Plain http at any address works.
+- **"Invalid email or password."** For the demo accounts the password is `ChangeMe123!`, or the `SEED_PASSWORD` that was set when the database was seeded.
+- **"Too many sign-in attempts."** Five wrong passwords lock that account for 15 minutes, and 30 failures from one address lock that address.
+- **Recover `admin@example.com` without touching anything else:**
+  ```bash
+  npm run reset-admin-password -- --check      # read-only: exists? active? locked out? which database?
+  npm run reset-admin-password                 # asks for the new password twice, hidden
+  npm run reset-admin-password -- --activate   # also switches the account back on if it was deactivated
+  ```
+  - On Windows PowerShell use `npm.cmd`.
+  - The reset changes only that account's password. It also clears its failed sign-ins, signs it out everywhere and records the reset in the audit log.
+  - It never creates or deletes users and never changes a role.
+  - Do **not** reseed (`SEED_FORCE=1` wipes all data).
 
 ## Roles & permissions
 
@@ -282,7 +301,7 @@ Then sign in, set the timezone in **Settings**, and add Sales, Technician and Vi
 
 Production checklist:
 
-- Serve over **HTTPS** and set `APP_URL` to the public `https://` URL. Session cookies are then marked `Secure`.
+- Serve over **HTTPS** and set `APP_URL` to the public `https://` URL. Session cookies are marked `Secure` for requests that arrive over HTTPS: directly, with `X-Forwarded-Proto: https` from the proxy, or for the `APP_URL` host. Have the proxy send `X-Forwarded-Proto`.
 - Run behind a reverse proxy that sets `X-Forwarded-For` (used for per-IP login rate limiting; the per-account limit applies regardless).
 - Back up the PostgreSQL database and the upload folder (`UPLOAD_DIR`) regularly, at the same time.
 - Check-ins need **HTTPS**: browsers only give the phone's location to secure pages (and `localhost`). Without it, check-ins are recorded without a location and shown as such.
@@ -300,7 +319,7 @@ Serverless platforms work too. Use a pooled connection string for `DATABASE_URL`
 | Variable | Required | Description |
 |---|:-:|---|
 | `DATABASE_URL` | ✓ | PostgreSQL connection string |
-| `APP_URL` | ✓ | Public base URL; used in password links and to decide `Secure` cookies |
+| `APP_URL` | ✓ | Public base URL; used in password links. Cookies for requests to an `https://` APP_URL host are `Secure` |
 | `SESSION_TTL_HOURS` | | Session lifetime (default 12) |
 | `TEST_DATABASE_URL` | tests | Separate, disposable database for `npm test` (must differ from `DATABASE_URL`) |
 | `SEED_PASSWORD` | | Password for demo accounts (default `ChangeMe123!`) |
@@ -310,6 +329,8 @@ Serverless platforms work too. Use a pooled connection string for `DATABASE_URL`
 | `UPLOAD_DIR` | | Folder for visit photos, signatures and proofs (default `./storage/uploads`); outside `public/`, backed up with the database |
 | `MAX_UPLOAD_MB` | | Largest accepted upload in MB (default 8) |
 | `E2E_BASE_URL` | | Point Playwright at an already running app |
+| `ALLOWED_DEV_ORIGINS` | | Development only: other hostnames (comma-separated) that may open the dev server, e.g. the machine's network IP |
+| `NEW_ADMIN_PASSWORD` | | Non-interactive input for `npm run reset-admin-password -- --yes` |
 
 No secrets are committed. `.env` is git-ignored and `.env.example` documents the format.
 

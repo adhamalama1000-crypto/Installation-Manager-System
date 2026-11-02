@@ -8,8 +8,18 @@ const securityHeaders = [
   { key: "Permissions-Policy", value: "camera=(), microphone=(), geolocation=(self)" },
 ];
 
+// Development only: Next.js serves its dev scripts to localhost alone. To open the dev server
+// from another address (the machine's network IP or name), list those hostnames, comma
+// separated, e.g. ALLOWED_DEV_ORIGINS="192.168.1.20,my-pc.local". Without that, the page loads
+// but its scripts are blocked, and signing in only reloads the login page.
+const allowedDevOrigins = (process.env.ALLOWED_DEV_ORIGINS ?? "")
+  .split(",")
+  .map((h) => h.trim())
+  .filter(Boolean);
+
 const nextConfig: NextConfig = {
   poweredByHeader: false,
+  ...(allowedDevOrigins.length ? { allowedDevOrigins } : {}),
   serverExternalPackages: ["bcryptjs"],
   async headers() {
     return [{ source: "/:path*", headers: securityHeaders }];

@@ -8,7 +8,7 @@ import { Alert } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
 
-export function LoginForm({ next }: { next: string }) {
+export function LoginForm({ next, scriptsMissing = false }: { next: string; scriptsMissing?: boolean }) {
   const t = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -37,7 +37,19 @@ export function LoginForm({ next }: { next: string }) {
     <div>
       <h1 className="text-2xl font-semibold tracking-tight">{t("auth.welcome")}</h1>
       <p className="mt-1 text-sm text-fg-muted">{t("auth.signInTo", { app: t("app.name") })}</p>
+      {/* Signing in needs this page's script. If it never started (the dev server blocks its
+          scripts for addresses other than localhost unless ALLOWED_DEV_ORIGINS lists them, or the
+          button was pressed before the page finished loading), the browser submits the form
+          itself: it lands on /login?signin=noscript, which says so, instead of silently
+          reloading. The email and password fields have no name, so they never go in the address. */}
       <form onSubmit={submit} className="mt-8 space-y-5" noValidate>
+        <input type="hidden" name="signin" value="noscript" />
+        <input type="hidden" name="next" value={next} />
+        {scriptsMissing && (
+          <Alert tone="warning" title={t("auth.noScriptTitle")}>
+            {t("auth.noScriptText")}
+          </Alert>
+        )}
         {error && <Alert tone="danger">{error}</Alert>}
         <Field label={t("auth.email")}>
           {(p) => <Input {...p} type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("auth.emailPlaceholder")} dir="ltr" />}

@@ -32,8 +32,35 @@ function sessionTtlMs(): number {
   return (Number.isFinite(hours) && hours > 0 ? hours : 12) * 60 * 60 * 1000;
 }
 
-export function secureCookies(): boolean {
-  return process.env.NODE_ENV === "production" && !(process.env.APP_URL ?? "").startsWith("http://");
+/**
+ * Whether cookies sent in answer to this request must be `Secure`: only when the browser reached
+ * the app over HTTPS. A `Secure` cookie on a plain-http page is dropped by the browser without a
+ * word (except on localhost), so the sign-in "succeeds" and the next page goes back to /login.
+ * That is what happened when the production build was opened by the machine's network address
+ * or name, because this used to follow NODE_ENV and APP_URL instead of the request.
+ *
+ * HTTPS is recognised from the request's own URL, from `X-Forwarded-Proto` (set by a TLS proxy),
+ * or from an `https://` APP_URL when the request is for that same host (a proxy that does not
+ * send the header).
+ */
+export function isSecureRequest(req: Request): boolean {
+  const forwarded = req.headers.get("x-forwarded-proto")?.split(",")[0]?.trim().toLowerCase();
+  if (forwarded === "https") return true;
+  let url: URL;
+  try {
+    url = new URL(req.url);
+  } catch {
+    return false;
+  }
+  if (url.protocol === "https:") return true;
+  const appUrl = (process.env.APP_URL ?? "").trim();
+  if (!appUrl.startsWith("https://")) return false;
+  try {
+    const host = (req.headers.get("x-forwarded-host") ?? req.headers.get("host") ?? url.host).split(",")[0]!.trim().toLowerCase();
+    return host === new URL(appUrl).host.toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 export async function createSession(userId: string, meta: { userAgent?: string | null; ipAddress?: string | null }) {
@@ -51,15 +78,17 @@ export async function createSession(userId: string, meta: { userAgent?: string |
   return { token, expiresAt };
 }
 
-export function sessionCookie(token: string, expiresAt: Date) {
+export function sessionCookie(token: string, expiresAt: Date, req: Request) {
   return {
     name: SESSION_COOKIE,
     value: token,
     httpOnly: true,
     sameSite: "lax" as const,
-    secure: secureCookies(),
+    secure: isSecureRequest(req),
     path: "/",
-    expires: expiresAt,
+    // Relative lifetime, counted by the browser's own clock: an absolute date from a server whose
+    // clock lags (e.g. WSL or Docker after sleep) could arrive already expired.
+    maxAge: Math.max(1, Math.floor((expiresAt.getTime() - Date.now()) / 1000)),
   };
 }
 
