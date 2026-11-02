@@ -37,7 +37,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 ## Features
 
 - **Authentication** with secure server-side sessions (random 256-bit token in an `HttpOnly`, `SameSite=Lax` cookie; only its SHA-256 hash is stored), bcrypt password hashing, database-backed login rate limiting, and one-time invitation / password-reset links.
-- **Four roles** - Admin, Sales, Technician, Viewer - enforced on the server for every query and API call. Viewers get per-account permissions chosen by an Admin.
+- **Roles** - Admin, Sales, Technician, Accountant, Store keeper, Warehouse manager, Driver, Viewer - enforced on the server for every query and API call. Viewers get per-account permissions chosen by an Admin.
 - **User management** (Admin): create, edit, activate/deactivate, assign roles and calendar colours, issue invitation and reset links. New active technicians appear in technician selection immediately; deactivated ones disappear from new assignments but stay on historical appointments.
 - **Customers and installation sites**: repeat customers are found by name or phone while booking; one customer can have several sites and many appointments.
 - **Appointments** with customer details, separate *apartment* and *floor* fields, access instructions, a saved map link and optional coordinates, product category / brand / model, description, required equipment, technician-visible notes, and **internal notes** that only authorised roles can see.
@@ -56,6 +56,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 - **Field tracking** (from Aura): technicians check in with the phone's location when they reach the company, pick up the lock, call the customer, set off (with an estimated arrival), arrive, start, finish or report a problem, and leave. Check-ins far from the company (400 m) or the customer's pin (300 m), late arrivals and early departures are flagged; Sales and the Admins are told as it happens. A problem the customer caused adds the repeat-visit fee once. The **Live board** shows where every technician is (also for the office screen, through a Viewer account), **Attendance & points** scores each month with Aura's rule, and a scheduled call sends late alerts to the Admins.
 - **Transport expenses and the company car** (from Aura): technicians and the driver record what they paid to reach a visit, with a receipt photo, and the Accountant pays each person's pending month in one go. Bookings can ask for the company car; the **Car route** page orders the day's car visits (the stops the head of installations ordered by hand first, then each period from the nearest stop), warns about more than 3 drops in a period or drops 20 km apart, and lets the new **Driver** role check in when leaving, dropping and picking up the teams, and coming back. The car is shown on the live board, and the booking form warns when the car is busy that period.
 - **Booking helpers** (from Aura): a 10-minute **hold** on technicians while Sales confirms with the customer, a **suggested technician** (specialty, how full their day is, how close their neighbouring visit is), reading a **quotation link** from the company website into the customer, price and items (prices hidden from technicians), where the lock is, whether an electrician is needed, smart-home **site readiness**, Aura's area centres when a site has no pin, an inspection-only weekday warning, and **no booking in the past** except by an Admin. Reports show the busiest areas.
+- **ERP inventory (phase 1)**: a product catalogue (Arabic and English names, SKU, barcode, categories, brands, units, costs, minimum stock, warranty, serial tracking), warehouses and technicians' vans with bins, numbered stock documents (goods receipt, issue, transfer, customer and supplier return, adjustment, opening balance) that are drafted, posted and corrected only by reversal, an immutable stock ledger with balances per location and moving average cost, physical stocktakes that freeze the warehouse and post one adjustment on approval, and a new **Warehouse manager** role. See [docs/INVENTORY.md](docs/INVENTORY.md).
 - **Arabic first, with English**: the app opens in Arabic, right to left, and every page, form, validation message, notification, audit entry, CSV export and WhatsApp text can be switched to English (sidebar, sign-in page or profile). The choice is kept in a cookie and on the user's account.
 - **Responsive UI** (phone, tablet, desktop) with light, dark and system themes, accessible focus states, empty/error states and toast feedback.
 
@@ -120,11 +121,12 @@ Created by `npm run db:seed`. Password for all of them: **`ChangeMe123!`** (or `
 | Technician | `karim.tech@example.com`, `youssef.tech@example.com`, `ahmed.tech@example.com`, `mostafa.tech@example.com` | sees only their assignments |
 | Technician (inactive) | `hany.tech@example.com` | cannot sign in; kept on past appointments |
 | Accountant | `nadia.accounts@example.com` | finance statement and cash hand-over; read-only bookings |
-| Store keeper | `store@example.com` | stock by serial number, custody, models and warranty |
+| Store keeper | `store@example.com` | stock by serial number, custody, models and warranty; receives, issues, transfers and counts warehouse stock |
+| Warehouse manager | `warehouse@example.com` | products, warehouses and vans, all stock documents, approves stocktakes and adjustments, stock value |
 | Driver | `driver@example.com` | the company car's route and visits; check-ins when dropping and picking up teams |
 | Viewer | `viewer@example.com` | appointments, address/map and reports, read-only |
 
-The seed creates ~100 non-overlapping appointments from three weeks ago to three weeks ahead (in `Africa/Cairo`), with prices, deposits, collections, cash custody and serial-numbered stock (some installed with warranty). It only runs on an empty database, so a database seeded before the Accountant, Store keeper and Driver roles existed has none of those accounts: an Admin can create them under Users. **Never run the seed against production.**
+The seed creates ~100 non-overlapping appointments from three weeks ago to three weeks ahead (in `Africa/Cairo`), with prices, deposits, collections, cash custody and serial-numbered stock (some installed with warranty), plus a small ERP inventory: five products, the main store (bins A-01, A-02), Karim's van, a posted opening balance and a posted transfer. It only runs on an empty database, so a database seeded before the Accountant, Store keeper and Driver roles existed has none of those accounts: an Admin can create them under Users. **Never run the seed against production.**
 
 ## Roles & permissions
 
@@ -150,6 +152,8 @@ Permissions are defined once in [`src/lib/permissions.ts`](src/lib/permissions.t
 | Customer directory | ✓ | ✓ | - | ✓ | - | if granted |
 | Reports & CSV exports | ✓ | ✓³ | - | - | - | if granted |
 | Users, roles, colours, settings, statuses, audit log | ✓ | - | - | - | - | - |
+
+The ERP inventory permissions (`products.*`, `warehouses.*`, `inventory.*`) and the Warehouse manager role are described in [docs/INVENTORY.md](docs/INVENTORY.md#permissions-and-roles).
 
 ¹ An Admin can restrict Sales to editing only the appointments they created (Settings → "Sales can edit any appointment").
 ² Configurable (Settings → "Technicians see customer phone numbers").
@@ -218,7 +222,7 @@ e2e/                       Playwright browser tests
 
 ## Database
 
-Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`, `complaints`, `maintenance_calls`, `check_ins`, `technician_positions`, `alerts_sent`, `transport_expenses`, `slot_holds`.
+Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`, `complaints`, `maintenance_calls`, `check_ins`, `technician_positions`, `alerts_sent`, `transport_expenses`, `slot_holds`; ERP inventory: `units`, `catalog_categories`, `brands`, `products`, `warehouses`, `warehouse_bins`, `stock_balances`, `stock_documents`, `stock_document_lines`, `inventory_movements`, `product_serials`, `document_sequences`, `stocktakes`, `stocktake_lines` (see [docs/INVENTORY.md](docs/INVENTORY.md)).
 
 Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads`), with their type, size and SHA-256 recorded in `attachments`. Back up that folder together with the database.
 
@@ -226,13 +230,13 @@ Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads
 - `appointments.createdById` is the permanent original Sales creator; `updatedById` is the last editor.
 - Users are never deleted, only deactivated, so historical references survive. Foreign keys use `ON DELETE RESTRICT` for appointment data, and appointments are cancelled, never deleted.
 - Check constraints for time ranges, durations and colour formats; indexes for the common filters (dates, status, creator, technician, customer, area, building, phone digits).
-- Audit rows are append-only (trigger). Attachment rows can only be marked removed, never changed or deleted (trigger). Check-ins are append-only (trigger). Transport expenses are never deleted and their amount, person and day never change (trigger). Complaints cannot be deleted (trigger); ratings and grades are 1–5 and always stored with who gave them and when (check constraints).
+- Audit rows are append-only (trigger). Attachment rows can only be marked removed, never changed or deleted (trigger). Check-ins are append-only (trigger). Transport expenses are never deleted and their amount, person and day never change (trigger). Complaints cannot be deleted (trigger); ratings and grades are 1–5 and always stored with who gave them and when (check constraints). Inventory movements are append-only, posted stock documents cannot change, balances cannot go negative unless the warehouse allows it, and closed stocktakes cannot change (triggers).
 
 ## Testing
 
 ```bash
-npm test            # 129 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
-npm run test:e2e    # 19 Playwright tests against a running, seeded app
+npm test            # 233 unit + integration tests (needs TEST_DATABASE_URL; that database is wiped)
+npm run test:e2e    # 33 Playwright tests against a running, seeded app
 ```
 
 What is covered:
@@ -254,6 +258,7 @@ What is covered:
 - **Field tracking**: distance, arrival-time and points rules; late arrival and early departure from the working-day settings, far flags from the company and the customer's pin, duplicate presses, "call the customer before setting off", START/DONE recorded with the outcome, the repeat-visit fee added once for customer-caused problems with an audit entry, notifications, the append-only trigger; the live board states and colours and who may see it; late alerts sent once a day, only on working days and hours, and the secret-protected endpoint (503 / 401 / 200); attendance (days, lateness, early leave, leave, sick days, absences on visit days) and the month's points.
 - **Expenses and the car**: claiming only for one's own visits, amount checks, one receipt, receipts only for the owner and the Accountant, cancelling a mistake, the append-only trigger, the month by person and paying one person's pending expenses; the driver seeing only car visits, unticking the car clearing its place, Aura's stop order and warnings, manual order by the head of installations only, the car's check-ins (late leave, far drop, duplicate press, coming back before leaving refused), the car on the board and in attendance, and the booking warnings.
 - **Booking helpers**: Aura's quotation parser on a saved page (English and Arabic headers) and price hiding; area-centre matching in Arabic and English; only Admins booking past dates while old bookings stay editable; the new booking fields with history; holds against other Sales, released on booking, refused on booked technicians, ignored once expired, overridable by Admins; the suggestion score; reading quotations only from the allowed host (redirects included) through a local stand-in server, stored on the visit and hidden from technicians; car stops ordered by area centre; reports by area.
+- **ERP inventory**: catalogue validation and SKU / barcode uniqueness, warehouses and vans, every document type, negative-stock refusal (also in the database), units and serials, reversals, immutability triggers, simultaneous postings and duplicate requests, stocktakes from snapshot to approved adjustment, access by role, the API and the browser flows in both languages (details in [docs/INVENTORY.md](docs/INVENTORY.md#testing)).
 - **Localization**: both dictionaries have the same keys and placeholders, every stored enum value has a name in both languages, Arabic plural forms, encoded server messages, Arabic dates and amounts; the API answers in Arabic by default and keeps a browser's chosen language at sign-in.
 
 CI (`.github/workflows/ci.yml`) runs lint, typecheck, all tests, the production build and the browser tests against PostgreSQL 16.
@@ -333,4 +338,5 @@ Judge speed on `npm run build && npm start`, not `npm run dev`: the development 
 - WhatsApp messages are never sent automatically: the day plan opens WhatsApp with the text filled in (no WhatsApp Business API or e-mail provider is connected). Numbers without a country code are treated as Egyptian.
 - The repeat-visit fee is entered by Sales rather than set automatically.
 - Aura features still partial: transport expenses are not in the finance CSV; drivers are not notified of every status change on a car visit; the smart-home readiness reminder is on the booking form and the visit, not on the dashboard. Some features work differently on purpose (PIN login, fixed periods, order numbers, Google Sheets sync, "book anyway" over a conflict); see [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md).
+- ERP inventory phase 1 does not yet move the legacy serial custody into the new ledger, link issues to booked visits, or include suppliers and purchase orders; see [docs/INVENTORY.md](docs/INVENTORY.md#known-limitations).
 - No e-mail is sent: Aura's morning e-mail and e-mailed late alerts need an e-mail provider, which is not configured. Late alerts arrive as in-app notifications, and the day plan shows the morning summary. See [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).

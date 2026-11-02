@@ -61,6 +61,29 @@ export const PERMISSIONS = [
   "car.checkin",
   /** Change the order of the car's stops (head of installations). */
   "route.manage",
+  // ERP inventory (warehouses, stock ledger, stock documents, stocktakes).
+  /** Product catalogue (read). */
+  "products.view",
+  /** Create and edit products, units, categories and brands. */
+  "products.manage",
+  /** Warehouses, technicians' vehicles and bins (read). */
+  "warehouses.view",
+  /** Create and edit warehouses, vehicles and bins, including the negative-stock policy. */
+  "warehouses.manage",
+  /** Stock balances, stock documents and the ledger. Technicians only see their own vehicle. */
+  "inventory.view",
+  /** Goods receipts and customer returns. */
+  "inventory.receive",
+  /** Stock issues and supplier returns. */
+  "inventory.issue",
+  /** Transfers between warehouses and bins. */
+  "inventory.transfer",
+  /** Physical stocktakes (start, count, submit) and adjustment drafts. */
+  "inventory.count",
+  /** Approve stocktakes, post adjustments and opening balances, cancel posted documents. */
+  "inventory.approve",
+  /** Stock valuation, costs and inventory exports. */
+  "inventory.reports",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -77,6 +100,10 @@ export const VIEWER_GRANTABLE: Permission[] = [
   "complaints.view",
   "board.view",
   "route.view",
+  "products.view",
+  "warehouses.view",
+  "inventory.view",
+  "inventory.reports",
 ];
 
 export const DEFAULT_VIEWER_PERMISSIONS: Permission[] = ["appointments.view"];
@@ -108,22 +135,32 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
         "notes.internal",
         "history.view",
         "complaints.view",
+        "products.view",
       ];
       if (settings.salesCanViewReports) p.push("reports.view");
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record", "expenses.record"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record", "expenses.record", "inventory.view"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }
     case "ACCOUNTANT":
-      return new Set<Permission>(["appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive", "stock.view", "attendance.view", "expenses.pay"]);
+      return new Set<Permission>(["appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive", "stock.view", "attendance.view", "expenses.pay", "products.view", "warehouses.view", "inventory.view", "inventory.reports"]);
     case "DRIVER":
       // Sees only the visits the car serves (see access.ts), to drop and pick up the teams.
       return new Set<Permission>(["appointments.view", "location.view", "customers.contact", "route.view", "car.checkin", "expenses.record"]);
     case "STORE":
-      return new Set<Permission>(["appointments.view", "stock.view", "stock.manage"]);
+      return new Set<Permission>([
+        "appointments.view", "stock.view", "stock.manage",
+        "products.view", "warehouses.view", "inventory.view", "inventory.receive", "inventory.issue", "inventory.transfer", "inventory.count",
+      ]);
+    case "WAREHOUSE_MANAGER":
+      return new Set<Permission>([
+        "appointments.view", "stock.view", "stock.manage",
+        "products.view", "products.manage", "warehouses.view", "warehouses.manage",
+        "inventory.view", "inventory.receive", "inventory.issue", "inventory.transfer", "inventory.count", "inventory.approve", "inventory.reports",
+      ]);
     case "VIEWER": {
       const granted = (user.viewerPermissions ?? []).filter((p): p is Permission =>
         (VIEWER_GRANTABLE as string[]).includes(p),
@@ -140,4 +177,14 @@ export function can(user: PermissionSubject, permission: Permission, settings: P
 /** Technicians only ever see appointments they are assigned to (drivers: the car's visits). */
 export function isAssignmentScoped(role: Role): boolean {
   return role === "TECHNICIAN" || role === "DRIVER";
+}
+
+/** Technicians see only the stock of their own vehicle (warehouse of kind VEHICLE linked to them). */
+export function isVehicleScoped(role: Role): boolean {
+  return role === "TECHNICIAN";
+}
+
+/** Purchase and average costs, stock value: hidden from people who only move stock. */
+export function canSeeCosts(perms: Set<Permission>): boolean {
+  return perms.has("inventory.reports") || perms.has("products.manage") || perms.has("inventory.approve");
 }

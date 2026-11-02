@@ -117,6 +117,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Aura feature (function) | This app today | Status | Phase |
 |---|---|:-:|:-:|
 | Serial stock: goods in, custody, installed, returned, faulty (`api_stock*`) | Inventory page with an append-only history | ✅ | — |
+| (Beyond Aura) ERP stock: catalogue, warehouses and vans, documents, ledger, stocktakes | Inventory group: stock on hand, documents, ledger, stocktakes, products, warehouses ([INVENTORY.md](INVENTORY.md)) | ✅ | ERP phase 1; the serial stock above runs alongside it |
 | Warranty months per model and warranty end per order (`warrantyFor_`) | Per model; an end date for each installed serial | ✅ | — |
 | Complaints: number `CYYMM-NNN`, warranty status, Sales or a manager opens one, a manager assigns it, the technician resolves it, Sales or a manager closes or reopens it, auto-resolved when the linked maintenance visit is done (`api_complaint*`, `resolveComplaints_`) | Complaints page and a card on the visit; same numbering and workflow; head of installations = Admin; resolved by finishing the linked visit; notifications to Admins, the assignee and the creator; never deleted | ✅ | B |
 | Customer satisfaction rating 1–5 with a note, plus a "call to rate" list for visits done 3–14 days ago (`rating`, `ratingNote`, `api_dashboard`) | Rating on the visit and in **After-sales → Satisfaction calls** with the same window | ✅ | B |

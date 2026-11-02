@@ -2,7 +2,7 @@
 
 This page is updated after each completed phase. The feature-by-feature comparison with Aura is in [FEATURE_MIGRATION_MATRIX.md](FEATURE_MIGRATION_MATRIX.md).
 
-Phases A to E (#5 to #10), #11 and #12 are merged into `main`. #4, the earlier parallel Arabic/English branch, was closed as superseded on 2026-11-01. Its useful parts landed in #11 and #12, and the closing comment on #4 says where each of its changes now lives. Its branch is kept.
+Phases A to E (#5 to #10), #11, #12 and ERP phase 1, the inventory foundation (#14), are merged into `main`. #4, the earlier parallel Arabic/English branch, was closed as superseded on 2026-11-01. Its useful parts landed in #11 and #12, and the closing comment on #4 says where each of its changes now lives. Its branch is kept.
 
 A phase is marked **done** only when its code is committed, and lint, typecheck, unit and integration tests, the production build and the browser tests all passed on that commit. A phase is **merged** only after the owner approves and merges its pull request.
 
@@ -17,6 +17,7 @@ A phase is marked **done** only when its code is committed, and lint, typecheck,
 | Useful parts of #4: in-place language switch, prepare-the-site texts, text lint rule, system audit | #11 | Merged |
 | Booking follow-ups: automatic holds under the per-technician lock, dashboard readiness warning, lock pickup in the day plan | #12 | Merged |
 | Parallel Arabic/English branch, superseded by #3, #11 and #12 | #4 | Closed |
+| ERP phase 1: inventory foundation (catalogue, warehouses and vans, stock ledger, stock documents, stocktakes, Warehouse manager role); see [INVENTORY.md](INVENTORY.md) | #14 | Merged |
 
 ## Remaining Aura features
 
@@ -166,4 +167,27 @@ All checks on `5243d5f`, the merge of #12:
 | `npm run build` | Succeeded |
 | `npm run test:e2e` | **29 / 29 passed**, on a database freshly migrated and seeded as in CI |
 | `prisma migrate status` on the development database | 17 migrations, schema up to date (no reset, no reseed) |
+
+### ERP phase 1: inventory foundation (2026-11-01)
+
+Branch `claude/erp-inventory-foundation`, from `main` after #12; merged as #14 on 2026-11-02. Details, rules and workflows in
+[INVENTORY.md](INVENTORY.md).
+
+- **Migrations (additive):** `20261101120000_role_warehouse_manager` (one enum value) and `20261101120100_inventory_foundation` (7 enum types, 14 tables, constraints, 7 triggers, 5 unit rows). Every `ALTER TABLE` in them targets a new table; no existing table, column or row changes.
+- **Database checks:** applied with `migrate deploy` to the development database and to two new, empty databases; `migrate diff` between the database and the schema: no difference. The seed runs on a fresh database and gives consistent balances.
+- **Serial custody:** the existing `/inventory` pages, permissions and serial installation at the visit are unchanged; the menu entry is now called "Serial custody".
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 29 files, **233 / 233 passed**. 46 new: 25 posting-engine, catalogue, warehouse, concurrency and access tests, 6 stocktake tests, 4 API tests, 11 unit tests. The role test was updated for the new permissions; the old permissions are unchanged. |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **33 / 33 passed** on a freshly migrated and seeded database. 4 new inventory tests (receipt and reversal; stocktake to adjustment; store keeper and technician limits; Arabic). The phone sweeps now include the 9 new pages. |
+| Pages checked | Stock, documents, new receipt, transfer, ledger and products, in Arabic and English, at 390 and 1366 px: correct direction, **0 px** horizontal overflow |
+
+Found and fixed while testing:
+- **Outgoing stock refused by the guard.** Balance writes first used `INSERT … ON CONFLICT DO UPDATE`. PostgreSQL runs the no-negative trigger on the proposed row, with the bare negative quantity, before it notices the conflict, so every issue was refused. Balances are now updated in place, and a row is inserted only when stock first arrives at a location.
+- **Costs wiped on edit.** Someone who may not see costs editing a draft would have cleared the costs already on it. Those costs are now kept.
+- **Stocktake snapshot.** Where the warehouse allows negative stock, the snapshot can hold a negative system quantity, so the check constraint now covers only counted quantities. This was changed before the migration left the development database.
 

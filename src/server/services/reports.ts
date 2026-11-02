@@ -114,8 +114,8 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
 
 function csvCell(v: unknown): string {
   let s = v === null || v === undefined ? "" : String(v);
-  // Neutralise spreadsheet formula injection.
-  if (/^[=+\-@\t\r]/.test(s)) s = `'${s}`;
+  // Neutralise spreadsheet formula injection (numbers are safe as they are, e.g. -5 in a stock ledger).
+  if (typeof v !== "number" && /^[=+\-@\t\r]/.test(s)) s = `'${s}`;
   return /[",\n\r]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 
