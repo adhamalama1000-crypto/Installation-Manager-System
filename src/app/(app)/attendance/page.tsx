@@ -15,7 +15,8 @@ export async function generateMetadata(): Promise<Metadata> {
 export default async function AttendancePage({ searchParams }: { searchParams: Promise<{ month?: string }> }) {
   const [user, t] = await Promise.all([requireUser(), getT()]);
   const all = user.permissions.includes("attendance.view");
-  if (!all && !user.permissions.includes("checkins.record")) redirect("/access-denied");
+  // Technicians (check-ins) and the driver (car check-ins) see their own month, as the service allows.
+  if (!all && !user.permissions.includes("checkins.record") && !user.permissions.includes("car.checkin")) redirect("/access-denied");
   const sp = await searchParams;
   const data = await attendance(user, sp.month);
   const L = t.locale;
