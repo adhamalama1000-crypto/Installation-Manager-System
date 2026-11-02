@@ -323,7 +323,7 @@ export async function getDocument(user: CurrentUser, id: string) {
         },
       },
       movements: {
-        orderBy: [{ createdAt: "asc" }],
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         include: { warehouse: { select: { code: true } }, bin: { select: { code: true } }, product: { select: { sku: true } }, createdBy: { select: userSelect } },
       },
     },
@@ -403,4 +403,3 @@ export function preparableTypes(user: CurrentUser): { type: StockDocType; return
   ];
   return all.filter((t) => hasPermission(user, docPermissions(t.type, t.returnKind).prepare));
 }
-

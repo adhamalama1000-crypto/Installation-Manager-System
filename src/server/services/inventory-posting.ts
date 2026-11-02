@@ -47,6 +47,15 @@ const IN_TYPES: InventoryMovementType[] = ["OPENING_BALANCE", "GOODS_RECEIPT", "
 const OUT_TYPES: InventoryMovementType[] = ["ISSUE", "SUPPLIER_RETURN", "ADJUSTMENT_DECREASE"];
 
 const bKey = (binId: string | null) => binId ?? "";
+
+/**
+ * Movement ids sort in the order the movements were written: the posting time, then the position
+ * in the posting (a transfer's "out" before its "in"), then a random part. All movements of one
+ * posting share the same timestamp, so the id is what keeps the ledger in posting order.
+ */
+function movementId(now: Date, seq: number): string {
+  return `${now.getTime().toString(36).padStart(9, "0")}-${String(seq).padStart(4, "0")}-${randomUUID().slice(0, 13)}`;
+}
 const locKey = (p: string, w: string, binId: string | null) => `${p}|${w}|${bKey(binId)}`;
 const whKey = (p: string, w: string) => `${p}|${w}`;
 
@@ -218,7 +227,7 @@ async function applyEffects(tx: Tx, user: CurrentUser, doc: StockDocument, effec
     atLoc.set(lk, after);
     atWh.set(whKey(e.productId, e.warehouseId), whAfter);
     total.set(e.productId, t.plus(e.qty));
-    planned.push({ ...e, id: randomUUID(), balanceAfter: whAfter, unitCostUsed: unitCostUsed.toDecimalPlaces(4) });
+    planned.push({ ...e, id: movementId(now, planned.length), balanceAfter: whAfter, unitCostUsed: unitCostUsed.toDecimalPlaces(4) });
   }
   if (firstError) throw new ValidationError({ _form: firstError, ...fieldErrors }, firstError);
 

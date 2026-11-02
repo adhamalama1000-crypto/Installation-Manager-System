@@ -69,12 +69,14 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 npm install
 
 # 2. Start PostgreSQL (or use your own server - see below)
-docker compose up -d          # creates installation_manager and installation_manager_test
+docker compose up -d          # creates installation_manager and installation_manager_test on port 5433
 
 # 3. Configure environment
 cp .env.example .env          # then edit the values; for the compose database use:
-#   DATABASE_URL="postgresql://ims:ims_dev_password@localhost:5432/installation_manager?schema=public"
-#   TEST_DATABASE_URL="postgresql://ims:ims_dev_password@localhost:5432/installation_manager_test?schema=public"
+#   DATABASE_URL="postgresql://ims:ims_dev_password@localhost:5433/installation_manager?schema=public"
+#   TEST_DATABASE_URL="postgresql://ims:ims_dev_password@localhost:5433/installation_manager_test?schema=public"
+# The compose database listens on host port 5433, so it can run next to another PostgreSQL on 5432;
+# set IMS_DB_PORT to use another port (and the same port in .env).
 
 # 4. Create the schema and load demo data
 npm run db:migrate
@@ -82,6 +84,7 @@ npm run db:seed
 
 # 5. Run
 npm run dev                   # http://localhost:3000
+# On Windows PowerShell, run npm as npm.cmd if scripts are blocked (npm.cmd run dev).
 ```
 
 Using your own PostgreSQL instead of Docker:

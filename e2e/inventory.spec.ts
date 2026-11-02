@@ -132,6 +132,14 @@ test("the store keeper prepares an adjustment but cannot post it; a technician s
   await expect(tech.getByRole("button", { name: "New document" })).toHaveCount(0);
   await tech.goto("/warehouses");
   await expect(tech).toHaveURL(/access-denied/);
+  // A real redirect, answered before any loading skeleton is sent.
+  for (const path of ["/warehouses", "/products", "/stocktakes", "/products/new"]) {
+    const res = await tech.request.get(path, { maxRedirects: 0 });
+    expect(res.status(), path).toBe(307);
+    expect(res.headers().location, path).toContain("/access-denied");
+  }
+  // A document that does not exist is a real 404.
+  expect((await tech.request.get("/stock/documents/does-not-exist", { maxRedirects: 0 })).status()).toBe(404);
 });
 
 test("the inventory pages work in Arabic, right to left", async ({ browser }) => {

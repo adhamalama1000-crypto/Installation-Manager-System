@@ -1942,6 +1942,7 @@ const messages = {
       hasChildren: "This category has subcategories, so it must stay a top-level category.",
       categoryTaken: "A category with this name already exists at this level.",
       brandTaken: "This brand already exists.",
+      deactivateWithStock: "This product still has stock. Issue, transfer or adjust it to zero before deactivating the product.",
     },
   },
   warehouses: {

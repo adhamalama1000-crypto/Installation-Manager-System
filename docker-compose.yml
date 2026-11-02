@@ -1,4 +1,6 @@
 # Local PostgreSQL for development and tests:  docker compose up -d
+# Published on host port 5433 so it does not collide with another PostgreSQL on 5432 (for example
+# a separate inventory project). Choose another port with IMS_DB_PORT=5434 docker compose up -d.
 services:
   db:
     image: postgres:16
@@ -8,7 +10,7 @@ services:
       POSTGRES_PASSWORD: ims_dev_password
       POSTGRES_DB: installation_manager
     ports:
-      - "5432:5432"
+      - "${IMS_DB_PORT:-5433}:5432"
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./docker/init-test-db.sql:/docker-entrypoint-initdb.d/init-test-db.sql:ro

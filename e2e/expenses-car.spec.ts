@@ -66,6 +66,12 @@ test("the driver works through the day's car route and the Admin sees the car on
   await stop.getByRole("button", { name: "Picked the team up" }).click();
   await expect(stop.getByText(/picked up \d{2}:\d{2}/)).toBeVisible();
 
+  // The driver's own month (leaving late and coming back early count there), from the menu.
+  await driver.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "My attendance" }).click();
+  await expect(driver).toHaveURL(/\/attendance$/);
+  await expect(driver.getByRole("heading", { name: "My attendance" })).toBeVisible();
+  await expect(driver.getByRole("table")).toContainText("Tarek Driver");
+
   const adminPage = await (await browser.newContext({ baseURL })).newPage();
   await login(adminPage, "admin@example.com");
   await adminPage.goto("/board");

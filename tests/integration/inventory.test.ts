@@ -116,6 +116,24 @@ describe("product catalogue", () => {
     expect((await listProducts(m, { q: "lk-1" })).rows.map((r) => r.sku)).toEqual(["LK-100"]);
   });
 
+  it("deactivates a product only once its stock is gone, and still shows stock of an inactive product", async () => {
+    const m = as(manager);
+    await post(store, receipt([line(cable, 4)]));
+    const p = await getProduct(m, cable);
+    const e = await saveProduct(m, cable, { ...base(p), isActive: false, version: p.version }).catch((x) => x);
+    expect(e).toBeInstanceOf(ValidationError);
+    expect(e.fieldErrors.isActive).toMatch(/still has stock/);
+    // Stock that is already there (e.g. from before this rule) stays visible and counted.
+    await prisma.product.update({ where: { id: cable }, data: { isActive: false } });
+    const rows = (await listBalances(m, {})).rows.map((r) => [r.sku, r.quantity]);
+    expect(rows).toContainEqual(["CBL-2", 4]);
+    await prisma.product.update({ where: { id: cable }, data: { isActive: true } });
+    await post(store, issue([line(cable, 4)]));
+    const after = await getProduct(m, cable);
+    await saveProduct(m, cable, { ...base(after), isActive: false, version: after.version });
+    expect((await getProduct(m, cable)).isActive).toBe(false);
+  });
+
   it("adds units of measure beyond the built-in ones", async () => {
     const code = `KG${Date.now() % 100000}`;
     const kg = await saveUnit(as(manager), null, { code: code.toLowerCase(), nameEn: "Kilogram", nameAr: "كيلو", allowsFraction: true });
@@ -307,6 +325,24 @@ describe("the ledger is immutable; mistakes are reversed", () => {
     expect(e.message).toMatch(/cannot be cancelled/i);
     expect(e.fieldErrors._form).toMatch(/Not enough/);
     expect(await qty(cable, main)).toBe(2);
+  });
+
+  it("lists the movements of a posting in the order they were written", async () => {
+    await post(store, receipt([line(lock, 1, { serials: "SN-7" }), line(cable, 10)]));
+    const t = await post(store, { type: "TRANSFER", fromWarehouseId: main, toWarehouseId: van, documentDate: day, lines: [line(lock, 1, { serials: "SN-7" }), line(cable, 4)] });
+    // Every movement of one posting has the same timestamp; the order still follows the lines,
+    // each transfer line going out before it comes in.
+    for (let i = 0; i < 3; i++) {
+      expect((await getDocument(as(manager), t.id)).movements.map((m) => [m.sku, m.type])).toEqual([
+        ["LK-100", "TRANSFER_OUT"],
+        ["LK-100", "TRANSFER_IN"],
+        ["CBL-2", "TRANSFER_OUT"],
+        ["CBL-2", "TRANSFER_IN"],
+      ]);
+    }
+    // The ledger lists newest first: the same movements, backwards.
+    const ledger = (await listMovements(as(manager), { productId: cable })).rows.map((m) => m.type);
+    expect(ledger).toEqual(["TRANSFER_IN", "TRANSFER_OUT", "GOODS_RECEIPT"]);
   });
 
   it("reverses a transfer back to where the stock came from", async () => {
