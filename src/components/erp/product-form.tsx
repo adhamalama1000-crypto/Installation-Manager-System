@@ -196,6 +196,11 @@ export function ProductForm({ options, initial }: { options: CatalogOptions; ini
             </p>
           )}
           <Checkbox label={t("catalog.products.active")} description={t("catalog.products.activeHint")} checked={v.isActive} onChange={(e) => setV((s) => ({ ...s, isActive: e.target.checked }))} />
+          {errors.isActive && (
+            <p className="text-xs font-medium text-danger" role="alert">
+              {t.msg(errors.isActive)}
+            </p>
+          )}
         </div>
         <div className="flex justify-end gap-2 sm:col-span-2">
           <Button type="submit" loading={busy}>

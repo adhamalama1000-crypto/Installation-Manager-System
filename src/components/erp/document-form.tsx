@@ -62,6 +62,8 @@ export function ProductPicker({ warehouseId, onPick, error, label }: { warehouse
   const t = useT();
   const id = useId();
   const [q, setQ] = useState("");
+  // Results show while the search box is in use; Escape or leaving it closes them.
+  const [open, setOpen] = useState(false);
   // The last answer and the search it answers; anything else on screen is "searching".
   const [result, setResult] = useState<{ term: string; rows: (PickedProduct & { onHand: number })[] } | null>(null);
   const term = q.trim();
@@ -82,14 +84,38 @@ export function ProductPicker({ warehouseId, onPick, error, label }: { warehouse
       ctl.abort();
     };
   }, [term, warehouseId]);
-  const active = term.length >= 2;
+  const active = open && term.length >= 2;
   const state = { loading: active && result?.term !== term, rows: active && result?.term === term ? result.rows : null };
   return (
-    <div className="relative">
+    <div
+      className="relative"
+      onBlur={(e) => {
+        if (!e.currentTarget.contains(e.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
       <label htmlFor={id} className="sr-only">
         {label}
       </label>
-      <Input id={id} value={q} onChange={(e) => setQ(e.target.value)} placeholder={t("stock.form.productSearch")} aria-invalid={error ? true : undefined} autoComplete="off" dir="auto" />
+      <Input
+        id={id}
+        value={q}
+        onChange={(e) => {
+          setQ(e.target.value);
+          setOpen(true);
+        }}
+        onFocus={() => setOpen(true)}
+        onKeyDown={(e) => {
+          if (e.key === "Escape" && open) {
+            e.preventDefault();
+            setOpen(false);
+          }
+        }}
+        placeholder={t("stock.form.productSearch")}
+        aria-invalid={error ? true : undefined}
+        aria-expanded={active}
+        autoComplete="off"
+        dir="auto"
+      />
       {error && (
         <p className="mt-1 text-xs font-medium text-danger" role="alert">
           {t.msg(error)}
@@ -110,6 +136,8 @@ export function ProductPicker({ warehouseId, onPick, error, label }: { warehouse
                   <button
                     type="button"
                     className="flex w-full items-center gap-3 px-3 py-2 text-start text-sm hover:bg-surface-muted"
+                    // Keep the focus in the search box, so the list does not close before the click lands.
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => {
                       onPick(p);
                       setQ("");

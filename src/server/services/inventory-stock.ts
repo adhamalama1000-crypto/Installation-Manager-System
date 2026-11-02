@@ -50,7 +50,7 @@ function balanceConditions(user: CurrentUser, f: BalanceFilters): Prisma.Sql {
   return Prisma.join(conds, " AND ");
 }
 
-export async function listBalances(user: CurrentUser, f: BalanceFilters) {
+export async function listBalances(user: CurrentUser, f: BalanceFilters, opts: { withTotalValue?: boolean } = {}) {
   assertCan(user, "inventory.view");
   const pageSize = 50;
   const { page, skip, take } = pageOf(f.page, pageSize);
@@ -81,19 +81,22 @@ export async function listBalances(user: CurrentUser, f: BalanceFilters) {
         JOIN "units" u ON u."id" = p."unitId"
         LEFT JOIN "stock_balances" b ON b."productId" = p."id" AND b."warehouseId" IN (SELECT w."id" FROM "warehouses" w WHERE ${warehouseScopeSql(user, "w")})
           ${f.warehouseId ? Prisma.sql`AND b."warehouseId" = ${checkId(f.warehouseId)}` : Prisma.empty}
-        WHERE p."isActive" AND ${productConditions(f)}
+        WHERE ${productConditions(f)}
         GROUP BY p."id", u."id"
         HAVING ${
+          // Any product that holds stock (so the rows add up to the stock value), and on the overall
+          // view also active products that are below their minimum.
           low
-            ? Prisma.sql`p."minStock" > 0 AND COALESCE(SUM(b."quantity"), 0) < p."minStock"`
+            ? Prisma.sql`p."isActive" AND p."minStock" > 0 AND COALESCE(SUM(b."quantity"), 0) < p."minStock"`
             : overall
-              ? Prisma.sql`COALESCE(SUM(b."quantity"), 0) <> 0 OR p."minStock" > 0`
+              ? Prisma.sql`COALESCE(SUM(b."quantity"), 0) <> 0 OR (p."isActive" AND p."minStock" > 0)`
               : Prisma.sql`COALESCE(SUM(b."quantity"), 0) <> 0`
         }
         ORDER BY p."sku"
         LIMIT ${take} OFFSET ${skip}`;
   const total = rows.length ? Number(rows[0]!.total) : 0;
-  const totals = costs ? await stockValue(user, f) : null;
+  // The total value is one more query; the CSV export reads page after page and does not need it.
+  const totals = costs && opts.withTotalValue !== false ? await stockValue(user, f) : null;
   return {
     total,
     page,
@@ -197,7 +200,7 @@ export async function listMovements(user: CurrentUser, f: LedgerFilters) {
   const costs = canSeeCosts(user);
   const [total, rows] = await Promise.all([
     prisma.inventoryMovement.count({ where }),
-    prisma.inventoryMovement.findMany({ where, include: ledgerInclude, orderBy: [{ createdAt: "desc" }, { id: "asc" }], skip, take }),
+    prisma.inventoryMovement.findMany({ where, include: ledgerInclude, orderBy: [{ createdAt: "desc" }, { id: "desc" }], skip, take }),
   ]);
   return {
     total,
@@ -244,7 +247,7 @@ export async function exportBalancesCsv(user: CurrentUser, f: BalanceFilters): P
     t("stock.fields.value"),
   ]);
   for (let page = 1; out.length <= EXPORT_LIMIT; page++) {
-    const r = await listBalances(user, { ...f, view, page });
+    const r = await listBalances(user, { ...f, view, page }, { withTotalValue: false });
     for (const b of r.rows) {
       out.push([
         b.sku,

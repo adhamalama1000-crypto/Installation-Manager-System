@@ -337,6 +337,12 @@ export async function saveProduct(user: CurrentUser, id: string | null, raw: unk
       if (data.brandId && (!brand || (!brand.isActive && brand.id !== before?.brandId))) errors.brandId = msg("catalog.errors.brand");
       if (unit && data.trackSerials && unit.allowsFraction) errors.trackSerials = msg("catalog.errors.serialsWhole");
       if (unit && !unit.allowsFraction && !Number.isInteger(data.minStock)) errors.minStock = msg("stock.errors.wholeUnits", { unit: unit.nameEn, unitAr: unit.nameAr });
+      // A product is retired only once its stock is gone; otherwise the stock could no longer be
+      // issued, moved or counted (documents refuse inactive products).
+      if (before?.isActive && !data.isActive) {
+        const stocked = await tx.stockBalance.findFirst({ where: { productId: before.id, quantity: { not: 0 } }, select: { id: true } });
+        if (stocked) errors.isActive = msg("catalog.errors.deactivateWithStock");
+      }
       if (before && (before.unitId !== data.unitId || before.trackSerials !== data.trackSerials)) {
         const moved = await tx.inventoryMovement.findFirst({ where: { productId: before.id }, select: { id: true } });
         if (moved) {

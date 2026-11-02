@@ -1944,6 +1944,7 @@ export const ar: Messages = {
       hasChildren: "هذه الفئة لها فئات فرعية، فيجب أن تبقى فئة رئيسية.",
       categoryTaken: "توجد فئة بهذا الاسم في نفس المستوى.",
       brandTaken: "هذه الماركة موجودة بالفعل.",
+      deactivateWithStock: "هذا الصنف ما زال له رصيد. اصرفه أو حوّله أو سوّه للصفر قبل إيقاف الصنف.",
     },
   },
   warehouses: {
