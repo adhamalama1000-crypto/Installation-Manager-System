@@ -106,6 +106,9 @@ receive them from the API; when they edit a draft, the costs already on it are k
 | A document changes only while it is a draft; afterwards only *posted → cancelled*; never deleted | Service checks and the `stock_documents_guard` / `stock_document_lines_guard` triggers |
 | Corrections are reversals (with a reason, by an approver) | `cancelInTx`; CHECK: a cancelled posted document has a reason |
 | A product's unit and serial tracking are fixed once stock has moved; products are never deleted | Service checks and the `products_guard` trigger |
+| A product is deactivated only when it has no stock left (documents refuse inactive products) | Product service; inactive products that still hold stock stay listed in stock on hand |
+| The ledger lists the movements of one posting in the order they were written (a transfer's "out" before its "in") | Movement ids sort by posting time and position |
+| Pages refuse users without access with a real redirect, before anything is streamed | A layout per section (`products`, `warehouses`, `stock`, `stocktakes`); loading skeletons wrap only the list pages |
 | Quantities: more than zero, at most three decimals, whole numbers for whole units; serial-tracked lines have exactly one serial per unit | Shared zod schemas, service checks, CHECK constraints |
 | Which warehouses each document type uses | Shared schema and the `stock_documents_warehouses_check` constraint |
 | One open stocktake per warehouse; the warehouse is frozen while it is open | Stocktake service under an exclusive warehouse lock; posting refuses frozen warehouses |
