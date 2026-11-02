@@ -27,6 +27,8 @@ enum Role {
   STORE
   /// Company car driver: drops the teams at their visits and picks them up (Aura: سواق).
   DRIVER
+  /// Runs the warehouses: catalogue, stock documents, stocktakes and their approval.
+  WAREHOUSE_MANAGER
 }
 
 /// Where a serial-numbered item is (Aura: في المخزن / عهدة / اتركب / مرتجع / عطلان).
@@ -242,6 +244,19 @@ model User {
   expensesPaid          TransportExpense[]      @relation("ExpensePayer")
   holdsMade             SlotHold[]              @relation("HoldUser")
   holdsOn               SlotHold[]              @relation("HoldTechnician")
+  productsCreated       Product[]               @relation("ProductCreator")
+  productsUpdated       Product[]               @relation("ProductUpdater")
+  warehousesCreated     Warehouse[]             @relation("WarehouseCreator")
+  /// The technician's vehicle, kept as a warehouse of kind VEHICLE (created by hand, never automatically).
+  vehicle               Warehouse?              @relation("VehicleTechnician")
+  stockDocsCreated      StockDocument[]         @relation("StockDocCreator")
+  stockDocsPosted       StockDocument[]         @relation("StockDocPoster")
+  stockDocsCancelled    StockDocument[]         @relation("StockDocCanceller")
+  inventoryMovements    InventoryMovement[]     @relation("InventoryMovementActor")
+  stocktakesCreated     Stocktake[]             @relation("StocktakeCreator")
+  stocktakesSubmitted   Stocktake[]             @relation("StocktakeSubmitter")
+  stocktakesDecided     Stocktake[]             @relation("StocktakeDecider")
+  stocktakeLinesCounted StocktakeLine[]         @relation("StocktakeCounter")
 
   @@index([role, isActive])
   @@map("users")
@@ -852,4 +867,463 @@ model SlotHold {
   @@index([technicianId, expiresAt])
   @@index([userId])
   @@map("slot_holds")
+}
+
+// ---------------------------------------------------------------------------------------------
+// ERP inventory foundation (phase 1): product catalogue, warehouses and bins, an immutable stock
+// ledger with per-location balances, numbered stock documents and physical stocktakes.
+//
+// Invariants that live in SQL (see migration 20261101120100_inventory_foundation):
+//  * inventory_movements rows cannot be updated or deleted (trigger). Corrections are REVERSAL
+//    movements written when a posted document is cancelled.
+//  * stock_documents can be edited only while DRAFT; afterwards only POSTED -> CANCELLED is
+//    allowed, and rows are never deleted. stock_document_lines change only while the document
+//    is DRAFT.
+//  * stock_balances.quantity cannot go below zero unless the warehouse allows negative stock
+//    (and never for serial-tracked products).
+//  * A product's unit and serial tracking cannot change once it has movements.
+//  * CHECK constraints: SKU / code formats, positive line quantities, which warehouses each
+//    document type uses, and that only a VEHICLE warehouse belongs to a technician.
+// The legacy serial custody (product_models / stock_items / stock_movements) is untouched.
+// ---------------------------------------------------------------------------------------------
+
+enum WarehouseKind {
+  /// A building or store room.
+  WAREHOUSE
+  /// A technician's vehicle (its stock is the technician's custody).
+  VEHICLE
+}
+
+enum StockDocType {
+  /// Opening balance when a warehouse starts on the system.
+  OPENING
+  /// Goods received from a supplier.
+  RECEIPT
+  /// Stock issued out of a warehouse (to a site, for use).
+  ISSUE
+  /// Moved between warehouses (or between bins of one warehouse).
+  TRANSFER
+  /// Customer return (into a warehouse) or supplier return (out of a warehouse).
+  RETURN
+  /// Increase or decrease after a count or a correction.
+  ADJUSTMENT
+}
+
+enum StockDocStatus {
+  DRAFT
+  POSTED
+  CANCELLED
+}
+
+enum StockReturnKind {
+  CUSTOMER
+  SUPPLIER
+}
+
+enum AdjustDirection {
+  INCREASE
+  DECREASE
+}
+
+enum InventoryMovementType {
+  OPENING_BALANCE
+  GOODS_RECEIPT
+  ISSUE
+  TRANSFER_OUT
+  TRANSFER_IN
+  CUSTOMER_RETURN
+  SUPPLIER_RETURN
+  ADJUSTMENT_INCREASE
+  ADJUSTMENT_DECREASE
+  /// Undoes one earlier movement (reversesId) when its posted document is cancelled.
+  REVERSAL
+}
+
+enum StocktakeStatus {
+  COUNTING
+  SUBMITTED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+/// Unit of measure (Piece, Meter, Box, Set, Roll, ...). Managed in the catalogue setup.
+model Unit {
+  id             String    @id @default(cuid())
+  /// Upper-case short code, e.g. PCS, M, BOX.
+  code           String    @unique
+  nameEn         String
+  nameAr         String
+  /// Whether quantities may have decimals (e.g. 2.5 meters).
+  allowsFraction Boolean   @default(false)
+  isActive       Boolean   @default(true)
+  sortOrder      Int       @default(0)
+  createdAt      DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime  @updatedAt @db.Timestamptz(3)
+  products       Product[]
+
+  @@map("units")
+}
+
+/// Product category; a category with a parent is a subcategory (two levels).
+model CatalogCategory {
+  id        String            @id @default(cuid())
+  nameEn    String
+  nameAr    String
+  parentId  String?
+  parent    CatalogCategory?  @relation("CategoryTree", fields: [parentId], references: [id], onDelete: Restrict)
+  children  CatalogCategory[] @relation("CategoryTree")
+  isActive  Boolean           @default(true)
+  sortOrder Int               @default(0)
+  createdAt DateTime          @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime          @updatedAt @db.Timestamptz(3)
+  products  Product[]
+
+  @@index([parentId])
+  @@map("catalog_categories")
+}
+
+model Brand {
+  id        String    @id @default(cuid())
+  /// Unique, compared case-insensitively by the application.
+  name      String    @unique
+  isActive  Boolean   @default(true)
+  createdAt DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @db.Timestamptz(3)
+  products  Product[]
+
+  @@map("brands")
+}
+
+/// A stock-keeping product (the ERP catalogue). Quantities live in stock_balances.
+model Product {
+  id             String              @id @default(cuid())
+  /// Upper-case, unique.
+  sku            String              @unique
+  /// Unique when given.
+  barcode        String?             @unique
+  nameEn         String
+  nameAr         String
+  /// A category or a subcategory (its parent is then the category).
+  categoryId     String?
+  category       CatalogCategory?    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brandId        String?
+  brand          Brand?              @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  model          String?
+  description    String?
+  unitId         String
+  unit           Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  /// Default purchase cost (used for a receipt line without its own cost).
+  purchaseCost   Decimal?            @db.Decimal(12, 2)
+  sellingPrice   Decimal?            @db.Decimal(12, 2)
+  /// Moving average cost over all warehouses, kept by the posting engine.
+  averageCost    Decimal             @default(0) @db.Decimal(14, 4)
+  /// Low-stock threshold (total over all warehouses).
+  minStock       Decimal             @default(0) @db.Decimal(14, 3)
+  warrantyMonths Int                 @default(0)
+  /// Every unit has a serial number recorded on each movement.
+  trackSerials   Boolean             @default(false)
+  isActive       Boolean             @default(true)
+  /// Optimistic-locking counter.
+  version        Int                 @default(1)
+  createdById    String
+  createdBy      User                @relation("ProductCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById    String?
+  updatedBy      User?               @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
+  balances       StockBalance[]
+  lines          StockDocumentLine[]
+  movements      InventoryMovement[]
+  serials        ProductSerial[]
+  stocktakeLines StocktakeLine[]
+
+  @@index([categoryId])
+  @@index([brandId])
+  @@index([isActive, nameEn])
+  @@index([createdAt])
+  @@index([nameEn(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_nameEn_trgm_idx")
+  @@index([nameAr(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_nameAr_trgm_idx")
+  @@index([sku(ops: raw("gin_trgm_ops"))], type: Gin, map: "products_sku_trgm_idx")
+  @@map("products")
+}
+
+/// A place that holds stock: a warehouse building or a technician's vehicle.
+model Warehouse {
+  id            String              @id @default(cuid())
+  /// Upper-case, unique, e.g. MAIN, VAN-KARIM.
+  code          String              @unique
+  nameEn        String
+  nameAr        String
+  kind          WarehouseKind       @default(WAREHOUSE)
+  /// The technician whose vehicle this is (kind VEHICLE only); their stock custody.
+  technicianId  String?             @unique
+  technician    User?               @relation("VehicleTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
+  address       String?
+  /// Negative-stock policy for this warehouse; off by default.
+  allowNegative Boolean             @default(false)
+  isActive      Boolean             @default(true)
+  version       Int                 @default(1)
+  createdById   String
+  createdBy     User                @relation("WarehouseCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime            @updatedAt @db.Timestamptz(3)
+  bins          WarehouseBin[]
+  balances      StockBalance[]
+  documentsFrom StockDocument[]     @relation("DocFromWarehouse")
+  documentsTo   StockDocument[]     @relation("DocToWarehouse")
+  movements     InventoryMovement[] @relation("MovementWarehouse")
+  serials       ProductSerial[]
+  stocktakes    Stocktake[]
+
+  @@index([kind, isActive])
+  @@map("warehouses")
+}
+
+/// A shelf / bin inside a warehouse (optional location for stock).
+model WarehouseBin {
+  id             String              @id @default(cuid())
+  warehouseId    String
+  warehouse      Warehouse           @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  /// Upper-case, unique inside the warehouse.
+  code           String
+  name           String?
+  isActive       Boolean             @default(true)
+  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
+  balances       StockBalance[]
+  movements      InventoryMovement[]
+  serials        ProductSerial[]
+  linesFrom      StockDocumentLine[] @relation("LineFromBin")
+  linesTo        StockDocumentLine[] @relation("LineToBin")
+  stocktakeLines StocktakeLine[]
+
+  @@unique([warehouseId, code])
+  @@map("warehouse_bins")
+}
+
+/// On-hand quantity of a product at one location (a warehouse, or one of its bins). Written only
+/// by the posting engine, in the same transaction as the ledger movements.
+model StockBalance {
+  id          String        @id @default(cuid())
+  productId   String
+  product     Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  warehouseId String
+  warehouse   Warehouse     @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  binId       String?
+  bin         WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
+  /// binId, or "" for stock not put in a bin (so the location is unique; CHECK keeps them equal).
+  binKey      String        @default("")
+  quantity    Decimal       @default(0) @db.Decimal(14, 3)
+  updatedAt   DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@unique([productId, warehouseId, binKey])
+  @@index([warehouseId, productId])
+  @@map("stock_balances")
+}
+
+/// Running counter for document numbers, one row per prefix and year (e.g. GRN-2026).
+model DocumentSequence {
+  key        String @id
+  lastNumber Int    @default(0)
+
+  @@map("document_sequences")
+}
+
+/// A numbered stock document: draft, then posted (writes the ledger), or cancelled (a posted one
+/// is cancelled by reversal movements; nothing is deleted).
+model StockDocument {
+  id              String              @id @default(cuid())
+  /// e.g. GRN-2026-000001; assigned when the draft is created.
+  number          String              @unique
+  type            StockDocType
+  status          StockDocStatus      @default(DRAFT)
+  returnKind      StockReturnKind?
+  /// Source warehouse (issue, transfer, supplier return).
+  fromWarehouseId String?
+  fromWarehouse   Warehouse?          @relation("DocFromWarehouse", fields: [fromWarehouseId], references: [id], onDelete: Restrict)
+  /// Destination warehouse (opening, receipt, transfer, customer return) or the adjusted one.
+  toWarehouseId   String?
+  toWarehouse     Warehouse?          @relation("DocToWarehouse", fields: [toWarehouseId], references: [id], onDelete: Restrict)
+  /// Business date of the document (company-local day).
+  documentDate    DateTime            @db.Date
+  /// External reference: supplier invoice, delivery note, visit code...
+  reference       String?
+  /// Supplier or customer name (free text until the supplier and customer masters link here).
+  counterparty    String?
+  note            String?
+  /// The stocktake this adjustment came from.
+  stocktakeId     String?             @unique
+  stocktake       Stocktake?          @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
+  /// Client-generated id that makes "create" idempotent (double clicks / retries).
+  clientRequestId String?             @unique
+  version         Int                 @default(1)
+  createdById     String
+  createdBy       User                @relation("StockDocCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+  postedAt        DateTime?           @db.Timestamptz(3)
+  postedById      String?
+  postedBy        User?               @relation("StockDocPoster", fields: [postedById], references: [id], onDelete: Restrict)
+  cancelledAt     DateTime?           @db.Timestamptz(3)
+  cancelledById   String?
+  cancelledBy     User?               @relation("StockDocCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancelReason    String?
+  lines           StockDocumentLine[]
+  movements       InventoryMovement[]
+
+  @@index([type, status, documentDate])
+  @@index([status, createdAt])
+  @@index([fromWarehouseId, documentDate])
+  @@index([toWarehouseId, documentDate])
+  @@map("stock_documents")
+}
+
+model StockDocumentLine {
+  id         String              @id @default(cuid())
+  documentId String
+  document   StockDocument       @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  lineNo     Int
+  productId  String
+  product    Product             @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity   Decimal             @db.Decimal(14, 3)
+  /// Cost per unit for incoming stock; null = the product's purchase cost (receipt) or average cost.
+  unitCost   Decimal?            @db.Decimal(14, 4)
+  fromBinId  String?
+  fromBin    WarehouseBin?       @relation("LineFromBin", fields: [fromBinId], references: [id], onDelete: Restrict)
+  toBinId    String?
+  toBin      WarehouseBin?       @relation("LineToBin", fields: [toBinId], references: [id], onDelete: Restrict)
+  /// Adjustment lines only.
+  direction  AdjustDirection?
+  serials    String[]            @default([])
+  reason     String?
+  movements  InventoryMovement[]
+
+  @@unique([documentId, lineNo])
+  @@index([productId])
+  @@map("stock_document_lines")
+}
+
+/// The stock ledger: one row per product per location change. Append-only.
+model InventoryMovement {
+  id              String                @id @default(cuid())
+  documentId      String
+  document        StockDocument         @relation(fields: [documentId], references: [id], onDelete: Restrict)
+  lineId          String
+  line            StockDocumentLine     @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  type            InventoryMovementType
+  productId       String
+  product         Product               @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// The location whose balance this movement changes.
+  warehouseId     String
+  warehouse       Warehouse             @relation("MovementWarehouse", fields: [warehouseId], references: [id], onDelete: Restrict)
+  binId           String?
+  bin             WarehouseBin?         @relation(fields: [binId], references: [id], onDelete: Restrict)
+  /// Signed: positive into the location, negative out of it.
+  quantity        Decimal               @db.Decimal(14, 3)
+  /// Where the stock came from / went to (the document's source and destination).
+  fromWarehouseId String?
+  toWarehouseId   String?
+  /// Cost per unit used for this movement (valuation).
+  unitCost        Decimal               @db.Decimal(14, 4)
+  serials         String[]              @default([])
+  reason          String?
+  /// The movement this one reverses (REVERSAL only).
+  reversesId      String?               @unique
+  reverses        InventoryMovement?    @relation("MovementReversal", fields: [reversesId], references: [id], onDelete: Restrict)
+  reversedBy      InventoryMovement?    @relation("MovementReversal")
+  /// The product's total at this warehouse right after the movement.
+  balanceAfter    Decimal               @db.Decimal(14, 3)
+  documentDate    DateTime              @db.Date
+  createdById     String
+  createdBy       User                  @relation("InventoryMovementActor", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime              @default(now()) @db.Timestamptz(3)
+  serialsHere     ProductSerial[]
+
+  @@index([productId, createdAt])
+  @@index([warehouseId, productId, createdAt])
+  @@index([documentId])
+  @@index([createdAt])
+  @@map("inventory_movements")
+}
+
+/// Where each serial number of a serial-tracked product is now (warehouseId null = not in stock:
+/// issued, returned to the supplier, or never received).
+model ProductSerial {
+  id             String             @id @default(cuid())
+  productId      String
+  product        Product            @relation(fields: [productId], references: [id], onDelete: Restrict)
+  /// Stored trimmed, without spaces, upper-case.
+  serial         String
+  warehouseId    String?
+  warehouse      Warehouse?         @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  binId          String?
+  bin            WarehouseBin?      @relation(fields: [binId], references: [id], onDelete: Restrict)
+  lastMovementId String?
+  lastMovement   InventoryMovement? @relation(fields: [lastMovementId], references: [id], onDelete: Restrict)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+
+  @@unique([productId, serial])
+  @@index([warehouseId, productId])
+  @@index([serial])
+  @@map("product_serials")
+}
+
+/// A physical count of one warehouse: snapshot, counts, submission, approval (which posts an
+/// adjustment document) or rejection.
+model Stocktake {
+  id            String          @id @default(cuid())
+  /// e.g. STK-2026-000001.
+  number        String          @unique
+  warehouseId   String
+  warehouse     Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  status        StocktakeStatus @default(COUNTING)
+  note          String?
+  /// When the system quantities were taken. The warehouse is frozen until the stocktake closes.
+  snapshotAt    DateTime        @db.Timestamptz(3)
+  createdById   String
+  createdBy     User            @relation("StocktakeCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
+  submittedById String?
+  submittedBy   User?           @relation("StocktakeSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  submittedAt   DateTime?       @db.Timestamptz(3)
+  decidedById   String?
+  decidedBy     User?           @relation("StocktakeDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt     DateTime?       @db.Timestamptz(3)
+  decisionNote  String?
+  version       Int             @default(1)
+  lines         StocktakeLine[]
+  adjustment    StockDocument?
+
+  @@index([warehouseId, status])
+  @@index([status, createdAt])
+  @@map("stocktakes")
+}
+
+model StocktakeLine {
+  id              String        @id @default(cuid())
+  stocktakeId     String
+  stocktake       Stocktake     @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
+  productId       String
+  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
+  binId           String?
+  bin             WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
+  /// binId, or "" (see StockBalance.binKey).
+  binKey          String        @default("")
+  /// Quantity on the system when the stocktake started.
+  systemQuantity  Decimal       @db.Decimal(14, 3)
+  systemSerials   String[]      @default([])
+  countedQuantity Decimal?      @db.Decimal(14, 3)
+  countedSerials  String[]      @default([])
+  /// Explanation of a difference (required to submit when counted <> system).
+  reason          String?
+  countedById     String?
+  countedBy       User?         @relation("StocktakeCounter", fields: [countedById], references: [id], onDelete: Restrict)
+  countedAt       DateTime?     @db.Timestamptz(3)
+  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@unique([stocktakeId, productId, binKey])
+  @@map("stocktake_lines")
 }
