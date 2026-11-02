@@ -86,6 +86,7 @@ Users log in with 6-digit PINs, and the script runs as the sheet owner. This app
 | Attendance per month: days, late, minutes late, left early, leave/sick/absence days, absent on a visit day (`attendance_`, `api_attendance`, `api_myAttendance`) | **Attendance & points** page for Admins and the Accountant; technicians see their own | ✅ | C |
 | Monthly points: punctuality 40, rating 30, quality 20, visits 10, minus revisits, complaints, late days and absences (`api_stats`, `api_myPoints`) | Same rule, on the attendance page and on the technician's dashboard | ✅ | C |
 | Day plan: one WhatsApp message per technician (`api_dayPlan`) | Day plan page, Arabic or English; a lock kept at the company adds "pick up the lock from the company" under that visit | ✅ | — |
+| "Prepare the site" message to the customer (`prepText`) | The customer's WhatsApp reminder on the day plan lists Aura's preparation lines for the product. Locks: the door ready, the phone for the lock's app, an adult present. Smart homes: power on, the internet working with the Wi-Fi password, wiring finished, the phone for the app. Other products get a general line. Aura's Arabic wording is kept. | ✅ | #11 |
 | Technician specialty: lock / smart home / both (`spec`) | Specialty on technician accounts (Users) | ✅ | E |
 | Leave, sick and absence requests that block booking (`api_leave*`) | Requests, approval, booking block, clash alerts | ✅ | — |
 
