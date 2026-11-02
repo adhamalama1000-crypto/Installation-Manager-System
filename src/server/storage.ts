@@ -9,7 +9,8 @@ import path from "node:path";
  * together with the database.
  */
 export function uploadDir(): string {
-  return path.resolve(process.env.UPLOAD_DIR || path.join(process.cwd(), "storage", "uploads"));
+  // Runtime data, not part of the build: tell the bundler not to trace the whole project from here.
+  return path.resolve(/* turbopackIgnore: true */ process.env.UPLOAD_DIR || path.join(process.cwd(), "storage", "uploads"));
 }
 
 export const MAX_UPLOAD_BYTES = Math.max(1, Number(process.env.MAX_UPLOAD_MB) || 8) * 1024 * 1024;
@@ -43,7 +44,7 @@ export async function saveFile(bytes: Uint8Array, type: ImageType, now = new Dat
 }
 
 export async function readStoredFile(key: string): Promise<Buffer> {
-  return readFile(resolveKey(key));
+  return readFile(/* turbopackIgnore: true */ resolveKey(key));
 }
 
 /** Removes a file whose database row could not be written (never used for recorded files). */
