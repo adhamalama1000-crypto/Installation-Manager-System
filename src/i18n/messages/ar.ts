@@ -3,6 +3,7 @@
  * صيغ الجمع العربية: zero / one / two / few (3-10) / many (11-99) / other.
  */
 import type { Messages } from "./en";
+import { erpAr } from "./erp.ar";
 
 export const ar: Messages = {
   app: {
@@ -2248,4 +2249,5 @@ export const ar: Messages = {
       rejectNote: "اكتب سبب رفض الجرد",
     },
   },
+  ...erpAr,
 };

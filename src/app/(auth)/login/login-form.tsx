@@ -1,9 +1,10 @@
 "use client";
 
 import { useState } from "react";
-import { Eye, EyeOff, LogIn } from "lucide-react";
+import { LogIn } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Field, Input } from "@/components/ui/field";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Alert } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
@@ -12,7 +13,6 @@ export function LoginForm({ next, scriptsMissing = false }: { next: string; scri
   const t = useT();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
-  const [show, setShow] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
 
@@ -55,19 +55,7 @@ export function LoginForm({ next, scriptsMissing = false }: { next: string; scri
           {(p) => <Input {...p} type="email" autoComplete="username" autoFocus value={email} onChange={(e) => setEmail(e.target.value)} placeholder={t("auth.emailPlaceholder")} dir="ltr" />}
         </Field>
         <Field label={t("auth.password")}>
-          {(p) => (
-            <div className="relative">
-              <Input {...p} type={show ? "text" : "password"} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} className="pe-10" dir="ltr" />
-              <button
-                type="button"
-                onClick={() => setShow((s) => !s)}
-                className="absolute inset-y-0 end-0 flex w-10 items-center justify-center text-fg-subtle hover:text-fg"
-                aria-label={show ? t("auth.hidePassword") : t("auth.showPassword")}
-              >
-                {show ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-              </button>
-            </div>
-          )}
+          {(p) => <PasswordInput {...p} autoComplete="current-password" value={password} onChange={(e) => setPassword(e.target.value)} />}
         </Field>
         <Button type="submit" size="lg" className="w-full" loading={loading}>
           {!loading && <LogIn className="h-4 w-4 rtl:-scale-x-100" />} {t("auth.signIn")}

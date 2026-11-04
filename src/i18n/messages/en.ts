@@ -4,6 +4,7 @@
  * zero / two / few / many.
  */
 import type { Widen } from "../types";
+import { erpEn } from "./erp.en";
 
 const messages = {
   app: {
@@ -2246,6 +2247,7 @@ const messages = {
       rejectNote: "Say why the count is rejected",
     },
   },
+  ...erpEn,
 };
 
 export type Messages = Widen<typeof messages>;
