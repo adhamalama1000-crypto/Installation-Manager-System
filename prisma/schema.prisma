@@ -257,6 +257,8 @@ model User {
   stocktakesSubmitted   Stocktake[]             @relation("StocktakeSubmitter")
   stocktakesDecided     Stocktake[]             @relation("StocktakeDecider")
   stocktakeLinesCounted StocktakeLine[]         @relation("StocktakeCounter")
+  productImagesUploaded ProductImage[]          @relation("ProductImageUploader")
+  productImagesDeleted  ProductImage[]          @relation("ProductImageDeleter")
 
   @@index([role, isActive])
   @@map("users")
@@ -968,6 +970,8 @@ model Unit {
 /// Product category; a category with a parent is a subcategory (two levels).
 model CatalogCategory {
   id        String            @id @default(cuid())
+  /// Optional upper-case prefix for automatic SKUs (e.g. LCK -> LCK-00001); unique.
+  code      String?           @unique
   nameEn    String
   nameAr    String
   parentId  String?
@@ -997,48 +1001,63 @@ model Brand {
 
 /// A stock-keeping product (the ERP catalogue). Quantities live in stock_balances.
 model Product {
-  id             String              @id @default(cuid())
+  id              String              @id @default(cuid())
   /// Upper-case, unique.
-  sku            String              @unique
+  sku             String              @unique
   /// Unique when given.
-  barcode        String?             @unique
-  nameEn         String
-  nameAr         String
+  barcode         String?             @unique
+  nameEn          String
+  nameAr          String
   /// A category or a subcategory (its parent is then the category).
-  categoryId     String?
-  category       CatalogCategory?    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  brandId        String?
-  brand          Brand?              @relation(fields: [brandId], references: [id], onDelete: Restrict)
-  model          String?
-  description    String?
-  unitId         String
-  unit           Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  categoryId      String?
+  category        CatalogCategory?    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brandId         String?
+  brand           Brand?              @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  model           String?
+  description     String?
+  unitId          String
+  unit            Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
   /// Default purchase cost (used for a receipt line without its own cost).
-  purchaseCost   Decimal?            @db.Decimal(12, 2)
-  sellingPrice   Decimal?            @db.Decimal(12, 2)
+  purchaseCost    Decimal?            @db.Decimal(12, 2)
+  sellingPrice    Decimal?            @db.Decimal(12, 2)
   /// Moving average cost over all warehouses, kept by the posting engine.
-  averageCost    Decimal             @default(0) @db.Decimal(14, 4)
+  averageCost     Decimal             @default(0) @db.Decimal(14, 4)
   /// Low-stock threshold (total over all warehouses).
-  minStock       Decimal             @default(0) @db.Decimal(14, 3)
-  warrantyMonths Int                 @default(0)
-  /// Every unit has a serial number recorded on each movement.
-  trackSerials   Boolean             @default(false)
-  isActive       Boolean             @default(true)
+  minStock        Decimal             @default(0) @db.Decimal(14, 3)
+  warrantyMonths  Int                 @default(0)
+  /// Every unit has a serial number recorded on each movement (serial mode "mandatory").
+  trackSerials    Boolean             @default(false)
+  /// Serial numbers are recorded when known, not for every unit (serial mode "optional").
+  serialsOptional Boolean             @default(false)
+  /// This product has variants (colours, configurations): it holds no stock itself, its variants do.
+  hasVariants     Boolean             @default(false)
+  /// The product this one is a variant of. Category, brand, unit, warranty and serial mode follow the parent.
+  parentId        String?
+  parent          Product?            @relation("ProductVariants", fields: [parentId], references: [id], onDelete: Restrict)
+  variants        Product[]           @relation("ProductVariants")
+  /// The variant's own name ("Black" / "أسود"); nameEn / nameAr hold the full name.
+  variantNameEn   String?
+  variantNameAr   String?
+  /// Swatch colour of the variant (#RRGGBB).
+  colorHex        String?
+  isActive        Boolean             @default(true)
   /// Optimistic-locking counter.
-  version        Int                 @default(1)
-  createdById    String
-  createdBy      User                @relation("ProductCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedById    String?
-  updatedBy      User?               @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
-  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
-  balances       StockBalance[]
-  lines          StockDocumentLine[]
-  movements      InventoryMovement[]
-  serials        ProductSerial[]
-  stocktakeLines StocktakeLine[]
+  version         Int                 @default(1)
+  createdById     String
+  createdBy       User                @relation("ProductCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById     String?
+  updatedBy       User?               @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+  balances        StockBalance[]
+  lines           StockDocumentLine[]
+  movements       InventoryMovement[]
+  serials         ProductSerial[]
+  stocktakeLines  StocktakeLine[]
+  images          ProductImage[]
 
   @@index([categoryId])
+  @@index([parentId])
   @@index([brandId])
   @@index([isActive, nameEn])
   @@index([createdAt])
@@ -1326,4 +1345,25 @@ model StocktakeLine {
 
   @@unique([stocktakeId, productId, binKey])
   @@map("stocktake_lines")
+}
+
+/// A photo of a product or variant (file storage, like visit photos). Removing it only marks the row.
+model ProductImage {
+  id           String    @id @default(cuid())
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  contentType  String
+  byteSize     Int
+  sha256       String
+  storageKey   String    @unique
+  sortOrder    Int       @default(0)
+  uploadedById String
+  uploadedBy   User      @relation("ProductImageUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  deletedAt    DateTime? @db.Timestamptz(3)
+  deletedById  String?
+  deletedBy    User?     @relation("ProductImageDeleter", fields: [deletedById], references: [id], onDelete: Restrict)
+
+  @@index([productId, sortOrder])
+  @@map("product_images")
 }

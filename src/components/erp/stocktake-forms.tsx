@@ -65,7 +65,7 @@ export function NewStocktake({ warehouses }: { warehouses: { id: string; code: s
 
 type Line = {
   id: string;
-  product: { id: string; sku: string; nameEn: string; nameAr: string; trackSerials: boolean; unit: { code: string; allowsFraction: boolean } };
+  product: { id: string; sku: string; nameEn: string; nameAr: string; trackSerials: boolean; serialsOptional?: boolean; unit: { code: string; allowsFraction: boolean } };
   bin: string | null;
   systemQuantity: number;
   systemSerials: string[];
@@ -133,7 +133,7 @@ export function StocktakeSheet({
         const d = drafts[l.id]!;
         return l.product.trackSerials
           ? { lineId: l.id, countedQuantity: d.serials.trim() ? parseSerials(d.serials).length : d.counted === "0" ? 0 : null, countedSerials: d.serials, reason: d.reason }
-          : { lineId: l.id, countedQuantity: d.counted, countedSerials: [], reason: d.reason };
+          : { lineId: l.id, countedQuantity: d.counted, countedSerials: l.product.serialsOptional ? d.serials : [], reason: d.reason };
       }),
     };
     const r = await run(() => api(`/api/stocktakes/${id}/counts`, { method: "POST", body }), () => t("stocktakes.countsSaved"));
@@ -183,15 +183,17 @@ export function StocktakeSheet({
                   const c = counted(l);
                   const diff = c === null ? null : Math.round((c - l.systemQuantity) * 1000) / 1000;
                   const found = parseSerials(d.serials);
-                  const missing = l.product.trackSerials ? l.systemSerials.filter((s) => !found.includes(s)) : [];
-                  const extra = l.product.trackSerials ? found.filter((s) => !l.systemSerials.includes(s)) : [];
+                  // Optional serials are compared only once the counter lists the serials found.
+                  const bySerial = l.product.trackSerials || (!!l.product.serialsOptional && found.length > 0);
+                  const missing = bySerial ? l.systemSerials.filter((s) => !found.includes(s)) : [];
+                  const extra = bySerial ? found.filter((s) => !l.systemSerials.includes(s)) : [];
                   const differs = (diff !== null && diff !== 0) || missing.length > 0 || extra.length > 0;
                   const set = (patch: Partial<Draft>) => setDrafts((all) => ({ ...all, [l.id]: { ...d, ...patch } }));
                   return (
                     <tr key={l.id} className={cn("align-top", differs && "bg-warning-soft/40")}>
                       <td className="px-4 py-2.5">
                         <bdi className="font-mono font-semibold">{l.product.sku}</bdi> <span>{nameOf(l.product, t)}</span>
-                        {l.product.trackSerials && l.systemSerials.length > 0 && (
+                        {(l.product.trackSerials || l.product.serialsOptional) && l.systemSerials.length > 0 && (
                           <span className="mt-1 block font-mono text-xs text-fg-subtle" dir="ltr">
                             {t("stocktakes.expectedSerials", { list: l.systemSerials.join(", ") })}
                           </span>
@@ -216,15 +218,28 @@ export function StocktakeSheet({
                             dir="ltr"
                           />
                         ) : (
-                          <Input
-                            value={d.counted}
-                            onChange={(e) => set({ counted: e.target.value })}
-                            inputMode={l.product.unit.allowsFraction ? "decimal" : "numeric"}
-                            aria-label={`${t("stocktakes.counted")} ${l.product.sku}`}
-                            aria-invalid={errFor(l.id, "countedQuantity") ? true : undefined}
-                            className="h-9 w-28"
-                            dir="ltr"
-                          />
+                          <>
+                            <Input
+                              value={d.counted}
+                              onChange={(e) => set({ counted: e.target.value })}
+                              inputMode={l.product.unit.allowsFraction ? "decimal" : "numeric"}
+                              aria-label={`${t("stocktakes.counted")} ${l.product.sku}`}
+                              aria-invalid={errFor(l.id, "countedQuantity") ? true : undefined}
+                              className="h-9 w-28"
+                              dir="ltr"
+                            />
+                            {l.product.serialsOptional && (
+                              <Textarea
+                                value={d.serials}
+                                onChange={(e) => set({ serials: e.target.value })}
+                                rows={2}
+                                aria-label={`${t("stocktakes.countedSerials")} ${l.product.sku}`}
+                                placeholder={`${t("stocktakes.countedSerials")} (${t("common.optional")})`}
+                                className="mt-1 w-56 font-mono text-xs"
+                                dir="ltr"
+                              />
+                            )}
+                          </>
                         )}
                         {can.count && l.product.trackSerials && !d.serials.trim() && (
                           <Button size="sm" variant="ghost" className="mt-1" onClick={() => set({ counted: "0", serials: "" })} aria-pressed={d.counted === "0"}>

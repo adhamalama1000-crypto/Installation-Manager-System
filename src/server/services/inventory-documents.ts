@@ -70,6 +70,7 @@ async function validateDraft(
     const at = (f: string, m: string) => (errors[`lines.${i}.${f}`] ??= m);
     const p = product.get(l.productId);
     if (!p || !p.isActive) at("productId", msg("stock.errors.product"));
+    else if (p.hasVariants) at("productId", msg("variants.errors.pickVariant", { product: `${p.sku} ${p.nameEn}`, productAr: `${p.sku} ${p.nameAr}` }));
     // Adjustments name one warehouse; the bin goes on the side the stock moves.
     let fromBinId = sides.from ? l.fromBinId : null;
     let toBinId = sides.to ? l.toBinId : null;
@@ -88,8 +89,9 @@ async function validateDraft(
     checkBin(toBinId, adjWh ?? toId, "toBinId");
     if (p) {
       if (!p.unit.allowsFraction && !Number.isInteger(l.quantity)) at("quantity", msg("stock.errors.wholeUnits", { unit: p.unit.nameEn, unitAr: p.unit.nameAr }));
-      if (p.trackSerials) {
-        if (!Number.isInteger(l.quantity) || l.serials.length !== l.quantity) at("serials", msg("stock.errors.serialCount", { count: l.quantity, given: l.serials.length }));
+      if (p.trackSerials || p.serialsOptional) {
+        if (p.trackSerials && (!Number.isInteger(l.quantity) || l.serials.length !== l.quantity)) at("serials", msg("stock.errors.serialCount", { count: l.quantity, given: l.serials.length }));
+        if (p.serialsOptional && l.serials.length && (!Number.isInteger(l.quantity) || l.serials.length > l.quantity)) at("serials", msg("serialModes.tooManySerials", { count: l.quantity, given: l.serials.length }));
         for (const s of l.serials) {
           const k = `${p.id}|${s}`;
           if (seenSerials.has(k)) at("serials", msg("stock.errors.serialTwice", { list: s }));
@@ -110,7 +112,7 @@ async function validateDraft(
       fromBinId,
       toBinId,
       direction: input.type === "ADJUSTMENT" ? l.direction : null,
-      serials: p?.trackSerials ? l.serials : [],
+      serials: p?.trackSerials || p?.serialsOptional ? l.serials : [],
       reason: l.reason,
     };
   });
@@ -317,7 +319,7 @@ export async function getDocument(user: CurrentUser, id: string) {
       lines: {
         orderBy: { lineNo: "asc" },
         include: {
-          product: { select: { id: true, sku: true, nameEn: true, nameAr: true, trackSerials: true, unit: { select: { code: true, nameEn: true, nameAr: true, allowsFraction: true } } } },
+          product: { select: { id: true, sku: true, nameEn: true, nameAr: true, trackSerials: true, serialsOptional: true, unit: { select: { code: true, nameEn: true, nameAr: true, allowsFraction: true } } } },
           fromBin: { select: { id: true, code: true } },
           toBin: { select: { id: true, code: true } },
         },

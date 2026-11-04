@@ -41,7 +41,7 @@ const phoneField = (label: MessageKey) =>
       return n >= 7 && n <= 15;
     }, msg("validation.phoneDigits"));
 
-const optionalPhone = z.preprocess(
+export const optionalPhone = z.preprocess(
   (v) => (typeof v === "string" ? v.trim() || null : (v ?? null)),
   z
     .string()

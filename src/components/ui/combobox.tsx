@@ -35,7 +35,8 @@ type Props = {
   /** Accessible name; also the visible label when `showLabel`. */
   label: string;
   value: string | null;
-  onChange: (id: string | null) => void;
+  /** The chosen id (null = cleared) and, for a server search, the chosen option itself. */
+  onChange: (id: string | null, option: ComboOption | null) => void;
   /** Static options (filtered locally), or omit and give `load` for a server search. */
   options?: ComboOption[];
   /** Server search; called (debounced) with the typed text. */
@@ -118,7 +119,7 @@ export function Combobox({
 
   function choose(o: ComboOption | undefined) {
     if (!o || o.disabled) return;
-    onChange(o.id === "" ? null : o.id);
+    onChange(o.id === "" ? null : o.id, o.id === "" ? null : o);
     setOpen(false);
     setQuery("");
   }
@@ -206,7 +207,7 @@ export function Combobox({
           tabIndex={-1}
           aria-label={clearLabel ?? t("common.none")}
           onMouseDown={(e) => e.preventDefault()}
-          onClick={() => onChange(null)}
+          onClick={() => onChange(null, null)}
           className="absolute inset-y-0 end-0 flex w-9 items-center justify-center text-fg-subtle hover:text-fg"
         >
           <X className="h-4 w-4" aria-hidden />
@@ -235,6 +236,7 @@ export function Combobox({
                 id={`${id}-opt-${i}`}
                 data-index={i}
                 role="option"
+                aria-label={o.hint ? `${o.label}, ${o.hint}` : o.label}
                 aria-selected={o.id === (value ?? "")}
                 aria-disabled={o.disabled || undefined}
                 onMouseDown={(e) => e.preventDefault()}

@@ -152,13 +152,27 @@ async function applyEffects(tx: Tx, user: CurrentUser, doc: StockDocument, effec
   };
   const where = (e: Effect) => locationLabel(warehouse.get(e.warehouseId)!, e.binId ? bin.get(e.binId) : null);
 
-  // Serial locations as they will be after each effect.
-  const serialLookups = effects.filter((e) => e.serials.length && product.get(e.productId)!.trackSerials).map((e) => ({ productId: e.productId, serial: { in: e.serials } }));
+  // Serial locations as they will be after each effect (mandatory and optional serials).
+  const located = (productId: string) => {
+    const p = product.get(productId)!;
+    return p.trackSerials || p.serialsOptional;
+  };
+  const serialLookups = effects.filter((e) => e.serials.length && located(e.productId)).map((e) => ({ productId: e.productId, serial: { in: e.serials } }));
   const serialRows = serialLookups.length
     ? await tx.productSerial.findMany({ where: { OR: serialLookups }, select: { id: true, productId: true, serial: true, warehouseId: true, binId: true } })
     : [];
   const serialAt = new Map<string, { warehouseId: string | null; binId: string | null }>(serialRows.map((s) => [`${s.productId}|${s.serial}`, { warehouseId: s.warehouseId, binId: s.binId }]));
   const serialKnown = new Set(serialRows.map((s) => `${s.productId}|${s.serial}`));
+  // Optional serials: how many recorded serials each touched location holds, so that a location
+  // never ends up with more recorded serials than units (stock leaving without naming its serials
+  // would otherwise leave serials "in stock" that are not there).
+  const optionalIds = productIds.filter((id) => product.get(id)!.serialsOptional);
+  const serialCount = new Map<string, number>();
+  if (optionalIds.length) {
+    const counts = await tx.productSerial.groupBy({ by: ["productId", "warehouseId", "binId"], where: { productId: { in: optionalIds }, warehouseId: { in: warehouseIds } }, _count: { _all: true } });
+    for (const c of counts) serialCount.set(locKey(c.productId, c.warehouseId!, c.binId), c._count._all);
+  }
+  const optionalTouched = new Map<string, Effect>();
 
   const planned: (Effect & { id: string; balanceAfter: Prisma.Decimal; unitCostUsed: Prisma.Decimal })[] = [];
   for (const e of effects) {
@@ -178,9 +192,12 @@ async function applyEffects(tx: Tx, user: CurrentUser, doc: StockDocument, effec
       );
     }
 
-    if (p.trackSerials) {
+    if (p.trackSerials || p.serialsOptional) {
       const count = e.qty.abs();
-      if (!count.isInteger() || !count.equals(e.serials.length)) fail(e.lineNo, "serials", msg("stock.errors.serialCount", { count: count.toNumber(), given: e.serials.length }));
+      if (p.trackSerials && (!count.isInteger() || !count.equals(e.serials.length))) fail(e.lineNo, "serials", msg("stock.errors.serialCount", { count: count.toNumber(), given: e.serials.length }));
+      if (p.serialsOptional && e.serials.length && (!count.isInteger() || count.lessThan(e.serials.length))) {
+        fail(e.lineNo, "serials", msg("serialModes.tooManySerials", { count: count.toNumber(), given: e.serials.length }));
+      }
       const wrong: string[] = [];
       for (const s of e.serials) {
         const k = `${e.productId}|${s}`;
@@ -196,6 +213,11 @@ async function applyEffects(tx: Tx, user: CurrentUser, doc: StockDocument, effec
       if (wrong.length) {
         const list = wrong.slice(0, 5).join(", ");
         fail(e.lineNo, "serials", e.qty.isNegative() ? msg("stock.errors.serialNotHere", { list, location: where(e) }) : msg("stock.errors.serialInStock", { list }));
+      }
+      if (p.serialsOptional) {
+        const moved = e.serials.length - wrong.length;
+        serialCount.set(lk, (serialCount.get(lk) ?? 0) + (e.qty.isNegative() ? -moved : moved));
+        optionalTouched.set(lk, e);
       }
     } else if (e.serials.length) {
       fail(e.lineNo, "serials", msg("stock.errors.noSerials"));
@@ -228,6 +250,13 @@ async function applyEffects(tx: Tx, user: CurrentUser, doc: StockDocument, effec
     atWh.set(whKey(e.productId, e.warehouseId), whAfter);
     total.set(e.productId, t.plus(e.qty));
     planned.push({ ...e, id: movementId(now, planned.length), balanceAfter: whAfter, unitCostUsed: unitCostUsed.toDecimalPlaces(4) });
+  }
+  for (const [lk, e] of optionalTouched) {
+    const held = serialCount.get(lk) ?? 0;
+    const units = atLoc.get(lk) ?? ZERO;
+    if (held > 0 && units.lessThan(held)) {
+      fail(e.lineNo, "serials", msg("serialModes.nameSerials", { ...productParam("product", product.get(e.productId)!), location: where(e), count: held, units: formatQuantity(units.toNumber(), "en") }));
+    }
   }
   if (firstError) throw new ValidationError({ _form: firstError, ...fieldErrors }, firstError);
 
@@ -269,7 +298,7 @@ async function applyEffects(tx: Tx, user: CurrentUser, doc: StockDocument, effec
 
   // Serial locations: the last movement that touched each serial decides where it is.
   const lastMove = new Map<string, string>();
-  for (const e of planned) if (product.get(e.productId)!.trackSerials) for (const s of e.serials) lastMove.set(`${e.productId}|${s}`, e.id);
+  for (const e of planned) if (located(e.productId)) for (const s of e.serials) lastMove.set(`${e.productId}|${s}`, e.id);
   const fresh: Prisma.ProductSerialCreateManyInput[] = [];
   for (const [k, movementId] of lastMove) {
     const [productId, serial] = k.split("|") as [string, string];
@@ -292,13 +321,15 @@ async function assertPostable(tx: Tx, doc: DocWithLines) {
   const whIds = docWarehouseIds(doc);
   const [warehouses, products, bins] = await Promise.all([
     tx.warehouse.findMany({ where: { id: { in: whIds } }, select: { id: true, code: true, isActive: true } }),
-    tx.product.findMany({ where: { id: { in: doc.lines.map((l) => l.productId) } }, select: { id: true, sku: true, nameEn: true, nameAr: true, isActive: true } }),
+    tx.product.findMany({ where: { id: { in: doc.lines.map((l) => l.productId) } }, select: { id: true, sku: true, nameEn: true, nameAr: true, isActive: true, hasVariants: true } }),
     tx.warehouseBin.findMany({ where: { id: { in: doc.lines.flatMap((l) => [l.fromBinId, l.toBinId]).filter((x): x is string => !!x) } }, select: { id: true, code: true, isActive: true, warehouseId: true } }),
   ]);
   const inactive = warehouses.find((w) => !w.isActive);
   if (inactive) throw formError("stock.errors.warehouseInactive", { code: inactive.code });
   const off = products.find((p) => !p.isActive);
   if (off) throw formError("stock.errors.productInactive", productParam("product", off));
+  const parent = products.find((p) => p.hasVariants);
+  if (parent) throw formError("variants.errors.pickVariant", productParam("product", parent));
   const offBin = bins.find((b) => !b.isActive);
   if (offBin) throw formError("stock.errors.binInactive", { code: offBin.code });
 }

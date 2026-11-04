@@ -24,7 +24,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
   const [user, t] = await Promise.all([requirePagePermission("products.view"), getT()]);
   const sp = await searchParams;
   const [result, options] = await Promise.all([
-    listProducts(user, { q: sp.q, categoryId: sp.categoryId, brandId: sp.brandId, active: sp.active, sort: sp.sort, dir: sp.sort === "created" ? "desc" : "asc", page: Number(sp.page) || 1 }),
+    listProducts(user, { level: "top", q: sp.q, categoryId: sp.categoryId, brandId: sp.brandId, active: sp.active, sort: sp.sort, dir: sp.sort === "created" ? "desc" : "asc", page: Number(sp.page) || 1 }),
     catalogOptions(user),
   ]);
   const manage = hasPermission(user, "products.manage");
@@ -127,25 +127,37 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                 {result.rows.map((p) => (
                   <tr key={p.id} className="hover:bg-surface-muted/50">
                     <td className="px-4 py-2.5">
-                      <Link href={`/products/${p.id}`} className="font-mono font-semibold text-brand-text hover:underline">
+                      <Link prefetch={false} href={`/products/${p.id}`} className="font-mono font-semibold text-brand-text hover:underline">
                         <bdi>{p.sku}</bdi>
                       </Link>
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="font-medium text-fg">{nameOf(p, t)}</span>
-                      <span className="ms-2 inline-flex flex-wrap gap-1 align-middle">
-                        {!p.isActive && <Badge>{t("common.inactive")}</Badge>}
-                        {p.trackSerials && <Badge>{t("catalog.serialTracked")}</Badge>}
-                        {p.low && <Badge className="border-warning/40 bg-warning-soft text-fg">{t("catalog.lowStock")}</Badge>}
+                      <span className="flex items-center gap-3">
+                        {p.imageUrl ? (
+                          // eslint-disable-next-line @next/next/no-img-element -- private, permission-checked file
+                          <img src={p.imageUrl} alt="" className="h-9 w-9 shrink-0 rounded border border-line object-cover" loading="lazy" />
+                        ) : (
+                          <span className="h-9 w-9 shrink-0 rounded border border-dashed border-line" aria-hidden />
+                        )}
+                        <span>
+                          <span className="font-medium text-fg">{nameOf(p, t)}</span>
+                          <span className="ms-2 inline-flex flex-wrap gap-1 align-middle">
+                            {!p.isActive && <Badge>{t("common.inactive")}</Badge>}
+                            {p.hasVariants && <Badge>{t("variants.count", { count: p.variantCount })}</Badge>}
+                            {p.serialMode === "REQUIRED" && <Badge>{t("catalog.serialTracked")}</Badge>}
+                            {p.serialMode === "OPTIONAL" && <Badge>{t("serialModes.OPTIONAL")}</Badge>}
+                            {p.low && <Badge className="border-warning/40 bg-warning-soft text-fg">{t("catalog.lowStock")}</Badge>}
+                          </span>
+                          {p.model && <span className="block text-xs text-fg-subtle">{p.model}</span>}
+                        </span>
                       </span>
-                      {p.model && <span className="block text-xs text-fg-subtle">{p.model}</span>}
                     </td>
                     <td className="px-4 py-2.5 text-fg-muted">{p.category ? [p.parentCategory && nameOf(p.parentCategory, t), nameOf(p.category, t)].filter(Boolean).join(" › ") : "—"}</td>
                     <td className="px-4 py-2.5 text-fg-muted">{p.brand?.name ?? "—"}</td>
                     <td className="px-4 py-2.5 text-end tabular-nums">
                       {formatQuantity(p.onHand, L)} <span className="text-xs text-fg-subtle">{p.unit.code}</span>
                     </td>
-                    {costs && <td className="px-4 py-2.5 text-end tabular-nums">{money(p.averageCost, L)}</td>}
+                    {costs && <td className="px-4 py-2.5 text-end tabular-nums">{p.hasVariants ? "—" : money(p.averageCost, L)}</td>}
                     <td className="px-4 py-2.5 text-end tabular-nums">{money(p.sellingPrice, L)}</td>
                   </tr>
                 ))}

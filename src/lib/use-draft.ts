@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 /**
  * Keeps an unsaved form in this browser while it is being typed, so a closed tab, a refresh or a
@@ -8,14 +8,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
  * (localStorage, one key per form); it is removed when the form is saved or the draft discarded.
  * Storage that is blocked or full is ignored: the form simply works without drafts.
  *
- *   const draft = useDraft("product:new", values, { enabled: !initial });
+ *   const draft = useDraft("product:new", values, { enabled: !initial, dirty: values.name !== "" });
  *   draft.saved    -> a draft from an earlier visit, offered to the user (restore / discard)
  *   draft.clear()  -> after a successful save
  */
-export function useDraft<V>(key: string, values: V, { enabled = true, delayMs = 600 }: { enabled?: boolean; delayMs?: number } = {}) {
+export function useDraft<V>(key: string, values: V, { enabled = true, dirty = true, delayMs = 600 }: { enabled?: boolean; /** false: nothing typed yet, nothing to keep */ dirty?: boolean; delayMs?: number } = {}) {
   const storageKey = `ims:draft:${key}`;
   const [saved, setSaved] = useState<{ values: V; at: string } | null>(null);
-  const skipFirst = useRef(true);
 
   // A draft left from an earlier visit (read once, after mounting: localStorage is browser-only).
   useEffect(() => {
@@ -29,13 +28,9 @@ export function useDraft<V>(key: string, values: V, { enabled = true, delayMs = 
     }
   }, [enabled, storageKey]);
 
-  // Save while typing (debounced). The first render is the untouched form: not a draft.
+  // Save while typing (debounced), once something was typed (`dirty`).
   useEffect(() => {
-    if (!enabled) return;
-    if (skipFirst.current) {
-      skipFirst.current = false;
-      return;
-    }
+    if (!enabled || !dirty) return;
     const timer = setTimeout(() => {
       try {
         window.localStorage.setItem(storageKey, JSON.stringify({ values, at: new Date().toISOString() }));
@@ -44,7 +39,7 @@ export function useDraft<V>(key: string, values: V, { enabled = true, delayMs = 
       }
     }, delayMs);
     return () => clearTimeout(timer);
-  }, [enabled, storageKey, values, delayMs]);
+  }, [enabled, dirty, storageKey, values, delayMs]);
 
   const clear = useCallback(() => {
     setSaved(null);

@@ -17,7 +17,10 @@ import { docTypeLabel, nameOf } from "./labels";
 import { requestId, useAction } from "./use-action";
 
 export type FormWarehouse = { id: string; code: string; nameEn: string; nameAr: string; kind: string; bins: { id: string; code: string; name: string | null }[] };
-export type PickedProduct = { id: string; sku: string; nameEn: string; nameAr: string; trackSerials: boolean; unit: { code: string; allowsFraction: boolean } };
+export type PickedProduct = { id: string; sku: string; nameEn: string; nameAr: string; trackSerials: boolean; serialsOptional?: boolean; serialMode?: "NONE" | "OPTIONAL" | "REQUIRED"; unit: { code: string; allowsFraction: boolean } };
+/** Serials are entered for mandatory and optional serial products. */
+const takesSerials = (p: PickedProduct | null | undefined) => !!p && (p.trackSerials || p.serialsOptional || p.serialMode === "OPTIONAL");
+const optionalSerials = (p: PickedProduct | null | undefined) => !!p && !p.trackSerials && (p.serialsOptional || p.serialMode === "OPTIONAL");
 export type DocLineInitial = {
   product: PickedProduct;
   quantity: number;
@@ -258,7 +261,7 @@ export function DocumentForm({
           fromBinId: sides.from ? l.fromBinId : "",
           toBinId: sides.to ? l.toBinId : "",
           direction: type === "ADJUSTMENT" ? l.direction : "",
-          serials: l.product?.trackSerials ? l.serials : "",
+          serials: takesSerials(l.product) ? l.serials : "",
           reason: l.reason,
         })),
     };
@@ -422,11 +425,11 @@ export function DocumentForm({
                   <Field label={t("stock.fields.reason")} required={type === "ADJUSTMENT"} error={lineErr(i, "reason")} className={cn(type !== "ADJUSTMENT" && "lg:col-span-1")}>
                     {(p) => <Input {...p} value={l.reason} onChange={(e) => update(l.key, { reason: e.target.value })} maxLength={300} dir="auto" />}
                   </Field>
-                  {l.product?.trackSerials && (
+                  {takesSerials(l.product) && (
                     <Field
                       label={t("stock.fields.serials")}
-                      required
-                      hint={`${t("stock.fields.serialsHint")} ${t("stock.form.serialsCount", { given: serialCount, count: l.quantity || 0 })}`}
+                      required={!optionalSerials(l.product)}
+                      hint={`${optionalSerials(l.product) ? t("serialModes.hint.OPTIONAL") : t("stock.fields.serialsHint")} ${t("stock.form.serialsCount", { given: serialCount, count: l.quantity || 0 })}`}
                       error={lineErr(i, "serials")}
                       className="sm:col-span-2 lg:col-span-4"
                     >
