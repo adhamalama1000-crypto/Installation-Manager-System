@@ -133,7 +133,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
                 {result.rows.map((b) => (
                   <tr key={`${b.productId}-${b.warehouse?.id ?? ""}-${b.bin ?? ""}`} className="hover:bg-surface-muted/50">
                     <td className="px-4 py-2.5">
-                      <Link href={`/stock/movements?productId=${b.productId}${b.warehouse ? `&warehouseId=${b.warehouse.id}` : ""}`} className="font-mono font-semibold text-brand-text hover:underline">
+                      <Link prefetch={false} href={`/stock/movements?productId=${b.productId}${b.warehouse ? `&warehouseId=${b.warehouse.id}` : ""}`} className="font-mono font-semibold text-brand-text hover:underline">
                         <bdi>{b.sku}</bdi>
                       </Link>
                     </td>
