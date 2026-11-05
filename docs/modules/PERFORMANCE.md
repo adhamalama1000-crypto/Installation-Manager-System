@@ -75,7 +75,10 @@ pages listed in the results (as full HTML and as the RSC payload of a client nav
 `erp-before-rerun-1x.json`, `erp-before-rerun-4x.json`, `erp-before-rerun2-4x.json` (baseline,
 afternoon), `erp-after-1x.json`, `erp-after-4x.json`, `erp-after2-4x.json` (this branch).
 
-## 9. Results
+## 9. Validation rules
+
+No user input is involved. The harness validates every response (each scenario must answer HTTP
+200) and stops instead of reporting a scenario that failed. The measured results follow.
 
 ### Browser, no throttling (stable between runs: the baseline measured 327 and 329 ms)
 
