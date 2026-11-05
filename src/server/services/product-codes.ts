@@ -39,6 +39,49 @@ export async function nextSku(tx: Tx, categoryId: string | null | undefined, res
   throw formError("variants.errors.noSku", undefined, "sku");
 }
 
+/** Reserves `count` numbers of a counter at once: the last number after the reservation. */
+async function reserve(tx: Tx, key: string, count: number): Promise<number> {
+  const rows = await tx.$queryRaw<{ lastNumber: number }[]>`
+    INSERT INTO "document_sequences" ("key", "lastNumber") VALUES (${key}, ${count})
+    ON CONFLICT ("key") DO UPDATE SET "lastNumber" = "document_sequences"."lastNumber" + ${count}
+    RETURNING "lastNumber"`;
+  return rows[0]!.lastNumber;
+}
+
+/**
+ * `count` free SKUs for one category prefix at once (bulk import): one counter update and one
+ * look-up for the whole block instead of two statements per product; numbers already taken by
+ * hand-typed codes are skipped and topped up one by one.
+ */
+export async function reserveSkus(tx: Tx, prefix: string, count: number, reserved: Set<string>): Promise<string[]> {
+  if (count <= 0) return [];
+  const last = await reserve(tx, `SKU:${prefix}`, count);
+  const block = Array.from({ length: count }, (_, i) => formatSku(prefix, last - count + 1 + i));
+  const taken = new Set((await tx.product.findMany({ where: { sku: { in: block } }, select: { sku: true } })).map((p) => p.sku));
+  const out = block.filter((c) => !taken.has(c) && !reserved.has(c));
+  for (const c of out) reserved.add(c);
+  while (out.length < count) {
+    const sku = formatSku(prefix, await nextSequence(tx, `SKU:${prefix}`));
+    if (!reserved.has(sku) && !(await tx.product.findUnique({ where: { sku }, select: { id: true } }))) {
+      reserved.add(sku);
+      out.push(sku);
+    }
+  }
+  return out;
+}
+
+/** `count` free internal barcodes at once (bulk import). */
+export async function reserveBarcodes(tx: Tx, count: number, reserved: Set<string>): Promise<string[]> {
+  if (count <= 0) return [];
+  const last = await reserve(tx, "EAN13:2", count);
+  const block = Array.from({ length: count }, (_, i) => internalEan13(last - count + 1 + i));
+  const taken = new Set((await tx.product.findMany({ where: { barcode: { in: block } }, select: { barcode: true } })).map((p) => p.barcode));
+  const out = block.filter((c) => !taken.has(c) && !reserved.has(c));
+  for (const c of out) reserved.add(c);
+  while (out.length < count) out.push(await nextInternalBarcode(tx, reserved));
+  return out;
+}
+
 /** A free code for a new variant: PARENT-BLACK, else PARENT-V1, PARENT-V2, ... */
 export async function nextVariantCode(tx: Tx, parentSku: string, variantNameEn: string, reserved?: Set<string>): Promise<string> {
   for (const candidate of variantCodeCandidates(parentSku, variantNameEn, MAX_TRIES)) {

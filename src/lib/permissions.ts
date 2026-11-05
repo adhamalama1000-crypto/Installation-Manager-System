@@ -84,6 +84,31 @@ export const PERMISSIONS = [
   "inventory.approve",
   /** Stock valuation, costs and inventory exports. */
   "inventory.reports",
+  // ERP upgrade.
+  /** Supplier master (read). */
+  "suppliers.view",
+  /** Create and edit suppliers. */
+  "suppliers.manage",
+  /** Sales invoices (read). */
+  "sales.view",
+  /** Prepare and confirm sales invoices (confirming issues the stock). */
+  "sales.manage",
+  /** Cancel a confirmed sale (reverses its stock issue; needs a reason). */
+  "sales.void",
+  /** Sales and product analytics: rankings, trends, turnover, valuation. */
+  "analytics.view",
+  /** Review flagged check-ins (outside the geofence, no location), approved work locations, geofences. */
+  "attendance.manage",
+  /** Approve or reject the work evidence technicians submit for a visit. */
+  "evidence.review",
+  /** See everyone's violations and deductions. */
+  "penalties.view",
+  /** Record violations and set the penalty rules. */
+  "penalties.manage",
+  /** Approve, reject or cancel violations and deductions (only approved deductions reach finance). */
+  "penalties.approve",
+  /** See one's own violations and deductions (employees). */
+  "penalties.own",
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -104,6 +129,9 @@ export const VIEWER_GRANTABLE: Permission[] = [
   "warehouses.view",
   "inventory.view",
   "inventory.reports",
+  "suppliers.view",
+  "sales.view",
+  "analytics.view",
 ];
 
 export const DEFAULT_VIEWER_PERMISSIONS: Permission[] = ["appointments.view"];
@@ -136,30 +164,39 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
         "history.view",
         "complaints.view",
         "products.view",
+        "sales.view",
+        "sales.manage",
+        "penalties.own",
       ];
-      if (settings.salesCanViewReports) p.push("reports.view");
+      if (settings.salesCanViewReports) p.push("reports.view", "analytics.view");
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record", "expenses.record", "inventory.view"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record", "expenses.record", "inventory.view", "penalties.own"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }
     case "ACCOUNTANT":
-      return new Set<Permission>(["appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive", "stock.view", "attendance.view", "expenses.pay", "products.view", "warehouses.view", "inventory.view", "inventory.reports"]);
+      return new Set<Permission>([
+        "appointments.view", "customers.view", "customers.contact", "finance.view", "cash.receive", "stock.view", "attendance.view", "expenses.pay",
+        "products.view", "warehouses.view", "inventory.view", "inventory.reports",
+        "suppliers.view", "sales.view", "sales.void", "analytics.view", "penalties.view", "penalties.own",
+      ]);
     case "DRIVER":
       // Sees only the visits the car serves (see access.ts), to drop and pick up the teams.
-      return new Set<Permission>(["appointments.view", "location.view", "customers.contact", "route.view", "car.checkin", "expenses.record"]);
+      return new Set<Permission>(["appointments.view", "location.view", "customers.contact", "route.view", "car.checkin", "expenses.record", "penalties.own"]);
     case "STORE":
       return new Set<Permission>([
         "appointments.view", "stock.view", "stock.manage",
         "products.view", "warehouses.view", "inventory.view", "inventory.receive", "inventory.issue", "inventory.transfer", "inventory.count",
+        "suppliers.view", "penalties.own",
       ]);
     case "WAREHOUSE_MANAGER":
       return new Set<Permission>([
         "appointments.view", "stock.view", "stock.manage",
         "products.view", "products.manage", "warehouses.view", "warehouses.manage",
         "inventory.view", "inventory.receive", "inventory.issue", "inventory.transfer", "inventory.count", "inventory.approve", "inventory.reports",
+        "suppliers.view", "suppliers.manage", "sales.view", "analytics.view", "penalties.own",
       ]);
     case "VIEWER": {
       const granted = (user.viewerPermissions ?? []).filter((p): p is Permission =>

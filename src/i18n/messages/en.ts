@@ -256,6 +256,15 @@ const messages = {
       view: { label: "Stock balances & documents", description: "Stock on hand, stock documents and the stock ledger (read-only)." },
       reports: { label: "Stock value & costs", description: "Purchase and average costs, stock value and inventory exports." },
     },
+    suppliers: {
+      view: { label: "Suppliers", description: "The supplier list and each supplier's receipts (read-only)." },
+    },
+    sales: {
+      view: { label: "Sales invoices", description: "Confirmed and draft sales invoices (read-only)." },
+    },
+    analytics: {
+      view: { label: "Sales analytics", description: "Best and slow sellers, trends, turnover and stock value." },
+    },
   },
   money: {
     egp: "{amount} EGP",

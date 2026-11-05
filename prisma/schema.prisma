@@ -258,6 +258,7 @@ model User {
   stocktakesDecided     Stocktake[]             @relation("StocktakeDecider")
   stocktakeLinesCounted StocktakeLine[]         @relation("StocktakeCounter")
   productImagesUploaded ProductImage[]          @relation("ProductImageUploader")
+  suppliersCreated      Supplier[]              @relation("SupplierCreator")
   productImagesDeleted  ProductImage[]          @relation("ProductImageDeleter")
 
   @@index([role, isActive])
@@ -322,8 +323,9 @@ model Customer {
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 
-  locations    CustomerLocation[]
-  appointments Appointment[]
+  locations      CustomerLocation[]
+  appointments   Appointment[]
+  stockDocuments StockDocument[]
 
   @@index([phoneDigits])
   @@index([secondaryPhoneDigits])
@@ -490,9 +492,10 @@ model Appointment {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  technicians   AppointmentTechnician[]
-  auditLogs     AuditLog[]
-  notifications Notification[]
+  technicians    AppointmentTechnician[]
+  auditLogs      AuditLog[]
+  notifications  Notification[]
+  stockDocuments StockDocument[]
 
   @@index([startsAt])
   @@index([endsAt])
@@ -1188,6 +1191,15 @@ model StockDocument {
   cancelledById   String?
   cancelledBy     User?               @relation("StockDocCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
   cancelReason    String?
+  /// The supplier (receipts, supplier returns) and customer (customer returns), when chosen from
+  /// the masters; `counterparty` keeps the name as text for older documents.
+  supplierId      String?
+  supplier        Supplier?           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  customerId      String?
+  customer        Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// The booked visit this stock was issued for (or returned from).
+  appointmentId   String?
+  appointment     Appointment?        @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
   lines           StockDocumentLine[]
   movements       InventoryMovement[]
 
@@ -1195,6 +1207,9 @@ model StockDocument {
   @@index([status, createdAt])
   @@index([fromWarehouseId, documentDate])
   @@index([toWarehouseId, documentDate])
+  @@index([supplierId, documentDate])
+  @@index([customerId])
+  @@index([appointmentId])
   @@map("stock_documents")
 }
 
@@ -1366,4 +1381,33 @@ model ProductImage {
 
   @@index([productId, sortOrder])
   @@map("product_images")
+}
+
+/// A supplier (the receipts and supplier returns name it). Never deleted: deactivated.
+model Supplier {
+  id            String          @id @default(cuid())
+  /// Upper-case, unique; generated as SUP-00001 when not typed.
+  code          String          @unique
+  name          String
+  nameAr        String?
+  contactPerson String?
+  phone         String?
+  /// Digits only, for searching.
+  phoneDigits   String?
+  email         String?
+  address       String?
+  taxNumber     String?
+  notes         String?
+  isActive      Boolean         @default(true)
+  version       Int             @default(1)
+  createdById   String
+  createdBy     User            @relation("SupplierCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
+  documents     StockDocument[]
+
+  @@index([isActive, name])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "suppliers_name_trgm_idx")
+  @@index([phoneDigits])
+  @@map("suppliers")
 }

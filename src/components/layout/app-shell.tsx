@@ -33,6 +33,7 @@ import {
   ScrollText,
   ClipboardCheck,
   Layers,
+  Factory,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
@@ -77,6 +78,7 @@ function navFor(user: ShellUser, t: T) {
     { href: "/stocktakes", label: t("nav.stocktakes"), icon: ClipboardCheck, show: has("inventory.count") || has("inventory.approve"), group: "inventory" },
     { href: "/products", label: t("nav.products"), icon: Package, show: has("products.view"), group: "inventory" },
     { href: "/warehouses", label: t("nav.warehouses"), icon: Warehouse, show: has("warehouses.view"), group: "inventory" },
+    { href: "/suppliers", label: t("erpNav.suppliers"), icon: Factory, show: has("suppliers.view"), group: "inventory" },
   ];
   return items.filter((i) => i.show);
 }

@@ -327,6 +327,12 @@ export const stockDocSchema = z
     reference: optionalText(100),
     counterparty: optionalText(200),
     note: optionalText(1000),
+    /** From the supplier master (receipts, supplier returns). */
+    supplierId: optionalId,
+    /** From the customers (customer returns). */
+    customerId: optionalId,
+    /** The booked visit, by its code (APT-000123 or 123): issues and returns. */
+    appointmentRef: optionalText(20),
     clientRequestId: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(8).max(64).optional()),
     version: versionField,
     lines: z.array(docLineSchema).min(1, msg("stock.errors.noLines")).max(200, msg("stock.errors.tooManyLines")),

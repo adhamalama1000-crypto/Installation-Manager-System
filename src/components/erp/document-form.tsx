@@ -6,6 +6,7 @@ import { Plus, Trash2 } from "lucide-react";
 import type { AdjustDirection, StockDocType, StockReturnKind } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
+import { Combobox, type ComboOption } from "@/components/ui/combobox";
 import { Field, Input, Select, Textarea } from "@/components/ui/field";
 import { useT } from "@/i18n/client";
 import { api } from "@/lib/api-client";
@@ -41,6 +42,8 @@ export type DocInitial = {
   reference: string | null;
   counterparty: string | null;
   note: string | null;
+  supplier?: { id: string; label: string } | null;
+  appointmentRef?: string | null;
   lines: DocLineInitial[];
 };
 
@@ -214,7 +217,18 @@ export function DocumentForm({
     reference: initial?.reference ?? "",
     counterparty: initial?.counterparty ?? "",
     note: initial?.note ?? "",
+    appointmentRef: initial?.appointmentRef ?? "",
   });
+  const [supplier, setSupplier] = useState<{ id: string; label: string } | null>(initial?.supplier ?? null);
+  const supplierSide = type === "RECEIPT" || (type === "RETURN" && returnKind === "SUPPLIER");
+  const visitSide = type === "ISSUE" || type === "RETURN";
+  const loadSuppliers = async (q: string, signal: AbortSignal): Promise<ComboOption[]> =>
+    (await api<{ rows: { id: string; code: string; name: string; nameAr: string | null; phone: string | null }[] }>(`/api/suppliers/options?${new URLSearchParams({ q })}`, { signal })).rows.map((r) => ({
+      id: r.id,
+      label: t.locale === "ar" && r.nameAr ? r.nameAr : r.name,
+      hint: r.code,
+      keywords: `${r.name} ${r.nameAr ?? ""} ${r.phone ?? ""}`,
+    }));
   const [lines, setLines] = useState<Line[]>(() =>
     initial?.lines.length
       ? initial.lines.map((l) => ({
@@ -250,6 +264,8 @@ export function DocumentForm({
       reference: h.reference,
       counterparty: h.counterparty,
       note: h.note,
+      supplierId: supplierSide ? (supplier?.id ?? null) : null,
+      appointmentRef: visitSide ? h.appointmentRef : null,
       post,
       ...(initial ? { version: initial.version } : { clientRequestId: clientRequestId.current }),
       lines: lines
@@ -333,9 +349,34 @@ export function DocumentForm({
           <Field label={t("stock.fields.reference")} hint={t("stock.fields.referenceHint")} error={errors.reference}>
             {(p) => <Input {...p} value={h.reference} onChange={(e) => setH({ ...h, reference: e.target.value })} maxLength={100} dir="auto" />}
           </Field>
+          {supplierSide && (
+            <Field label={t("suppliers.pick")} hint={t("suppliers.pickHint")} error={errors.supplierId}>
+              {(p) => (
+                <Combobox
+                  id={p.id}
+                  label={t("suppliers.pick")}
+                  load={loadSuppliers}
+                  minChars={0}
+                  value={supplier?.id ?? null}
+                  selectedLabel={supplier?.label}
+                  onChange={(id, o) => {
+                    setSupplier(id && o ? { id, label: o.label } : null);
+                    if (o && !h.counterparty) setH((x) => ({ ...x, counterparty: o.label }));
+                  }}
+                  allowClear
+                  invalid={!!p["aria-invalid"]}
+                />
+              )}
+            </Field>
+          )}
           {(type === "RECEIPT" || type === "RETURN" || type === "ISSUE") && (
             <Field label={type === "RECEIPT" || returnKind === "SUPPLIER" ? t("stock.fields.supplier") : t("stock.fields.customer")} error={errors.counterparty}>
               {(p) => <Input {...p} value={h.counterparty} onChange={(e) => setH({ ...h, counterparty: e.target.value })} maxLength={200} dir="auto" />}
+            </Field>
+          )}
+          {visitSide && (
+            <Field label={t("docLinks.visit")} hint={t("docLinks.visitHint")} error={errors.appointmentRef}>
+              {(p) => <Input {...p} value={h.appointmentRef} onChange={(e) => setH({ ...h, appointmentRef: e.target.value })} maxLength={20} dir="ltr" className="font-mono" placeholder="APT-000123" />}
             </Field>
           )}
           <Field label={t("stock.fields.note")} error={errors.note} className="sm:col-span-2 lg:col-span-3">

@@ -28,6 +28,9 @@ import { canOpenComplaint, complaintsForAppointment } from "@/server/services/co
 import { visitCheckIns } from "@/server/services/field";
 import { listStatuses } from "@/server/services/statuses";
 import { heldBy } from "@/server/services/stock";
+import { documentsForAppointment } from "@/server/services/inventory-documents";
+import { docTypeLabel, nameOf } from "@/components/erp/labels";
+import { formatQuantity } from "@/lib/inventory";
 import { loadOr404 } from "./load";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
@@ -45,7 +48,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const L = t.locale;
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [a, history, allStatuses, myStock, files, feedback, complaints, checkIns] = await Promise.all([
+  const [a, history, allStatuses, myStock, files, feedback, complaints, checkIns, stockDocs] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
     canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
     user.permissions.includes("appointments.manage") ? listStatuses(L) : Promise.resolve([]),
@@ -55,6 +58,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
     loadOr404(() => getFeedback(user, id)),
     complaintsForAppointment(user, id),
     visitCheckIns(user, id),
+    documentsForAppointment(user, id),
   ]);
   const today = todayKey(tz);
   const statuses = a.canManage ? allStatuses : [];
@@ -328,6 +332,32 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           </Card>
 
           {a.payment && <PaymentCard payment={a.payment} tz={tz} />}
+
+          {stockDocs.length > 0 && (
+            <Card>
+              <CardHeader title={t("docLinks.issuedForVisit")} icon={<Boxes className="h-4 w-4" />} />
+              <ul className="divide-y divide-line">
+                {stockDocs.map((d) => (
+                  <li key={d.id} className="px-5 py-3 text-sm">
+                    <Link prefetch={false} href={`/stock/documents/${d.id}`} className="font-mono font-semibold text-brand-text hover:underline">
+                      {d.number}
+                    </Link>
+                    <span className="ms-2 text-fg-muted">
+                      {docTypeLabel(t, d.type, d.returnKind)} · {t.dyn(`enums.stockDocStatus.${d.status}`)}
+                    </span>
+                    <ul className="mt-1 space-y-0.5 text-xs text-fg-muted">
+                      {d.lines.map((l, i) => (
+                        <li key={i}>
+                          <bdi className="font-mono">{l.product.sku}</bdi> {nameOf(l.product, t)} × {formatQuantity(l.quantity, L)} {l.product.unit.code}
+                          {l.serials.length > 0 && <span className="font-mono"> ({l.serials.join(", ")})</span>}
+                        </li>
+                      ))}
+                    </ul>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
 
           {a.installed.length > 0 && (
             <Card>

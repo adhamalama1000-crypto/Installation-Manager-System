@@ -1,6 +1,6 @@
 import Link from "next/link";
 import type { Metadata } from "next";
-import { Package, Plus, Settings2 } from "lucide-react";
+import { FileSpreadsheet, Package, Plus, Settings2 } from "lucide-react";
 import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Badge, EmptyState, PageHeader } from "@/components/ui/misc";
@@ -48,6 +48,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
             <>
               <ButtonLink href="/products/setup" variant="outline">
                 <Settings2 className="h-4 w-4" /> {t("catalog.setup")}
+              </ButtonLink>
+              <ButtonLink href="/products/import" variant="outline">
+                <FileSpreadsheet className="h-4 w-4" /> {t("productImport.title")}
               </ButtonLink>
               <ButtonLink href="/products/new">
                 <Plus className="h-4 w-4" /> {t("catalog.newProduct")}

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterOptions, foldText } from "@/components/ui/combobox";
+import { filterOptions, foldText } from "@/lib/text";
 
 describe("searchable pickers", () => {
   it("fold Arabic letter forms, diacritics and case", () => {
