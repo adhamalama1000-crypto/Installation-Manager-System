@@ -261,6 +261,10 @@ model User {
   suppliersCreated      Supplier[]              @relation("SupplierCreator")
   productImagesDeleted  ProductImage[]          @relation("ProductImageDeleter")
 
+  salesCreated   SalesInvoice[] @relation("SaleCreator")
+  salesConfirmed SalesInvoice[] @relation("SaleConfirmer")
+  salesCancelled SalesInvoice[] @relation("SaleCanceller")
+
   @@index([role, isActive])
   @@map("users")
 }
@@ -326,6 +330,8 @@ model Customer {
   locations      CustomerLocation[]
   appointments   Appointment[]
   stockDocuments StockDocument[]
+
+  salesInvoices SalesInvoice[]
 
   @@index([phoneDigits])
   @@index([secondaryPhoneDigits])
@@ -496,6 +502,8 @@ model Appointment {
   auditLogs      AuditLog[]
   notifications  Notification[]
   stockDocuments StockDocument[]
+
+  salesInvoices SalesInvoice[]
 
   @@index([startsAt])
   @@index([endsAt])
@@ -1059,6 +1067,8 @@ model Product {
   stocktakeLines  StocktakeLine[]
   images          ProductImage[]
 
+  salesLines SalesInvoiceLine[]
+
   @@index([categoryId])
   @@index([parentId])
   @@index([brandId])
@@ -1097,6 +1107,8 @@ model Warehouse {
   movements     InventoryMovement[] @relation("MovementWarehouse")
   serials       ProductSerial[]
   stocktakes    Stocktake[]
+
+  salesInvoices SalesInvoice[]
 
   @@index([kind, isActive])
   @@map("warehouses")
@@ -1202,6 +1214,9 @@ model StockDocument {
   appointment     Appointment?        @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
   lines           StockDocumentLine[]
   movements       InventoryMovement[]
+
+  /// The sale whose confirmation posted this issue.
+  salesInvoice SalesInvoice?
 
   @@index([type, status, documentDate])
   @@index([status, createdAt])
@@ -1410,4 +1425,79 @@ model Supplier {
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "suppliers_name_trgm_idx")
   @@index([phoneDigits])
   @@map("suppliers")
+}
+
+enum SalesInvoiceStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+/// A sale to a customer. Only CONFIRMED invoices count as sales; confirming posts the stock
+/// issue (stockDocumentId) through the ledger; cancelling a confirmed one reverses it.
+model SalesInvoice {
+  id              String             @id @default(cuid())
+  /// INV-2026-000001
+  number          String             @unique
+  status          SalesInvoiceStatus @default(DRAFT)
+  invoiceDate     DateTime           @db.Date
+  customerId      String?
+  customer        Customer?          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// Name and phone as on the invoice (a walk-in customer has no customerId).
+  customerName    String
+  customerPhone   String?
+  appointmentId   String?
+  appointment     Appointment?       @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  /// The stock leaves from here.
+  warehouseId     String
+  warehouse       Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  paymentMethod   PaymentMethod?
+  note            String?
+  subtotal        Decimal            @default(0) @db.Decimal(12, 2)
+  discountTotal   Decimal            @default(0) @db.Decimal(12, 2)
+  total           Decimal            @default(0) @db.Decimal(12, 2)
+  stockDocumentId String?            @unique
+  stockDocument   StockDocument?     @relation(fields: [stockDocumentId], references: [id], onDelete: Restrict)
+  clientRequestId String?            @unique
+  version         Int                @default(1)
+  createdById     String
+  createdBy       User               @relation("SaleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @db.Timestamptz(3)
+  confirmedAt     DateTime?          @db.Timestamptz(3)
+  confirmedById   String?
+  confirmedBy     User?              @relation("SaleConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+  cancelledAt     DateTime?          @db.Timestamptz(3)
+  cancelledById   String?
+  cancelledBy     User?              @relation("SaleCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancelReason    String?
+  lines           SalesInvoiceLine[]
+
+  @@index([status, invoiceDate])
+  @@index([customerId])
+  @@index([appointmentId])
+  @@index([warehouseId, invoiceDate])
+  @@index([createdById, invoiceDate])
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceLine {
+  id        String       @id @default(cuid())
+  invoiceId String
+  invoice   SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  lineNo    Int
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Decimal      @db.Decimal(14, 3)
+  unitPrice Decimal      @db.Decimal(12, 2)
+  /// Amount off the line (not a percentage).
+  discount  Decimal      @default(0) @db.Decimal(12, 2)
+  lineTotal Decimal      @db.Decimal(12, 2)
+  /// Cost per unit the stock left at (set on confirmation, for margin and turnover).
+  unitCost  Decimal?     @db.Decimal(14, 4)
+  serials   String[]     @default([])
+
+  @@unique([invoiceId, lineNo])
+  @@index([productId])
+  @@map("sales_invoice_lines")
 }

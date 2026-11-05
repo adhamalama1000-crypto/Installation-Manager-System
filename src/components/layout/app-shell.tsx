@@ -34,6 +34,8 @@ import {
   ClipboardCheck,
   Layers,
   Factory,
+  ShoppingCart,
+  TrendingUp,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
@@ -66,6 +68,8 @@ function navFor(user: ShellUser, t: T) {
     { href: "/attendance", label: has("attendance.view") ? t("nav.attendance") : t("nav.myAttendance"), icon: CalendarCheck2, show: has("attendance.view") || has("checkins.record") || has("car.checkin") },
     { href: "/leaves", label: tech ? t("nav.myLeave") : t("nav.leave"), icon: Plane, show: has("leaves.manage") || has("leaves.request") },
     { href: "/inventory", label: tech ? t("nav.myStock") : t("nav.inventory"), icon: Boxes, show: has("stock.view") },
+    { href: "/sales", label: t("erpNav.sales"), icon: ShoppingCart, show: has("sales.view") || has("sales.manage") },
+    { href: "/analytics", label: t("erpNav.analytics"), icon: TrendingUp, show: has("analytics.view") },
     { href: "/finance", label: t("nav.finance"), icon: Wallet, show: has("finance.view") },
     { href: "/reports", label: t("nav.reports"), icon: BarChart3, show: has("reports.view") },
     { href: "/users", label: t("nav.users"), icon: Users, show: has("users.manage") },

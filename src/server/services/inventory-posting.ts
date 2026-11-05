@@ -338,7 +338,13 @@ function auditType(doc: Pick<StockDocument, "type" | "returnKind">) {
   return doc.type === "RETURN" ? `@enums.stockDocType.RETURN_${doc.returnKind ?? "CUSTOMER"}` : `@enums.stockDocType.${doc.type}`;
 }
 
-export type PostOptions = { now?: Date; /** set by stocktake approval, which checks its own permission */ asStocktakeApproval?: boolean };
+export type PostOptions = {
+  now?: Date;
+  /** set by stocktake approval, which checks its own permission */
+  asStocktakeApproval?: boolean;
+  /** set by a sale's confirmation, which checks sales.manage itself (the issue is the sale's) */
+  onBehalfOf?: "sale";
+};
 
 /**
  * Posts a draft inside the caller's transaction. Posting an already posted document is a no-op
@@ -349,7 +355,7 @@ export async function postInTx(tx: Tx, user: CurrentUser, id: string, opts: Post
   const doc = await lockDocument(tx, id);
   if (doc.status === "POSTED") return { posted: false };
   if (doc.status === "CANCELLED") throw formError("stock.errors.cancelled");
-  if (!opts.asStocktakeApproval) assertCan(user, docPermissions(doc.type, doc.returnKind).post);
+  if (!opts.asStocktakeApproval && !opts.onBehalfOf) assertCan(user, docPermissions(doc.type, doc.returnKind).post);
   await lockWarehouses(tx, docWarehouseIds(doc), "shared");
   await assertNotFrozen(tx, doc);
   await assertPostable(tx, doc);
@@ -371,7 +377,15 @@ export async function postInTx(tx: Tx, user: CurrentUser, id: string, opts: Post
  * gets one REVERSAL movement per original movement (newest first), which needs the approval
  * permission and a reason. Nothing is deleted. Cancelling twice is a no-op.
  */
-export async function cancelInTx(tx: Tx, user: CurrentUser, id: string, reason: string | null, now = new Date()): Promise<{ cancelled: boolean }> {
+export async function cancelInTx(
+  tx: Tx,
+  user: CurrentUser,
+  id: string,
+  reason: string | null,
+  now = new Date(),
+  /** A sale being cancelled reverses its own issue; sales.void was checked by the caller. */
+  opts: { onBehalfOf?: "sale" } = {},
+): Promise<{ cancelled: boolean }> {
   const doc = await lockDocument(tx, id);
   if (doc.status === "CANCELLED") return { cancelled: false };
   const perms = docPermissions(doc.type, doc.returnKind);
@@ -390,7 +404,7 @@ export async function cancelInTx(tx: Tx, user: CurrentUser, id: string, reason: 
     return { cancelled: true };
   }
 
-  assertCan(user, "inventory.approve");
+  if (!opts.onBehalfOf) assertCan(user, "inventory.approve");
   if (!reason) throw new ValidationError({ reason: msg("stock.errors.cancelReason") }, msg("stock.errors.cancelReason"));
   await lockWarehouses(tx, docWarehouseIds(doc), "shared");
   await assertNotFrozen(tx, { ...doc, stocktakeId: null });
