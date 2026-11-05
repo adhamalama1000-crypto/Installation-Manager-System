@@ -36,6 +36,8 @@ import {
   Factory,
   ShoppingCart,
   TrendingUp,
+  Camera,
+  UserCheck,
 } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
@@ -65,6 +67,8 @@ function navFor(user: ShellUser, t: T) {
     { href: "/board", label: t("nav.board"), icon: Radar, show: has("board.view") },
     { href: "/route", label: t("nav.route"), icon: Truck, show: has("route.view") },
     { href: "/expenses", label: t("nav.expenses"), icon: Receipt, show: has("expenses.record") || has("expenses.pay") },
+    { href: "/attendance/clock", label: t("erpNav.clock"), icon: Camera, show: has("checkins.record") || has("car.checkin") },
+    { href: "/attendance/daily", label: t("erpNav.attendanceToday"), icon: UserCheck, show: has("attendance.view") || has("attendance.manage") },
     { href: "/attendance", label: has("attendance.view") ? t("nav.attendance") : t("nav.myAttendance"), icon: CalendarCheck2, show: has("attendance.view") || has("checkins.record") || has("car.checkin") },
     { href: "/leaves", label: tech ? t("nav.myLeave") : t("nav.leave"), icon: Plane, show: has("leaves.manage") || has("leaves.request") },
     { href: "/inventory", label: tech ? t("nav.myStock") : t("nav.inventory"), icon: Boxes, show: has("stock.view") },
@@ -90,6 +94,7 @@ function navFor(user: ShellUser, t: T) {
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/stock") return pathname === "/stock";
+  if (href === "/attendance") return pathname === "/attendance";
   if (href === "/appointments") return pathname === "/appointments" || (pathname.startsWith("/appointments/") && pathname !== "/appointments/new");
   return pathname === href || pathname.startsWith(`${href}/`);
 }

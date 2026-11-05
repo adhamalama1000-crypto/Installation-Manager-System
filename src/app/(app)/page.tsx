@@ -96,7 +96,7 @@ export default async function DashboardPage() {
 
       {day && (
         <div className="mb-4">
-          <MyDayCard company={day.company} leave={day.leave} tz={tz} points={mine?.rows[0]?.points ?? null} />
+          <MyDayCard company={day.company} leave={day.leave} tz={tz} points={mine?.rows[0]?.points ?? null} selfieRequired={user.settings.attendanceSelfieRequired} />
         </div>
       )}
 

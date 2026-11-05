@@ -449,6 +449,15 @@ export const settingsSchema = z
     revisitFee: z.coerce.number().min(0).max(100_000),
     /** Weekdays on which smart-home visits should only be inspections (a warning while booking; Aura's Saturday rule). */
     inspectionOnlyWeekdays: z.array(z.coerce.number().int().min(0).max(6)).max(7).refine((d) => new Set(d).size === d.length, msg("validation.dayTwice")),
+    // Attendance geofences (defaults = the radii used before they were configurable).
+    /** Metres from the company within which a check-in counts as at the company. */
+    companyRadiusM: z.coerce.number().int().min(25, msg("clock.errors.radius")).max(5000, msg("clock.errors.radius")).default(400),
+    /** Metres from the customer's pin within which a check-in counts as at the site. */
+    customerRadiusM: z.coerce.number().int().min(25, msg("clock.errors.radius")).max(5000, msg("clock.errors.radius")).default(300),
+    /** A location reading less accurate than this (metres) is flagged for review. */
+    maxAccuracyM: z.coerce.number().int().min(10).max(5000).default(150),
+    /** Clock-in / out only through the clock page with a live selfie (the quick buttons stop). */
+    attendanceSelfieRequired: z.boolean().default(false),
   })
   .refine((s) => s.dayEndHour > s.dayStartHour, { path: ["dayEndHour"], message: msg("validation.afterStartHour") })
   .refine((s) => (s.companyLatitude === null) === (s.companyLongitude === null), { path: ["companyLatitude"], message: msg("validation.coordinatesPair") })

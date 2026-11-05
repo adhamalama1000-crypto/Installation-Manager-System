@@ -1,5 +1,5 @@
 import "server-only";
-import { Prisma, type CheckInKind } from "@prisma/client";
+import { Prisma, type AttendanceSite, type CheckInKind } from "@prisma/client";
 import { msg } from "@/i18n/translator";
 import { appointmentCode } from "@/lib/constants";
 import { CLIENT_FAULT, distanceM, etaMinutes, FAR_FROM_COMPANY_M, FAR_FROM_CUSTOMER_M, minutesOf, monthlyPoints, PROBLEM_REASONS, type Geo, type ProblemReason } from "@/lib/field";
@@ -63,14 +63,23 @@ export async function insertCheckIn(
   visit: VisitForCheckIn | null,
   geo: GeoInput | null,
   settings: SettingsValues,
-  extra: { reason?: ProblemReason | null; note?: string | null } = {},
+  extra: {
+    reason?: ProblemReason | null;
+    note?: string | null;
+    /** Clock-in / out: the expected position and its geofence radius (company, customer pin, work location). */
+    target?: { geo: Geo | null; radiusM: number };
+    /** Clock-in / out: where, and the selfie already in file storage. */
+    attendance?: { site: AttendanceSite; workLocationId: string | null; relatedAppointmentId: string | null; selfieKey: string; selfieContentType: string; selfieSha256: string };
+    /** One of this kind per day whatever the visit (clock-in / out). */
+    dayUnique?: boolean;
+  } = {},
   now: Date = new Date(),
 ) {
   const tz = settings.timezone;
   const day = todayKey(tz, now);
   await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtext(${`checkin:${user.id}`}))`;
   if (kind !== "PROBLEM") {
-    const dup = await tx.checkIn.findFirst({ where: { userId: user.id, kind, day: dbDate(day), appointmentId: visit?.id ?? null } });
+    const dup = await tx.checkIn.findFirst({ where: { userId: user.id, kind, day: dbDate(day), ...(extra.dayUnique ? {} : { appointmentId: visit?.id ?? null }) } });
     if (dup) return { row: dup, duplicate: true };
   }
   const hhmm = timeKey(now, tz);
@@ -81,17 +90,23 @@ export async function insertCheckIn(
   let late: number | null = null;
   let early: number | null = null;
   let far = false;
+  const companyRadius = settings.companyRadiusM ?? FAR_FROM_COMPANY_M;
+  const customerRadius = settings.customerRadiusM ?? FAR_FROM_CUSTOMER_M;
+  // A clock-in / out names where it should be; otherwise the company (Aura).
+  const expected = extra.target ? extra.target.geo : company;
+  const radius = extra.target ? extra.target.radiusM : companyRadius;
   // The car leaving and coming back count like arriving at and leaving the company (Aura attendance_).
   if (kind === "COMPANY" || kind === "CAR_GO") {
-    if (geo && company) {
-      distance = distanceM(geo, company);
-      far = kind === "COMPANY" && distance > FAR_FROM_COMPANY_M;
+    if (geo && expected) {
+      distance = distanceM(geo, expected);
+      far = kind === "COMPANY" && distance > radius;
     }
     if (minutesOf(hhmm) > minutesOf(settings.workStart) + settings.workGraceMinutes) late = minutesOf(hhmm) - minutesOf(settings.workStart);
   } else if (kind === "LEAVE" || kind === "CAR_BACK") {
-    if (geo && company) {
-      distance = distanceM(geo, company);
-      far = kind === "CAR_BACK" && distance > FAR_FROM_COMPANY_M;
+    if (geo && expected) {
+      distance = distanceM(geo, expected);
+      // A clock-out with a selfie is held to its geofence too; the old quick button never was.
+      far = (kind === "CAR_BACK" || !!extra.target) && distance > radius;
     }
     if (minutesOf(hhmm) < minutesOf(settings.workEnd)) early = minutesOf(settings.workEnd) - minutesOf(hhmm);
   } else if (geo && kind === "DEPART") {
@@ -99,7 +114,7 @@ export async function insertCheckIn(
     if (to) etaAt = new Date(now.getTime() + etaMinutes(geo, to, Number(hhmm.slice(0, 2))) * 60_000);
   } else if (geo && client) {
     distance = distanceM(geo, client);
-    far = (kind === "ARRIVE" || kind === "START" || kind === "CAR_DROP" || kind === "CAR_PICK") && distance > FAR_FROM_CUSTOMER_M;
+    far = (kind === "ARRIVE" || kind === "START" || kind === "CAR_DROP" || kind === "CAR_PICK") && distance > customerRadius;
   }
   const row = await tx.checkIn.create({
     data: {
@@ -117,6 +132,19 @@ export async function insertCheckIn(
       far,
       reason: kind === "PROBLEM" ? (extra.reason ?? null) : null,
       note: extra.note ?? null,
+      ...(extra.attendance
+        ? {
+            site: extra.attendance.site,
+            workLocationId: extra.attendance.workLocationId,
+            relatedAppointmentId: extra.attendance.relatedAppointmentId,
+            selfieKey: extra.attendance.selfieKey,
+            selfieContentType: extra.attendance.selfieContentType,
+            selfieSha256: extra.attendance.selfieSha256,
+            geofenceM: radius,
+            expectedLatitude: expected ? new Prisma.Decimal(expected.lat.toFixed(6)) : null,
+            expectedLongitude: expected ? new Prisma.Decimal(expected.lng.toFixed(6)) : null,
+          }
+        : {}),
       createdAt: now,
     },
   });
@@ -173,6 +201,7 @@ export async function recordCheckIn(user: CurrentUser, raw: unknown, now: Date =
   if (kind === "START" || kind === "DONE") throw new ValidationError({ kind: msg("field.errors.useOutcome") }, msg("field.errors.useOutcome"));
   const settings = await getSettings();
   const dayVisit = kind !== "COMPANY" && kind !== "LEAVE";
+  if (!dayVisit && settings.attendanceSelfieRequired) throw new ValidationError({ kind: msg("clock.errors.useClockPage") }, msg("clock.errors.useClockPage"));
   let reason: ProblemReason | null = null;
   if (kind === "PROBLEM") {
     if (!PROBLEM_REASONS.includes(parsed.data.reason as ProblemReason)) throw new ValidationError({ reason: msg("field.errors.reason") }, msg("field.errors.reason"));

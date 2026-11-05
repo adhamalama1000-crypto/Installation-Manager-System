@@ -265,6 +265,9 @@ model User {
   salesConfirmed SalesInvoice[] @relation("SaleConfirmer")
   salesCancelled SalesInvoice[] @relation("SaleCanceller")
 
+  workLocationsCreated WorkLocation[]     @relation("WorkLocationCreator")
+  attendanceReviews    AttendanceReview[] @relation("AttendanceReviewer")
+
   @@index([role, isActive])
   @@map("users")
 }
@@ -504,6 +507,8 @@ model Appointment {
   stockDocuments StockDocument[]
 
   salesInvoices SalesInvoice[]
+
+  clockIns CheckIn[] @relation("CheckInRelatedVisit")
 
   @@index([startsAt])
   @@index([endsAt])
@@ -811,7 +816,25 @@ model CheckIn {
   note          String?
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 
+  /// Clock-in / out at a customer's site: the visit it relates to (appointmentId is for visit stages only).
+  relatedAppointmentId String?
+  relatedAppointment   Appointment?       @relation("CheckInRelatedVisit", fields: [relatedAppointmentId], references: [id], onDelete: Restrict)
+  /// Clock-in / out: where the person said they are, and the approved work location.
+  site                 AttendanceSite?
+  workLocationId       String?
+  workLocation         WorkLocation?      @relation(fields: [workLocationId], references: [id], onDelete: Restrict)
+  /// Live-camera selfie in file storage (served only to the person and attendance managers).
+  selfieKey            String?            @unique
+  selfieContentType    String?
+  selfieSha256         String?
+  /// The geofence radius applied and the expected position (company, customer pin, work location).
+  geofenceM            Int?
+  expectedLatitude     Decimal?           @db.Decimal(9, 6)
+  expectedLongitude    Decimal?           @db.Decimal(9, 6)
+  reviews              AttendanceReview[]
+
   @@index([day, userId])
+  @@index([relatedAppointmentId])
   @@index([appointmentId, kind])
   @@index([userId, createdAt])
   @@map("check_ins")
@@ -1500,4 +1523,48 @@ model SalesInvoiceLine {
   @@unique([invoiceId, lineNo])
   @@index([productId])
   @@map("sales_invoice_lines")
+}
+
+enum AttendanceSite {
+  COMPANY
+  CUSTOMER
+  WORK_LOCATION
+}
+
+enum AttendanceDecision {
+  ACCEPTED
+  REJECTED
+}
+
+/// An approved place to clock in other than the company (a branch, a large site): a geofence.
+model WorkLocation {
+  id          String    @id @default(cuid())
+  name        String
+  nameAr      String?
+  latitude    Decimal   @db.Decimal(9, 6)
+  longitude   Decimal   @db.Decimal(9, 6)
+  radiusM     Int       @default(200)
+  isActive    Boolean   @default(true)
+  createdById String
+  createdBy   User      @relation("WorkLocationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  checkIns    CheckIn[]
+
+  @@map("work_locations")
+}
+
+/// A manager's decision on a flagged clock-in / out (append-only; the latest one counts).
+model AttendanceReview {
+  id           String             @id @default(cuid())
+  checkInId    String
+  checkIn      CheckIn            @relation(fields: [checkInId], references: [id], onDelete: Restrict)
+  decision     AttendanceDecision
+  note         String?
+  reviewedById String
+  reviewedBy   User               @relation("AttendanceReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([checkInId, createdAt])
+  @@map("attendance_reviews")
 }
