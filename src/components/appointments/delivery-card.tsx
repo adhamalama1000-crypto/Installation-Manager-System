@@ -3,7 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Camera, CheckCircle2, CircleAlert, ImagePlus, PenLine, Trash2 } from "lucide-react";
+import { Camera, CheckCircle2, CircleAlert, ImagePlus, PenLine, Trash2, Video } from "lucide-react";
 import type { ProductCategory, StatusKind, VisitType } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -20,10 +20,12 @@ import { SignaturePad } from "./signature-pad";
 type Kind = AttachmentDTO["kind"];
 const PHOTO_KINDS: Kind[] = ["BEFORE_PHOTO", "AFTER_PHOTO"];
 const MAX_PHOTOS = 20;
+/** The server's limit (src/server/services/attachments.ts). */
+const MAX_VIDEOS = 3;
 
 /**
- * Photos, the customer's signature, payment proofs and the delivery checklist of a visit (Aura's
- * delivery step). What a technician still needs before "Done" is listed when the Admin made it
+ * Photos, videos of the work, the customer's signature, payment proofs and the delivery checklist
+ * of a visit (Aura's delivery step). What a technician still needs before "Done" is listed when the Admin made it
  * required; the server enforces the same rules.
  */
 export function DeliveryCard({
@@ -39,6 +41,7 @@ export function DeliveryCard({
   rights,
   payment,
   installedCount,
+  maxVideoMb,
   tz,
 }: {
   id: string;
@@ -54,6 +57,8 @@ export function DeliveryCard({
   rights: AttachmentRights;
   payment: PaymentDTO | null;
   installedCount: number;
+  /** The largest video the server accepts (MAX_VIDEO_MB). */
+  maxVideoMb: number;
   tz: string;
 }) {
   const t = useT();
@@ -97,7 +102,7 @@ export function DeliveryCard({
         )
       : null;
 
-  const slots: Kind[] = (["BEFORE_PHOTO", "AFTER_PHOTO", "SIGNATURE", "PAYMENT_PROOF", "DEPOSIT_PROOF"] as Kind[]).filter((k) => {
+  const slots: Kind[] = (["BEFORE_PHOTO", "AFTER_PHOTO", "VIDEO", "SIGNATURE", "PAYMENT_PROOF", "DEPOSIT_PROOF"] as Kind[]).filter((k) => {
     if (byKind(k).length) return true;
     if (!open || !rights[k]) return false;
     if (k === "PAYMENT_PROOF") return payment !== null;
@@ -135,6 +140,16 @@ export function DeliveryCard({
       return;
     }
     await upload(kind, blob).catch(() => undefined);
+  }
+
+  async function pickVideo(file: File | undefined) {
+    if (!file) return;
+    // Videos are sent as recorded (no re-encoding in the browser); the server checks the real type.
+    if (file.size > maxVideoMb * 1024 * 1024) {
+      toast.error(t("attachments.errors.videoTooLarge", { mb: maxVideoMb }));
+      return;
+    }
+    await upload("VIDEO", file).catch(() => undefined);
   }
 
   async function remove() {
@@ -229,14 +244,16 @@ export function DeliveryCard({
         {slots.map((kind) => {
           const list = byKind(kind);
           const isPhoto = PHOTO_KINDS.includes(kind);
-          const canAdd = open && rights[kind] && (!isPhoto || list.length < MAX_PHOTOS);
+          const isVideo = kind === "VIDEO";
+          const max = isVideo ? MAX_VIDEOS : MAX_PHOTOS;
+          const canAdd = open && rights[kind] && (!(isPhoto || isVideo) || list.length < max);
           const busy = busyKind === kind;
           return (
             <section key={kind} className="p-5" aria-labelledby={`att-${kind}`}>
               <div className="mb-1 flex flex-wrap items-center justify-between gap-2">
                 <h3 id={`att-${kind}`} className="text-sm font-semibold text-fg">
                   {t.dyn(`attachments.kind.${kind}`)}
-                  {isPhoto && list.length > 0 && <span className="ms-2 text-xs font-normal tabular-nums text-fg-subtle">{t("attachments.count", { count: list.length, max: MAX_PHOTOS })}</span>}
+                  {(isPhoto || isVideo) && list.length > 0 && <span className="ms-2 text-xs font-normal tabular-nums text-fg-subtle">{t("attachments.count", { count: list.length, max })}</span>}
                 </h3>
                 {canAdd &&
                   (kind === "SIGNATURE" ? (
@@ -250,31 +267,45 @@ export function DeliveryCard({
                           fileInputs.current[kind] = el;
                         }}
                         type="file"
-                        accept="image/*"
+                        accept={isVideo ? "video/mp4,video/quicktime,video/webm,video/*" : "image/*"}
                         className="sr-only"
                         tabIndex={-1}
                         aria-hidden
+                        data-kind={kind}
                         onChange={(e) => {
                           const file = e.target.files?.[0];
                           e.target.value = "";
-                          void pickPhoto(kind, file);
+                          void (isVideo ? pickVideo(file) : pickPhoto(kind, file));
                         }}
                       />
                       <Button size="sm" variant="outline" onClick={() => fileInputs.current[kind]?.click()} loading={busy}>
-                        <ImagePlus className="h-4 w-4" /> {isPhoto ? t("attachments.addPhoto") : list.length ? t("attachments.replace") : t("attachments.upload")}
+                        {isVideo ? <Video className="h-4 w-4" /> : <ImagePlus className="h-4 w-4" />}{" "}
+                        {isVideo ? t("attachments.addVideo") : isPhoto ? t("attachments.addPhoto") : list.length ? t("attachments.replace") : t("attachments.upload")}
                       </Button>
                     </>
                   ))}
               </div>
               <p className="mb-3 text-xs text-fg-muted">{t.dyn(`attachments.hint.${kind}`)}</p>
               {list.length ? (
-                <ul className={kind === "SIGNATURE" ? "space-y-2" : "grid grid-cols-3 gap-2 sm:grid-cols-4"}>
+                <ul className={kind === "SIGNATURE" ? "space-y-2" : isVideo ? "grid grid-cols-1 gap-3 sm:grid-cols-2" : "grid grid-cols-3 gap-2 sm:grid-cols-4"}>
                   {list.map((f) => (
                     <li key={f.id} className="group relative">
-                      <a href={f.url} target="_blank" rel="noopener" className="block overflow-hidden rounded-lg border border-line bg-white" aria-label={t("attachments.open", { kind: t.dyn(`attachments.kind.${kind}`) })}>
-                        {/* eslint-disable-next-line @next/next/no-img-element -- served through the permission-checked API, not the image optimizer */}
-                        <img src={f.url} alt="" loading="lazy" className={kind === "SIGNATURE" ? "h-28 w-full object-contain" : "aspect-square w-full object-cover"} />
-                      </a>
+                      {isVideo ? (
+                        // Streamed from the permission-checked API (range requests); only its first frame loads until played.
+                        <video
+                          src={f.url}
+                          controls
+                          playsInline
+                          preload="metadata"
+                          className="aspect-video w-full rounded-lg border border-line bg-black"
+                          aria-label={t("attachments.play", { kind: t.dyn(`attachments.kind.${kind}`) })}
+                        />
+                      ) : (
+                        <a href={f.url} target="_blank" rel="noopener" className="block overflow-hidden rounded-lg border border-line bg-white" aria-label={t("attachments.open", { kind: t.dyn(`attachments.kind.${kind}`) })}>
+                          {/* eslint-disable-next-line @next/next/no-img-element -- served through the permission-checked API, not the image optimizer */}
+                          <img src={f.url} alt="" loading="lazy" className={kind === "SIGNATURE" ? "h-28 w-full object-contain" : "aspect-square w-full object-cover"} />
+                        </a>
+                      )}
                       <p className="mt-1 truncate text-[11px] text-fg-subtle" title={f.uploadedBy.name}>
                         {t("attachments.by", { name: f.uploadedBy.name, when: dateTime(f.createdAt, tz, t.locale) })}
                       </p>

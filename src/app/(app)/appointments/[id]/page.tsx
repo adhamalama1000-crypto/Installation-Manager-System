@@ -3,6 +3,7 @@ import { Boxes, CalendarClock, ClipboardCheck, ExternalLink, History, MapPin, Ma
 import { AppointmentActions } from "@/components/appointments/appointment-actions";
 import { ConfirmationControl } from "@/components/appointments/confirmation-control";
 import { DeliveryCard } from "@/components/appointments/delivery-card";
+import { EvidenceCard } from "@/components/evidence/evidence-card";
 import { QuoteCard } from "@/components/appointments/quote-card";
 import { FeedbackCard } from "@/components/after-sales/feedback-card";
 import { ComplaintBadge } from "@/components/complaints/complaint-badge";
@@ -23,6 +24,8 @@ import { categoryText, dateTime, longDate, shortDate, timeRange } from "@/lib/fo
 import { requirePagePermission } from "@/server/auth/session";
 import { getAppointment, getAppointmentHistory } from "@/server/services/appointments";
 import { listAttachments } from "@/server/services/attachments";
+import { evidenceStatus } from "@/server/services/evidence";
+import { MAX_VIDEO_BYTES } from "@/server/storage";
 import { getFeedback } from "@/server/services/after-sales";
 import { canOpenComplaint, complaintsForAppointment } from "@/server/services/complaints";
 import { visitCheckIns } from "@/server/services/field";
@@ -48,7 +51,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const L = t.locale;
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [a, history, allStatuses, myStock, files, feedback, complaints, checkIns, stockDocs] = await Promise.all([
+  const [a, history, allStatuses, myStock, files, feedback, complaints, checkIns, stockDocs, evidence] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
     canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
     user.permissions.includes("appointments.manage") ? listStatuses(L) : Promise.resolve([]),
@@ -59,6 +62,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
     complaintsForAppointment(user, id),
     visitCheckIns(user, id),
     documentsForAppointment(user, id),
+    loadOr404(() => evidenceStatus(user, id)),
   ]);
   const today = todayKey(tz);
   const statuses = a.canManage ? allStatuses : [];
@@ -227,8 +231,11 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
             rights={files.rights}
             payment={a.payment}
             installedCount={a.installed.length}
+            maxVideoMb={Math.round(MAX_VIDEO_BYTES / 1024 / 1024)}
             tz={tz}
           />
+
+          <EvidenceCard id={a.id} evidence={evidence} tz={tz} />
 
           {reportable ? (
             <OutcomePanel
@@ -239,6 +246,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
               payment={a.payment}
               myStock={myStock}
               withLocation={checksIn}
+              confirmation={!!evidence.rule?.requireCustomerConfirmation}
             />
           ) : (
             a.visitReport && (

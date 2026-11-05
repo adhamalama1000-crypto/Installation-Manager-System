@@ -219,6 +219,9 @@ export const outcomeSchema = z
     serials: serialsField.optional(),
     /** Where the technician is (recorded as the START / DONE check-in). */
     geo: geoSchema.optional().nullable(),
+    /** The customer confirmed the finished work (work evidence), and who confirmed it. */
+    customerConfirmed: z.boolean().optional(),
+    customerName: optionalText(120),
     version: z.number().int().positive().optional(),
   })
   .superRefine((o, ctx) => {

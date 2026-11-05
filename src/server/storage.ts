@@ -1,7 +1,9 @@
 import "server-only";
 import { randomUUID } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { createReadStream } from "node:fs";
+import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { Readable } from "node:stream";
 
 /**
  * Uploaded files on the server's disk. UPLOAD_DIR must be outside the public folder: files are only
@@ -15,7 +17,11 @@ export function uploadDir(): string {
 
 export const MAX_UPLOAD_BYTES = Math.max(1, Number(process.env.MAX_UPLOAD_MB) || 8) * 1024 * 1024;
 
+/** Videos of the work (work evidence): larger than photos, so they have their own limit. */
+export const MAX_VIDEO_BYTES = Math.max(1, Number(process.env.MAX_VIDEO_MB) || 50) * 1024 * 1024;
+
 export type ImageType = "image/jpeg" | "image/png" | "image/webp";
+export type VideoType = "video/mp4" | "video/quicktime" | "video/webm";
 
 /** The real type of an image from its first bytes (the declared Content-Type is not trusted). */
 export function detectImageType(bytes: Uint8Array): ImageType | null {
@@ -25,7 +31,28 @@ export function detectImageType(bytes: Uint8Array): ImageType | null {
   return null;
 }
 
-const EXT: Record<ImageType, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp" };
+const ascii = (bytes: Uint8Array, from: number, to: number) => String.fromCharCode(...bytes.subarray(from, to));
+
+/**
+ * The real type of a video from its first bytes: MP4 and QuickTime start with an "ftyp" box whose
+ * brand tells them apart (phones record one or the other); WebM is an EBML document whose doctype
+ * is "webm" (what desktop browsers record).
+ */
+export function detectVideoType(bytes: Uint8Array): VideoType | null {
+  if (bytes.length >= 12 && ascii(bytes, 4, 8) === "ftyp") {
+    const brand = ascii(bytes, 8, 12);
+    if (brand === "qt  ") return "video/quicktime";
+    if (/^(isom|iso[2-9]|mp4[12]|avc1|M4V |M4VP|dash|mmp4|MSNV)$/.test(brand)) return "video/mp4";
+    return null;
+  }
+  if (bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3) {
+    // The doctype ("webm"; Matroska files say "matroska" and are refused) sits in the EBML header.
+    return ascii(bytes, 0, Math.min(bytes.length, 64)).includes("webm") ? "video/webm" : null;
+  }
+  return null;
+}
+
+const EXT: Record<ImageType | VideoType, string> = { "image/jpeg": "jpg", "image/png": "png", "image/webp": "webp", "video/mp4": "mp4", "video/quicktime": "mov", "video/webm": "webm" };
 
 function resolveKey(key: string): string {
   const root = uploadDir();
@@ -35,7 +62,7 @@ function resolveKey(key: string): string {
 }
 
 /** Writes a new file and returns its storage key ("2026/10/<uuid>.jpg"). Never overwrites. */
-export async function saveFile(bytes: Uint8Array, type: ImageType, now = new Date()): Promise<string> {
+export async function saveFile(bytes: Uint8Array, type: ImageType | VideoType, now = new Date()): Promise<string> {
   const key = `${now.getUTCFullYear()}/${String(now.getUTCMonth() + 1).padStart(2, "0")}/${randomUUID()}.${EXT[type]}`;
   const full = resolveKey(key);
   await mkdir(path.dirname(full), { recursive: true });
@@ -45,6 +72,39 @@ export async function saveFile(bytes: Uint8Array, type: ImageType, now = new Dat
 
 export async function readStoredFile(key: string): Promise<Buffer> {
   return readFile(/* turbopackIgnore: true */ resolveKey(key));
+}
+
+/** The size of a stored file (for range requests). */
+export async function storedFileSize(key: string): Promise<number> {
+  return (await stat(/* turbopackIgnore: true */ resolveKey(key))).size;
+}
+
+/** Streams the bytes start..end (inclusive) of a stored file, so videos are not read into memory whole. */
+export function streamStoredFile(key: string, start: number, end: number): ReadableStream<Uint8Array> {
+  return Readable.toWeb(createReadStream(/* turbopackIgnore: true */ resolveKey(key), { start, end })) as ReadableStream<Uint8Array>;
+}
+
+/**
+ * The byte range a request asks for ("bytes=0-", "bytes=100-199", "bytes=-500"), within a file of
+ * `size` bytes. null: the whole file (no or unusable Range header); "unsatisfiable": answer 416.
+ */
+export function parseRange(header: string | null, size: number): { start: number; end: number } | "unsatisfiable" | null {
+  if (!header) return null;
+  const m = /^bytes=(\d*)-(\d*)$/.exec(header.trim());
+  if (!m || (m[1] === "" && m[2] === "")) return null;
+  let start: number;
+  let end: number;
+  if (m[1] === "") {
+    const suffix = Number(m[2]);
+    if (!suffix) return "unsatisfiable";
+    start = Math.max(0, size - suffix);
+    end = size - 1;
+  } else {
+    start = Number(m[1]);
+    end = m[2] === "" ? size - 1 : Math.min(Number(m[2]), size - 1);
+  }
+  if (start >= size || start > end) return "unsatisfiable";
+  return { start, end };
 }
 
 /** Removes a file whose database row could not be written (never used for recorded files). */

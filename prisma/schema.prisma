@@ -107,6 +107,8 @@ enum AttachmentKind {
   PAYMENT_PROOF
   /// Screenshot of the deposit transfer (one current proof per visit).
   DEPOSIT_PROOF
+  /// A short video of the work (MP4, QuickTime or WebM), when the evidence rule asks for one.
+  VIDEO
 }
 
 /// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
@@ -267,6 +269,8 @@ model User {
 
   workLocationsCreated WorkLocation[]     @relation("WorkLocationCreator")
   attendanceReviews    AttendanceReview[] @relation("AttendanceReviewer")
+  evidenceRulesEdited  EvidenceRule[]     @relation("EvidenceRuleEditor")
+  workReviews          WorkReview[]       @relation("WorkReviewActor")
 
   @@index([role, isActive])
   @@map("users")
@@ -448,6 +452,7 @@ model Appointment {
   /// Delivery checklist items ticked by the technician (ids from src/lib/delivery.ts).
   deliveryChecklist String[]        @default([])
   attachments       Attachment[]
+  workReviews       WorkReview[]
   stockItems        StockItem[]
   stockMovements    StockMovement[]
 
@@ -716,7 +721,8 @@ model Attachment {
   appointmentId String
   appointment   Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
   kind          AttachmentKind
-  /// image/jpeg, image/png or image/webp (checked against the file's own bytes).
+  /// image/jpeg, image/png or image/webp; video/mp4, video/quicktime or video/webm for VIDEO
+  /// (checked against the file's own bytes).
   contentType   String
   byteSize      Int
   sha256        String
@@ -1567,4 +1573,52 @@ model AttendanceReview {
 
   @@index([checkInId, createdAt])
   @@map("attendance_reviews")
+}
+
+/// What each kind of visit must show before it is done ('' = any visit type / any category).
+/// The most specific active rule applies (src/lib/evidence.ts).
+model EvidenceRule {
+  id                          String   @id @default(cuid())
+  visitType                   String   @default("")
+  productCategory             String   @default("")
+  minBeforePhotos             Int      @default(0)
+  minAfterPhotos              Int      @default(0)
+  requireVideo                Boolean  @default(false)
+  requireSignature            Boolean  @default(false)
+  requireCustomerConfirmation Boolean  @default(false)
+  /// A reviewer approves the submitted work (otherwise "done" is final).
+  requireReview               Boolean  @default(false)
+  isActive                    Boolean  @default(true)
+  updatedById                 String?
+  updatedBy                   User?    @relation("EvidenceRuleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt                   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([visitType, productCategory])
+  @@map("evidence_rules")
+}
+
+enum WorkReviewEvent {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+/// The review history of a visit's work: append-only events (submitted, approved, rejected with a reason).
+model WorkReview {
+  id                String          @id @default(cuid())
+  appointmentId     String
+  appointment       Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  event             WorkReviewEvent
+  note              String?
+  /// The customer confirmed the work at submission (and who confirmed it).
+  customerConfirmed Boolean         @default(false)
+  customerName      String?
+  actorId           String
+  actor             User            @relation("WorkReviewActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([appointmentId, createdAt])
+  @@index([event, createdAt])
+  @@map("work_reviews")
 }

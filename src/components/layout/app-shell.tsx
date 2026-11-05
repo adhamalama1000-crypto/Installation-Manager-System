@@ -3,42 +3,7 @@
 import { Suspense, useEffect, useId, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart3,
-  Boxes,
-  CalendarDays,
-  ClipboardList,
-  History,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  MessageCircle,
-  MessageSquareWarning,
-  HeartHandshake,
-  Radar,
-  Truck,
-  Receipt,
-  CalendarCheck2,
-  Plane,
-  Wallet,
-  Plus,
-  Settings,
-  UserCircle,
-  Users,
-  Contact,
-  X,
-  Package,
-  Warehouse,
-  ArrowLeftRight,
-  ScrollText,
-  ClipboardCheck,
-  Layers,
-  Factory,
-  ShoppingCart,
-  TrendingUp,
-  Camera,
-  UserCheck,
-} from "lucide-react";
+import { ArrowLeftRight, BarChart3, Boxes, CalendarCheck2, CalendarDays, Camera, ClipboardCheck, ClipboardList, Contact, Factory, HeartHandshake, History, Layers, LayoutDashboard, LogOut, Menu, MessageCircle, MessageSquareWarning, Package, Plane, Plus, Radar, Receipt, ScrollText, Settings, ShieldCheck, ShoppingCart, TrendingUp, Truck, UserCheck, UserCircle, Users, Wallet, Warehouse, X } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
 import type { T } from "@/i18n/translator";
@@ -64,6 +29,7 @@ function navFor(user: ShellUser, t: T) {
     { href: "/day-plan", label: t("nav.dayPlan"), icon: MessageCircle, show: has("appointments.manage") },
     { href: "/complaints", label: t("nav.complaints"), icon: MessageSquareWarning, show: has("complaints.view") },
     { href: "/after-sales", label: t("nav.afterSales"), icon: HeartHandshake, show: has("appointments.manage") || has("quality.grade") },
+    { href: "/evidence", label: t("erpNav.evidence"), icon: ShieldCheck, show: has("evidence.review") },
     { href: "/board", label: t("nav.board"), icon: Radar, show: has("board.view") },
     { href: "/route", label: t("nav.route"), icon: Truck, show: has("route.view") },
     { href: "/expenses", label: t("nav.expenses"), icon: Receipt, show: has("expenses.record") || has("expenses.pay") },
