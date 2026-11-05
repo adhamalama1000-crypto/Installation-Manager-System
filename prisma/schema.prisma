@@ -271,6 +271,14 @@ model User {
   attendanceReviews    AttendanceReview[] @relation("AttendanceReviewer")
   evidenceRulesEdited  EvidenceRule[]     @relation("EvidenceRuleEditor")
   workReviews          WorkReview[]       @relation("WorkReviewActor")
+  penaltyRulesEdited   PenaltyRule[]      @relation("PenaltyRuleEditor")
+  violations           Violation[]        @relation("ViolationEmployee")
+  violationsCreated    Violation[]        @relation("ViolationCreator")
+  violationsDecided    Violation[]        @relation("ViolationDecider")
+  violationsCancelled  Violation[]        @relation("ViolationCanceller")
+  violationEvents      ViolationEvent[]   @relation("ViolationEventActor")
+  deductions           DeductionEntry[]   @relation("DeductionEmployee")
+  deductionsRecorded   DeductionEntry[]   @relation("DeductionEntryCreator")
 
   @@index([role, isActive])
   @@map("users")
@@ -453,6 +461,7 @@ model Appointment {
   deliveryChecklist String[]        @default([])
   attachments       Attachment[]
   workReviews       WorkReview[]
+  violations        Violation[]
   stockItems        StockItem[]
   stockMovements    StockMovement[]
 
@@ -1621,4 +1630,161 @@ model WorkReview {
   @@index([appointmentId, createdAt])
   @@index([event, createdAt])
   @@map("work_reviews")
+}
+
+/// What starts a violation: recorded by hand, or found in attendance and work reviews.
+enum PenaltyTrigger {
+  MANUAL
+  LATE_ARRIVAL
+  EARLY_LEAVE
+  MISSING_CLOCK_OUT
+  ABSENCE
+  ATTENDANCE_REJECTED
+  WORK_REJECTED
+}
+
+/// How a rule turns a violation into a penalty.
+enum PenaltyAction {
+  /// A written warning, no money.
+  WARNING
+  /// A fixed amount.
+  FIXED
+  /// An amount per minute (late / early) after the rule's grace minutes, up to its cap.
+  PER_MINUTE
+}
+
+enum ViolationKind {
+  WARNING
+  DEDUCTION
+}
+
+enum ViolationStatus {
+  /// Waiting for a decision; nothing is deducted.
+  PROPOSED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ViolationEventType {
+  PROPOSED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum DeductionEntryKind {
+  APPROVAL
+  REVERSAL
+}
+
+/// A penalty rule (Admins). Rules only propose violations; a person approves each one.
+model PenaltyRule {
+  id            String         @id @default(cuid())
+  name          String
+  nameAr        String?
+  trigger       PenaltyTrigger
+  action        PenaltyAction
+  /// FIXED: the amount; PER_MINUTE: the amount per minute; WARNING: 0.
+  amount        Decimal        @default(0) @db.Decimal(12, 2)
+  /// Minutes forgiven before a late arrival / early leave counts.
+  graceMinutes  Int            @default(0)
+  /// The most one violation may cost (PER_MINUTE).
+  maxAmount     Decimal?       @db.Decimal(12, 2)
+  /// The first N occurrences in a month are warnings only.
+  warningsFirst Int            @default(0)
+  description   String?
+  isActive      Boolean        @default(true)
+  updatedById   String?
+  updatedBy     User?          @relation("PenaltyRuleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  violations    Violation[]
+
+  @@map("penalty_rules")
+}
+
+/// A violation by an employee: a warning or a deduction. Nothing is deducted until it is
+/// approved; a decided violation is never edited or deleted (database trigger), only cancelled
+/// with a reason, which reverses its deduction.
+model Violation {
+  id             String           @id @default(cuid())
+  /// VIO-2026-00001
+  number         String           @unique
+  userId         String
+  user           User             @relation("ViolationEmployee", fields: [userId], references: [id], onDelete: Restrict)
+  ruleId         String?
+  rule           PenaltyRule?     @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  trigger        PenaltyTrigger
+  /// What it was found from (rule and source record), so a scan never proposes it twice.
+  sourceKey      String?          @unique
+  /// Company-local day it happened.
+  occurredOn     DateTime         @db.Date
+  /// Minutes late / early, when that is what it is about.
+  minutes        Int?
+  kind           ViolationKind
+  amount         Decimal          @default(0) @db.Decimal(12, 2)
+  /// What the rule (or the person recording it) proposed, kept when the approver changes it.
+  proposedKind   ViolationKind
+  proposedAmount Decimal          @default(0) @db.Decimal(12, 2)
+  description    String
+  appointmentId  String?
+  appointment    Appointment?     @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  status         ViolationStatus  @default(PROPOSED)
+  createdById    String
+  createdBy      User             @relation("ViolationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  decidedById    String?
+  decidedBy      User?            @relation("ViolationDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?        @db.Timestamptz(3)
+  decisionNote   String?
+  cancelledById  String?
+  cancelledBy    User?            @relation("ViolationCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancelledAt    DateTime?        @db.Timestamptz(3)
+  cancelReason   String?
+  events         ViolationEvent[]
+  entries        DeductionEntry[]
+
+  @@index([status, occurredOn])
+  @@index([userId, occurredOn])
+  @@map("violations")
+}
+
+/// Every step of a violation (append-only).
+model ViolationEvent {
+  id          String             @id @default(cuid())
+  violationId String
+  violation   Violation          @relation(fields: [violationId], references: [id], onDelete: Restrict)
+  event       ViolationEventType
+  kind        ViolationKind
+  amount      Decimal            @db.Decimal(12, 2)
+  note        String?
+  actorId     String
+  actor       User               @relation("ViolationEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([violationId, createdAt])
+  @@map("violation_events")
+}
+
+/// What finance deducts: one entry when a deduction is approved, one negative entry if it is
+/// cancelled afterwards (append-only). Finance reads only these.
+model DeductionEntry {
+  id          String             @id @default(cuid())
+  violationId String
+  violation   Violation          @relation(fields: [violationId], references: [id], onDelete: Restrict)
+  userId      String
+  user        User               @relation("DeductionEmployee", fields: [userId], references: [id], onDelete: Restrict)
+  /// Payroll month of the violation (YYYY-MM).
+  month       String
+  /// Positive on approval, negative on reversal.
+  amount      Decimal            @db.Decimal(12, 2)
+  kind        DeductionEntryKind
+  createdById String
+  createdBy   User               @relation("DeductionEntryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@unique([violationId, kind])
+  @@index([month, userId])
+  @@map("deduction_entries")
 }

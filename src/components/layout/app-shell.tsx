@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useId, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeftRight, BarChart3, Boxes, CalendarCheck2, CalendarDays, Camera, ClipboardCheck, ClipboardList, Contact, Factory, HeartHandshake, History, Layers, LayoutDashboard, LogOut, Menu, MessageCircle, MessageSquareWarning, Package, Plane, Plus, Radar, Receipt, ScrollText, Settings, ShieldCheck, ShoppingCart, TrendingUp, Truck, UserCheck, UserCircle, Users, Wallet, Warehouse, X } from "lucide-react";
+import { ArrowLeftRight, BarChart3, Boxes, CalendarCheck2, CalendarDays, Camera, ClipboardCheck, ClipboardList, Contact, Factory, Gavel, HeartHandshake, History, Layers, LayoutDashboard, LogOut, Menu, MessageCircle, MessageSquareWarning, Package, Plane, Plus, Radar, Receipt, ScrollText, Settings, ShieldCheck, ShoppingCart, TrendingUp, Truck, UserCheck, UserCircle, Users, Wallet, Warehouse, X } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
 import type { T } from "@/i18n/translator";
@@ -40,6 +40,8 @@ function navFor(user: ShellUser, t: T) {
     { href: "/inventory", label: tech ? t("nav.myStock") : t("nav.inventory"), icon: Boxes, show: has("stock.view") },
     { href: "/sales", label: t("erpNav.sales"), icon: ShoppingCart, show: has("sales.view") || has("sales.manage") },
     { href: "/analytics", label: t("erpNav.analytics"), icon: TrendingUp, show: has("analytics.view") },
+    { href: "/penalties", label: t("erpNav.penalties"), icon: Gavel, show: has("penalties.view") },
+    { href: "/penalties/mine", label: t("erpNav.myPenalties"), icon: Gavel, show: has("penalties.own") && !has("penalties.view") },
     { href: "/finance", label: t("nav.finance"), icon: Wallet, show: has("finance.view") },
     { href: "/reports", label: t("nav.reports"), icon: BarChart3, show: has("reports.view") },
     { href: "/users", label: t("nav.users"), icon: Users, show: has("users.manage") },
@@ -61,6 +63,7 @@ function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/stock") return pathname === "/stock";
   if (href === "/attendance") return pathname === "/attendance";
+  if (href === "/penalties") return pathname.startsWith("/penalties") && !pathname.startsWith("/penalties/mine");
   if (href === "/appointments") return pathname === "/appointments" || (pathname.startsWith("/appointments/") && pathname !== "/appointments/new");
   return pathname === href || pathname.startsWith(`${href}/`);
 }

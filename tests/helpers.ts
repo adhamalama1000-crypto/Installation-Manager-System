@@ -9,7 +9,7 @@ export { prisma };
 
 export async function resetDb() {
   await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE work_reviews, evidence_rules, attendance_reviews, work_locations, sales_invoice_lines, sales_invoices, suppliers, product_images, stocktake_lines, product_serials, inventory_movements, stock_document_lines, stock_documents, stocktakes, document_sequences,
+    `TRUNCATE TABLE deduction_entries, violation_events, violations, penalty_rules, work_reviews, evidence_rules, attendance_reviews, work_locations, sales_invoice_lines, sales_invoices, suppliers, product_images, stocktake_lines, product_serials, inventory_movements, stock_document_lines, stock_documents, stocktakes, document_sequences,
       stock_balances, warehouse_bins, warehouses, products, brands, catalog_categories, slot_holds, transport_expenses, alerts_sent, technician_positions, check_ins, maintenance_calls, complaints, attachments, notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
       password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
   );

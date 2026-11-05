@@ -13,6 +13,7 @@ import { assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
 import { recordAudit } from "./audit";
+import { deductionsForMonth } from "./penalties";
 import { notifyUsers } from "./notifications";
 import { toCsv } from "./reports";
 
@@ -236,7 +237,7 @@ export async function financeStatement(user: CurrentUser, month: string) {
   const inMonth = Prisma.sql`a."startsAt" >= ${range.start} AND a."startsAt" < ${range.end} AND s.kind <> 'CANCELLED'`;
   const canContact = hasPermission(user, "customers.contact");
 
-  const [[totals], byMethod, owed, holdings, held] = await Promise.all([
+  const [[totals], byMethod, owed, holdings, held, deductions] = await Promise.all([
     prisma.$queryRaw<{ visits: number; unpriced: number; totalSales: Prisma.Decimal; deposits: Prisma.Decimal; fees: Prisma.Decimal; collected: Prisma.Decimal }[]>`
       SELECT count(*)::int AS visits,
              count(*) FILTER (WHERE a."totalPrice" IS NULL AND s.kind = 'COMPLETED')::int AS unpriced,
@@ -287,6 +288,8 @@ export async function financeStatement(user: CurrentUser, month: string) {
       orderBy: [{ collectedAt: "asc" }, { id: "asc" }],
       take: 500,
     }),
+    // Approved deductions of the month (violations), from the deduction entries only.
+    deductionsForMonth(month),
   ]);
 
   const methods = (kind: "deposit" | "collected") =>
@@ -329,6 +332,7 @@ export async function financeStatement(user: CurrentUser, month: string) {
       customerName: e.appointment.customer.name,
     })),
     canReceive: hasPermission(user, "cash.receive"),
+    deductions,
   };
 }
 

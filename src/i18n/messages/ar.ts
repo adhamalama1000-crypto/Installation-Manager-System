@@ -210,6 +210,7 @@ export const ar: Messages = {
       SALE: "فاتورة بيع",
       ATTENDANCE: "الحضور",
       EVIDENCE: "إثبات الشغل",
+      PENALTY: "مخالفة",
     },
     complaintStatus: { NEW: "جديدة", ASSIGNED: "اتوزّعت", RESOLVED: "اتحلّت", CLOSED: "مقفولة" },
     specialty: { LOCK: "لوك", SMART_HOME: "سمارت هوم", BOTH: "الاتنين" },

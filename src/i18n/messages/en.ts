@@ -211,6 +211,7 @@ const messages = {
       SALE: "Sale",
       ATTENDANCE: "Attendance",
       EVIDENCE: "Work evidence",
+      PENALTY: "Violation",
     },
     complaintStatus: { NEW: "New", ASSIGNED: "Assigned", RESOLVED: "Resolved", CLOSED: "Closed" },
     specialty: { LOCK: "Locks", SMART_HOME: "Smart home", BOTH: "Both" },
