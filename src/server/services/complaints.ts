@@ -8,7 +8,7 @@ import { todayKey } from "@/lib/time";
 import type { ComplaintDTO } from "@/lib/types";
 import { complaintActionSchema, complaintOpenSchema, fieldErrorsFromZod } from "@/lib/validation";
 import { prisma, type Tx } from "../db";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { appointmentScope, assertCan, complaintScopeWhere, hasPermission, scopeOf } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError, StaleRecordError, ValidationError } from "../errors";
 import { recordAudit } from "./audit";
@@ -48,16 +48,20 @@ const include = {
 
 type Row = Prisma.ComplaintGetPayload<{ include: typeof include }>;
 
-/** Complaints the reader may see: technicians only those assigned to them and still open. */
+/**
+ * Complaints the reader may see, by their complaints scope (src/server/access.ts): assigned = those
+ * assigned to them and still open (technicians by default); otherwise their own / team's / all,
+ * on visits they may see.
+ */
 export function complaintScope(user: CurrentUser): Prisma.ComplaintWhereInput {
   if (!hasPermission(user, "complaints.view")) return { id: { in: [] } };
-  if (user.role === "TECHNICIAN") return { assignedToId: user.id, status: { not: "CLOSED" } };
-  return { appointment: appointmentScope(user) };
+  if (scopeOf(user, "complaints") === "ASSIGNED") return complaintScopeWhere(user);
+  return { AND: [complaintScopeWhere(user), { appointment: appointmentScope(user) }] };
 }
 
 function seesVisit(user: CurrentUser, techIds: string[]) {
   if (!hasPermission(user, "appointments.view")) return false;
-  return user.role !== "TECHNICIAN" || techIds.includes(user.id);
+  return scopeOf(user, "appointments") !== "ASSIGNED" || techIds.includes(user.id);
 }
 
 function rights(user: CurrentUser, c: Row): ComplaintDTO["rights"] {

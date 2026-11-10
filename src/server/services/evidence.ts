@@ -5,7 +5,7 @@ import { appointmentCode } from "@/lib/constants";
 import { NO_REQUIREMENT, decideWorkSchema, evidenceMissing, evidenceRuleSchema, ruleFor, submitWorkSchema, type EvidenceRequirement, type EvidenceRule, type EvidenceState, type EvidenceStatusDTO } from "@/lib/evidence";
 import { fieldErrorsFromZod } from "@/lib/validation";
 import { prisma, type Tx } from "../db";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { appointmentScope, appointmentScopeSql, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { recordAudit } from "./audit";
@@ -240,7 +240,7 @@ export async function reviewQueue(user: CurrentUser, status: WorkReviewEvent = "
     JOIN users u ON u.id = l."actorId"
     JOIN appointments a ON a.id = l."appointmentId"
     JOIN customers c ON c.id = a."customerId"
-    WHERE l.event = ${status}::"WorkReviewEvent"
+    WHERE l.event = ${status}::"WorkReviewEvent" AND ${appointmentScopeSql(user)}
     ORDER BY l."createdAt" DESC
     LIMIT ${limit}`;
   return rows.map((r) => ({ appointmentId: r.appointmentId, code: appointmentCode(r.number), customerName: r.customerName, startsAt: r.startsAt.toISOString(), event: r.event, at: r.createdAt.toISOString(), by: r.actorName, note: r.note }));

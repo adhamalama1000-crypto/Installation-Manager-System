@@ -45,7 +45,7 @@ export default async function CalendarPage({
         sales={sales.filter((p) => p.role === "SALES" || p.isActive)}
         technicians={technicians}
         statuses={statuses}
-        canCreate={user.permissions.includes("appointments.manage")}
+        canCreate={user.permissions.includes("appointments.create")}
         isTechnician={tech}
       />
     </>

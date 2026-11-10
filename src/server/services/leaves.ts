@@ -7,7 +7,7 @@ import { dayRangeUtc, todayKey } from "@/lib/time";
 import { fieldErrorsFromZod, leaveDecisionSchema, leaveInputSchema } from "@/lib/validation";
 import { prisma, type Db, type Tx } from "../db";
 import { dateParam, dayRangeParam } from "../i18n-params";
-import { assertCan, hasPermission } from "../access";
+import { assertCan, hasPermission, inPeopleScope, peopleScope } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { createT } from "@/i18n/translator";
@@ -34,7 +34,7 @@ function leaveWhat(type: LeaveType, startDate: string, endDate: string) {
 }
 
 const leaveInclude = {
-  user: { select: { id: true, name: true } },
+  user: { select: { id: true, name: true, teamId: true } },
   requestedBy: { select: { id: true, name: true } },
   decidedBy: { select: { id: true, name: true } },
 } satisfies Prisma.TechnicianLeaveInclude;
@@ -45,9 +45,14 @@ type LeaveRow = Prisma.TechnicianLeaveGetPayload<{ include: typeof leaveInclude 
 const keyOf = (d: Date) => d.toISOString().slice(0, 10);
 const dbDate = (key: string) => new Date(`${key}T00:00:00.000Z`);
 
+/** Manages this person's leave: the permission, and the person inside the reader's leave scope (own / team / all). */
+function manages(user: CurrentUser, l: { user: { id: string; teamId: string | null } }) {
+  return hasPermission(user, "leaves.manage") && inPeopleScope(user, "leaves", l.user);
+}
+
 function canCancel(user: CurrentUser, l: LeaveRow, today: string) {
   if (l.status !== "REQUESTED" && l.status !== "APPROVED") return false;
-  if (hasPermission(user, "leaves.manage")) return true;
+  if (manages(user, l)) return true;
   return l.userId === user.id && hasPermission(user, "leaves.request") && (l.status === "REQUESTED" || keyOf(l.endDate) >= today);
 }
 
@@ -69,7 +74,7 @@ function toDTO(user: CurrentUser, l: LeaveRow, today: string): LeaveDTO {
     decisionNote: l.decisionNote,
     createdAt: l.createdAt.toISOString(),
     canCancel: canCancel(user, l, today),
-    canDecide: l.status === "REQUESTED" && hasPermission(user, "leaves.manage"),
+    canDecide: l.status === "REQUESTED" && manages(user, l),
   };
 }
 
@@ -77,9 +82,9 @@ function assertLeaveAccess(user: CurrentUser) {
   if (!hasPermission(user, "leaves.manage") && !hasPermission(user, "leaves.request")) throw new ForbiddenError();
 }
 
-/** Admins see everyone's leave; technicians only their own. */
+/** The leave the reader may see: by their leave scope (managers: everyone's by default; others: their own). */
 function leaveScope(user: CurrentUser): Prisma.TechnicianLeaveWhereInput {
-  return hasPermission(user, "leaves.manage") ? {} : { userId: user.id };
+  return { user: peopleScope(user, "leaves") };
 }
 
 export async function leaveOverview(user: CurrentUser, now: Date = new Date()) {
@@ -192,8 +197,8 @@ export async function createLeave(user: CurrentUser, raw: unknown, now: Date = n
   }
 
   return prisma.$transaction(async (tx) => {
-    const target = await tx.user.findUnique({ where: { id: targetId }, select: { id: true, name: true, role: true, isActive: true } });
-    if (!target || target.role !== "TECHNICIAN" || !target.isActive) throw new ValidationError({ userId: msg("leaveErrors.activeTechnician") });
+    const target = await tx.user.findUnique({ where: { id: targetId }, select: { id: true, name: true, role: true, isActive: true, teamId: true } });
+    if (!target || target.role !== "TECHNICIAN" || !target.isActive || !inPeopleScope(user, "leaves", target)) throw new ValidationError({ userId: msg("leaveErrors.activeTechnician") });
     await lockTechnicians(tx, [target.id]);
     await assertNoOverlappingLeave(tx, target.id, input.startDate, input.endDate, null);
     const leave = await tx.technicianLeave.create({
@@ -249,6 +254,7 @@ export async function decideLeave(user: CurrentUser, id: string, raw: unknown, n
 
   return prisma.$transaction(async (tx) => {
     const before = await lockLeave(tx, id);
+    if (!manages(user, before)) throw new NotFoundError("leaveErrors.notFound");
     if (before.status !== "REQUESTED") {
       const text = msg("leaveErrors.alreadyDecided", { status: `@leaveText.statusLower.${before.status}` });
       throw new ValidationError({ decision: text }, text);
@@ -299,8 +305,7 @@ export async function cancelLeave(user: CurrentUser, id: string, now: Date = new
   const today = todayKey(tz, now);
   return prisma.$transaction(async (tx) => {
     const before = await lockLeave(tx, id);
-    const manage = hasPermission(user, "leaves.manage");
-    if (!manage && before.userId !== user.id) throw new NotFoundError("leaveErrors.notFound");
+    if (!manages(user, before) && before.userId !== user.id) throw new NotFoundError("leaveErrors.notFound");
     if (!canCancel(user, before, today)) {
       const text = before.status === "APPROVED" ? msg("leaveErrors.ended") : msg("leaveErrors.alreadyStatus", { status: `@leaveText.statusLower.${before.status}` });
       throw new ValidationError({ _form: text }, text);

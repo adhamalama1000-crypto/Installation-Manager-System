@@ -7,7 +7,7 @@ import { distanceM, type Geo } from "@/lib/field";
 import { computeEnd, dateKey, dayRangeUtc, isValidDateString, TIME_RE, timeKey, zonedToUtc } from "@/lib/time";
 import { fieldErrorsFromZod } from "@/lib/validation";
 import { prisma, type Db } from "../db";
-import { assertCan } from "../access";
+import { assertCanAny } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
 import { findTechnicianConflicts, lockTechnicians } from "./scheduling";
@@ -58,7 +58,7 @@ const holdSchema = z.object({
 
 /** Holds the chosen technicians for the slot for 10 minutes, replacing the reader's earlier holds. */
 export async function holdSlot(user: CurrentUser, raw: unknown, now: Date = new Date()) {
-  assertCan(user, "appointments.manage");
+  assertCanAny(user, "appointments.create", "appointments.manage");
   const parsed = holdSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
   const { date, startTime, durationMinutes, technicianIds } = parsed.data;
@@ -87,7 +87,7 @@ export async function holdSlot(user: CurrentUser, raw: unknown, now: Date = new 
 }
 
 export async function releaseHolds(user: CurrentUser) {
-  assertCan(user, "appointments.manage");
+  assertCanAny(user, "appointments.create", "appointments.manage");
   await releaseOwnHolds(prisma, user.id);
   return { ok: true };
 }

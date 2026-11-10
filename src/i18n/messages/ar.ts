@@ -3,6 +3,7 @@
  * صيغ الجمع العربية: zero / one / two / few (3-10) / many (11-99) / other.
  */
 import type { Messages } from "./en";
+import { accessAr } from "./access.ar";
 import { erpAr } from "./erp.ar";
 
 export const ar: Messages = {
@@ -211,6 +212,10 @@ export const ar: Messages = {
       ATTENDANCE: "الحضور",
       EVIDENCE: "إثبات الشغل",
       PENALTY: "مخالفة",
+      FINANCE: "الحسابات",
+      AUTH: "تسجيل الدخول",
+      REPORT: "تقرير",
+      AUDIT: "سجل التغييرات",
     },
     complaintStatus: { NEW: "جديدة", ASSIGNED: "اتوزّعت", RESOLVED: "اتحلّت", CLOSED: "مقفولة" },
     specialty: { LOCK: "لوك", SMART_HOME: "سمارت هوم", BOTH: "الاتنين" },
@@ -585,6 +590,7 @@ export const ar: Messages = {
     chooseSales: "اختر موظف مبيعات نشط.",
     originalGone: "الموعد الأصلي لم يعد موجودًا.",
     ownOnly: "يمكنك تعديل المواعيد التي أنشأتها فقط.",
+    assignNotAllowed: "لا يمكنك تعيين أو تغيير فنيي الموعد.",
     noCancelStatus: "لا توجد حالة إلغاء نشطة.",
     assignedOnly: "الفنيون المعيّنون فقط يمكنهم تسجيل نتيجة هذه الزيارة.",
     notReportable: "حالة هذا الموعد \"{status}\"، فلا يمكن تسجيل نتيجة.",
@@ -1344,7 +1350,7 @@ export const ar: Messages = {
     inspectionDaysText: "زيارات السمارت هوم في الأيام دي تكون معاينات (قاعدة السبت في Aura). الحجز بيحذّر بس من غير ما يمنع.",
   },
   auditPage: {
-    text: "سجل غير قابل للتعديل لتغييرات المواعيد والمستخدمين والحالات والإعدادات. لا يمكن تعديل أو حذف القيود.",
+    text: "سجل لا يمكن تعديله لكل إجراء مهم: تسجيل الدخول، التغييرات، الاعتمادات، التصدير وتغيير الصلاحيات، بمن وإمتى ومنين والقيم القديمة والجديدة. الإدخالات لا تُعدَّل ولا تُحذف؛ التصحيحات تُضاف كإدخالات جديدة.",
     search: "ابحث في الملخص",
     recordType: "نوع السجل",
     allTypes: "كل الأنواع",
@@ -2271,4 +2277,5 @@ export const ar: Messages = {
     },
   },
   ...erpAr,
+  ...accessAr,
 };

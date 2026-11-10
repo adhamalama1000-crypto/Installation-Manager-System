@@ -55,6 +55,7 @@ export default async function EditAppointmentPage({ params }: { params: Promise<
         closedWeekdays={user.settings.closedWeekdays}
         inspectionOnlyWeekdays={user.settings.inspectionOnlyWeekdays}
         isAdmin={user.role === "ADMIN"}
+        canAssign={user.permissions.includes("appointments.assign")}
         initialLocations={locations.map((l) => ({
           id: l.id,
           area: l.area,

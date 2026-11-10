@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { phoneDigits } from "@/lib/constants";
 import { resolveLocationLink } from "@/lib/maps";
 import { prisma } from "../db";
-import { appointmentScopeSql, assertCan, hasPermission } from "../access";
+import { appointmentScopeSql, assertCan, assertCanAny, customerScope, customerScopeSql, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { NotFoundError } from "../errors";
 import { appointmentListRows, escapeLike } from "./appointment-reads";
@@ -34,16 +34,16 @@ export type CustomerMatch = {
   locations: ReturnType<typeof locationDTO>[];
 };
 
-/** Repeat-customer lookup used by the booking form (Sales/Admin only). */
+/** Repeat-customer lookup used by the booking form (people who book or edit bookings), within their customer scope. */
 export async function lookupCustomers(user: CurrentUser, query: string): Promise<CustomerMatch[]> {
-  assertCan(user, "appointments.manage");
+  assertCanAny(user, "appointments.create", "appointments.manage");
   const q = query.trim().slice(0, 100);
   const digits = phoneDigits(q);
   if (q.length < 2) return [];
   const or: Prisma.CustomerWhereInput[] = [{ name: { contains: escapeLike(q), mode: "insensitive" } }];
   if (digits.length >= 4) or.push({ phoneDigits: { contains: digits } }, { secondaryPhoneDigits: { contains: digits } });
   const rows = await prisma.customer.findMany({
-    where: { OR: or },
+    where: { AND: [{ OR: or }, customerScope(user)] },
     include: { locations: { orderBy: { updatedAt: "desc" } } },
     orderBy: { updatedAt: "desc" },
     take: 8,
@@ -64,7 +64,8 @@ export async function listCustomers(user: CurrentUser, opts: { q?: string; page?
   const page = Math.max(1, opts.page ?? 1);
   const pageSize = Math.min(100, Math.max(1, opts.pageSize ?? 25));
   const q = opts.q?.trim().slice(0, 100);
-  let where = Prisma.sql`TRUE`;
+  // Only the customers in the reader's scope (own / assigned / team / all).
+  let where = customerScopeSql(user);
   if (q) {
     // Each alternative is its own index-friendly subquery (trigram indexes), instead of one
     // OR across a correlated EXISTS that forces a scan of every customer.
@@ -81,7 +82,7 @@ export async function listCustomers(user: CurrentUser, opts: { q?: string; page?
           WHERE area ILIKE ${pattern} OR building ILIKE ${pattern} OR "streetAddress" ILIKE ${pattern}`,
       );
     }
-    where = Prisma.sql`c.id IN (${Prisma.join(sets, " UNION ")})`;
+    where = Prisma.sql`${where} AND c.id IN (${Prisma.join(sets, " UNION ")})`;
   }
   // Page first, then compute the per-customer figures for just that page.
   const [totals, rows] = await Promise.all([
@@ -120,7 +121,7 @@ export async function getCustomer(user: CurrentUser, id: string) {
   assertCan(user, "customers.view");
   if (typeof id !== "string" || id.length > 64) throw new NotFoundError("errors.customerNotFound");
   const [c, appts] = await Promise.all([
-    prisma.customer.findUnique({ where: { id }, include: { locations: { orderBy: { updatedAt: "desc" } } } }),
+    prisma.customer.findFirst({ where: { AND: [{ id }, customerScope(user)] }, include: { locations: { orderBy: { updatedAt: "desc" } } } }),
     // Only appointments this user may see.
     appointmentListRows(user, Prisma.sql`${appointmentScopeSql(user)} AND a."customerId" = ${id}`, Prisma.sql`a."startsAt" DESC, a.number ASC`, 100),
   ]);

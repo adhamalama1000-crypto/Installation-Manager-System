@@ -1,12 +1,12 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
 import type { z } from "zod";
-import { canSeeCosts as canSeeCostsFor, isVehicleScoped, type Permission } from "@/lib/permissions";
+import { canSeeCosts as canSeeCostsFor, type Permission } from "@/lib/permissions";
 import { todayKey } from "@/lib/time";
 import { msg } from "@/i18n/translator";
 import { fieldErrorsFromZod } from "@/lib/validation";
 import type { Tx } from "../db";
-import { hasPermission } from "../access";
+import { hasPermission, vehicleScoped } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { NotFoundError, ValidationError } from "../errors";
 
@@ -38,21 +38,21 @@ export function canViewInventory(user: CurrentUser): boolean {
  */
 export function warehouseScope(user: CurrentUser): Prisma.WarehouseWhereInput {
   if (!canViewInventory(user)) return { id: { in: [] } };
-  if (isVehicleScoped(user.role)) return { technicianId: user.id };
+  if (vehicleScoped(user)) return { technicianId: user.id };
   return {};
 }
 
 /** The same restriction as SQL over a warehouses alias (for raw queries). */
 export function warehouseScopeSql(user: CurrentUser, alias: string): Prisma.Sql {
   if (!canViewInventory(user)) return Prisma.sql`FALSE`;
-  if (isVehicleScoped(user.role)) return Prisma.sql`${Prisma.raw(`${alias}."technicianId"`)} = ${user.id}`;
+  if (vehicleScoped(user)) return Prisma.sql`${Prisma.raw(`${alias}."technicianId"`)} = ${user.id}`;
   return Prisma.sql`TRUE`;
 }
 
 /** Documents touching a warehouse the user may see. */
 export function documentScope(user: CurrentUser): Prisma.StockDocumentWhereInput {
   if (!hasPermission(user, "inventory.view")) return { id: { in: [] } };
-  if (isVehicleScoped(user.role)) return { OR: [{ fromWarehouse: { technicianId: user.id } }, { toWarehouse: { technicianId: user.id } }] };
+  if (vehicleScoped(user)) return { OR: [{ fromWarehouse: { technicianId: user.id } }, { toWarehouse: { technicianId: user.id } }] };
   return {};
 }
 

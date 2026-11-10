@@ -128,6 +128,7 @@ export type ReportType = (typeof REPORT_TYPES)[number];
 
 export async function reportCsv(user: CurrentUser, type: ReportType, range: ReportRange): Promise<string> {
   assertCan(user, "reports.view");
+  assertCan(user, "reports.export");
   checkRange(range);
   if (type === "appointments") return appointmentsCsv(user, range);
   const r = await buildReport(user, range);

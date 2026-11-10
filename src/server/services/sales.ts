@@ -5,7 +5,7 @@ import { appointmentCode, phoneDigits } from "@/lib/constants";
 import { DOC_PREFIX, formatDocNumber } from "@/lib/inventory";
 import { SALES_PREFIX, SALES_STATUSES, cancelSaleSchema, saleSchema, type SaleInput } from "@/lib/sales";
 import { prisma, type Tx } from "../db";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { appointmentScope, assertCan, hasPermission, salesScope } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { NotFoundError, StaleRecordError, ValidationError } from "../errors";
 import { recordAudit } from "./audit";
@@ -87,10 +87,13 @@ async function validateSale(tx: Tx, user: CurrentUser, input: SaleInput, now: Da
 
 const lineData = (l: NormalLine) => ({ lineNo: l.lineNo, productId: l.productId, quantity: l.quantity, unitPrice: l.unitPrice, discount: l.discount, lineTotal: l.lineTotal, serials: l.serials });
 
-async function lockSale(tx: Tx, id: string) {
+/** Locks a sale the reader may reach (their sales scope: own / team / all); others are "not found". */
+async function lockSale(tx: Tx, user: CurrentUser, id: string) {
   const found = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "sales_invoices" WHERE "id" = ${id} FOR UPDATE`;
   if (!found.length) throw new NotFoundError("sales.errors.notFound");
-  return tx.salesInvoice.findUniqueOrThrow({ where: { id }, include: { lines: { orderBy: { lineNo: "asc" } } } });
+  const inv = await tx.salesInvoice.findFirst({ where: { AND: [{ id }, salesScope(user)] }, include: { lines: { orderBy: { lineNo: "asc" } } } });
+  if (!inv) throw new NotFoundError("sales.errors.notFound");
+  return inv;
 }
 
 /**
@@ -99,7 +102,7 @@ async function lockSale(tx: Tx, id: string) {
  * posts the ISSUE document, records the unit costs, and marks the invoice confirmed.
  */
 async function confirmInTx(tx: Tx, user: CurrentUser, id: string, now: Date) {
-  const inv = await lockSale(tx, id);
+  const inv = await lockSale(tx, user, id);
   if (inv.status === "CONFIRMED") return false;
   if (inv.status === "CANCELLED") throw formError("sales.errors.cancelled");
   assertCan(user, "sales.manage");
@@ -255,7 +258,7 @@ export async function updateSale(user: CurrentUser, id: string, raw: unknown, op
   const now = opts.now ?? new Date();
   try {
     return await prisma.$transaction(async (tx) => {
-      const inv = await lockSale(tx, checkId(id));
+      const inv = await lockSale(tx, user, checkId(id));
       if (inv.status !== "DRAFT") throw formError("sales.errors.notDraft");
       if (input.version !== undefined && input.version !== inv.version) throw new StaleRecordError();
       const { lines, header } = await validateSale(tx, user, input, now);
@@ -296,7 +299,7 @@ export async function cancelSale(user: CurrentUser, id: string, raw: unknown, no
   const { reason, version } = parseInput(cancelSaleSchema, raw);
   try {
     await prisma.$transaction(async (tx) => {
-      const inv = await lockSale(tx, checkId(id));
+      const inv = await lockSale(tx, user, checkId(id));
       if (inv.status === "CANCELLED") return;
       if (version !== undefined && version !== inv.version) throw new StaleRecordError();
       if (inv.status === "DRAFT") assertCan(user, "sales.manage");
@@ -335,7 +338,7 @@ export async function listSales(user: CurrentUser, f: SalesFilters = {}) {
   if (!canViewSales(user)) throw new NotFoundError();
   const pageSize = Math.min(100, Math.max(5, f.pageSize ?? 25));
   const { page, skip, take } = pageOf(f.page, pageSize);
-  const and: Prisma.SalesInvoiceWhereInput[] = [];
+  const and: Prisma.SalesInvoiceWhereInput[] = [salesScope(user)];
   if (f.status && (SALES_STATUSES as string[]).includes(f.status)) and.push({ status: f.status as SalesInvoiceStatus });
   if (f.from && /^\d{4}-\d{2}-\d{2}$/.test(f.from)) and.push({ invoiceDate: { gte: dbDate(f.from) } });
   if (f.to && /^\d{4}-\d{2}-\d{2}$/.test(f.to)) and.push({ invoiceDate: { lte: dbDate(f.to) } });
@@ -344,7 +347,7 @@ export async function listSales(user: CurrentUser, f: SalesFilters = {}) {
     const digits = phoneDigits(q);
     and.push({ OR: [{ number: { contains: q.toUpperCase() } }, { customerName: { contains: q, mode: "insensitive" } }, ...(digits.length >= 4 ? [{ customerPhone: { contains: digits } }] : [])] });
   }
-  const where = and.length ? { AND: and } : {};
+  const where = { AND: and };
   const [total, rows, sums] = await Promise.all([
     prisma.salesInvoice.count({ where }),
     prisma.salesInvoice.findMany({
@@ -370,8 +373,8 @@ export async function listSales(user: CurrentUser, f: SalesFilters = {}) {
 
 export async function getSale(user: CurrentUser, id: string) {
   if (!canViewSales(user)) throw new NotFoundError();
-  const inv = await prisma.salesInvoice.findUnique({
-    where: { id: checkId(id) },
+  const inv = await prisma.salesInvoice.findFirst({
+    where: { AND: [{ id: checkId(id) }, salesScope(user)] },
     include: {
       warehouse: { select: { id: true, code: true, nameEn: true, nameAr: true } },
       customer: { select: { id: true, name: true } },

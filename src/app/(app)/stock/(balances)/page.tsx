@@ -10,8 +10,7 @@ import { buttonClasses } from "@/components/ui/button";
 import { getT } from "@/i18n/server";
 import { money } from "@/lib/constants";
 import { formatQuantity } from "@/lib/inventory";
-import { isVehicleScoped } from "@/lib/permissions";
-import { hasPermission } from "@/server/access";
+import { hasPermission, vehicleScoped } from "@/server/access";
 import { requirePagePermission } from "@/server/auth/session";
 import { catalogOptions } from "@/server/services/inventory-catalog";
 import { preparableTypes } from "@/server/services/inventory-documents";
@@ -20,7 +19,7 @@ import { warehouseOptions } from "@/server/services/inventory-warehouses";
 
 export async function generateMetadata(): Promise<Metadata> {
   const [t, user] = [await getT(), await requirePagePermission("inventory.view")];
-  return { title: isVehicleScoped(user.role) ? t("stock.titleTech") : t("stock.title") };
+  return { title: vehicleScoped(user) ? t("stock.titleTech") : t("stock.title") };
 }
 
 type SP = { view?: string; warehouseId?: string; q?: string; categoryId?: string; low?: string; page?: string };
@@ -28,7 +27,7 @@ type SP = { view?: string; warehouseId?: string; q?: string; categoryId?: string
 export default async function StockPage({ searchParams }: { searchParams: Promise<SP> }) {
   const [user, t] = await Promise.all([requirePagePermission("inventory.view"), getT()]);
   const sp = await searchParams;
-  const own = isVehicleScoped(user.role);
+  const own = vehicleScoped(user);
   const view = sp.view === "location" || own ? "location" : "product";
   const [result, warehouses, options] = await Promise.all([
     listBalances(user, { view, warehouseId: sp.warehouseId, q: sp.q, categoryId: sp.categoryId, low: sp.low, page: Number(sp.page) || 1 }),

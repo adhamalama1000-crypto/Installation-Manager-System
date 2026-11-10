@@ -16,7 +16,7 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function NewAppointmentPage({ searchParams }: { searchParams: Promise<{ date?: string; time?: string; followUp?: string }> }) {
-  const [user, t] = await Promise.all([requirePagePermission("appointments.manage"), getT()]);
+  const [user, t] = await Promise.all([requirePagePermission("appointments.create"), getT()]);
   const sp = await searchParams;
   const tz = user.settings.timezone;
   const [technicians, statuses, sales, original] = await Promise.all([
@@ -94,6 +94,7 @@ export default async function NewAppointmentPage({ searchParams }: { searchParam
         closedWeekdays={user.settings.closedWeekdays}
         inspectionOnlyWeekdays={user.settings.inspectionOnlyWeekdays}
         isAdmin={user.role === "ADMIN"}
+        canAssign={user.permissions.includes("appointments.assign")}
         followUpOf={original ? { id: original.id, code: original.code } : undefined}
         initialLocations={locations}
       />

@@ -100,11 +100,14 @@ async function main() {
       return;
     }
     console.log("SEED_FORCE=1: wiping existing data...");
-    // TRUNCATE does not fire the row-level trigger that protects audit_logs.
-    await prisma.$executeRawUnsafe(
-      `TRUNCATE TABLE document_sequences, notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
-        password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
-    );
+    // Development only: audit_logs refuses TRUNCATE unless this transaction allows it explicitly.
+    await prisma.$transaction(async (tx) => {
+      await tx.$queryRawUnsafe(`SELECT set_config('ims.allow_audit_truncate', 'on', true)`);
+      await tx.$executeRawUnsafe(
+        `TRUNCATE TABLE document_sequences, notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
+          password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
+      );
+    });
   }
 
   const password = process.env.SEED_PASSWORD || "ChangeMe123!";

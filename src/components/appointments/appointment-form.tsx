@@ -81,6 +81,7 @@ export function AppointmentForm({
   initialLocations = [],
   closedWeekdays = [],
   isAdmin = false,
+  canAssign = true,
   followUpOf,
   inspectionOnlyWeekdays = [],
 }: {
@@ -98,6 +99,8 @@ export function AppointmentForm({
   originalCreator?: { name: string; color: string | null; isActive: boolean };
   /** Saved sites of the customer being edited. */
   initialLocations?: SavedLocation[];
+  /** The reader may choose technicians (appointments.assign); the server refuses changes otherwise. */
+  canAssign?: boolean;
   /** Weekdays (0 = Sunday) that cannot be booked (Settings). */
   closedWeekdays?: number[];
   isAdmin?: boolean;
@@ -988,7 +991,7 @@ export function AppointmentForm({
                         type="checkbox"
                         className="mt-0.5 h-4 w-4 accent-[var(--brand-strong)]"
                         checked={selected}
-                        disabled={(busy && !selected) || (!tech.isActive && !selected)}
+                        disabled={!canAssign || (busy && !selected) || (!tech.isActive && !selected)}
                         onChange={() => toggleTech(tech.id)}
                       />
                       <span className="min-w-0 flex-1">

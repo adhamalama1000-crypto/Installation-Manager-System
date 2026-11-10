@@ -85,7 +85,7 @@ export default async function DashboardPage() {
             <ButtonLink href="/calendar" variant="outline">
               <CalendarCheck className="h-4 w-4" /> {tech ? t("nav.mySchedule") : t("dashboard.openCalendar")}
             </ButtonLink>
-            {user.permissions.includes("appointments.manage") && (
+            {user.permissions.includes("appointments.create") && (
               <ButtonLink href="/appointments/new">
                 <Plus className="h-4 w-4" /> {t("nav.newAppointment")}
               </ButtonLink>

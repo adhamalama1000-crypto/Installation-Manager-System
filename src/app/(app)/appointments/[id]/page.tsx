@@ -95,8 +95,18 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           </>
         }
         actions={
-          a.canManage ? (
-            <AppointmentActions id={a.id} version={a.version} statusId={a.status.id} statusKind={a.status.kind} statuses={statuses} tz={tz} />
+          a.canManage || a.canCancel ? (
+            <AppointmentActions
+              id={a.id}
+              version={a.version}
+              statusId={a.status.id}
+              statusKind={a.status.kind}
+              statuses={statuses}
+              tz={tz}
+              canEdit={a.canManage}
+              canCancel={a.canCancel}
+              canCreate={user.permissions.includes("appointments.create")}
+            />
           ) : (
             <Badge>{t("appointment.readOnly")}</Badge>
           )

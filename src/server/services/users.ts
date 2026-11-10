@@ -168,6 +168,8 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
           isActive: input.isActive,
           color,
           viewerPermissions: role === "VIEWER" ? (input.viewerPermissions ?? before.viewerPermissions) : [],
+          // A new role starts from its own defaults: individual permissions and scopes are cleared.
+          ...(role !== before.role ? { permissionGrants: [], permissionDenies: [], dataScopes: Prisma.DbNull } : {}),
           specialty: role === "TECHNICIAN" ? (input.specialty === undefined ? before.specialty : ((input.specialty as TechnicianSpecialty | null) ?? null)) : null,
         },
       });
@@ -175,7 +177,7 @@ export async function updateUser(actor: CurrentUser, id: string, raw: unknown) {
       const changes = diffValues(
         before as unknown as Record<string, unknown>,
         after as unknown as Record<string, unknown>,
-        ["name", "email", "phone", "role", "isActive", "color", "viewerPermissions", "specialty"],
+        ["name", "email", "phone", "role", "isActive", "color", "viewerPermissions", "specialty", "permissionGrants", "permissionDenies", "dataScopes"],
       );
       if (Object.keys(changes).length) {
         const action = changes.isActive
