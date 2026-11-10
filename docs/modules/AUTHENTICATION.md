@@ -36,6 +36,13 @@ invitation links valid 72 hours, reset links 24 hours (a new link cancels the ol
 same-origin check on every state-changing request; language remembered per user; sign-out ends the
 session on the server.
 
+**Audit trail.** Every successful sign-in (`LOGIN_SUCCEEDED`), failed sign-in (`LOGIN_FAILED`, with
+the cause — unknown account, wrong password or inactive account — visible only to the Admin in the
+audit log; the person signing in still gets the one generic message), refused attempt during a
+lockout (`LOGIN_BLOCKED`) and sign-out (`LOGOUT`) is recorded in the audit log under the module
+*Sign-in*, with the IP address, browser (user agent), method and path of the request. Passwords,
+hashes, session tokens and cookies are never recorded (see [Audit log](AUDIT_LOG.md)).
+
 ## 4. Roles and permissions
 
 Anyone with an active account can sign in; `users.manage` (Admin) creates users, changes roles,
@@ -84,7 +91,9 @@ browser to `/login?next=…`; cross-site POSTs are refused (403); malformed JSON
 `tests/integration/auth-cookies.test.ts` (Secure flag follows the request, sign-out),
 `tests/integration/admin-password.test.ts` (the recovery script), `tests/integration/api.test.ts`
 (401, sign in / out, generic message, rate limit, cross-site refusal, malformed JSON, language),
-`tests/integration/users-audit-reports.test.ts`, `e2e/login.spec.ts` (**password toggle in Arabic and
+`tests/integration/users-audit-reports.test.ts`, `tests/integration/access-api.test.ts` (sign-in,
+failure causes, lockout and sign-out entries with request context and no password),
+`e2e/login.spec.ts` (**password toggle in Arabic and
 English keeps value, focus and form; signing in after toggling**), `e2e/permissions.spec.ts`.
 
 ## 12. Current limitations

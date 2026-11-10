@@ -41,7 +41,7 @@ management screen, and a complete, immutable audit log, built on the existing ar
 | Data scopes | Not configurable: scopes are fixed by role. No "team" concept exists at all (no teams table, no team membership). |
 | Escalation | Nothing stops a future custom grant of `users.manage`, `settings.manage` or `audit.view` to a non-Admin; no rule that a person can never change their own permissions (only role / activation are guarded). |
 | Audit: sign-in | Sign-ins, failed sign-ins and sign-outs are only in `login_attempts` (deleted after a day, failures cleared on success), not in the audit log. |
-| Audit: exports | CSV / Excel exports (appointments, reports, finance, inventory, products, attendance) are not recorded. |
+| Audit: exports | CSV / Excel exports (appointments, reports, finance, inventory, products) are not recorded. |
 | Audit: context | No module, no request context (IP, user agent, method, path), no reason column. |
 | Audit: attendance | Company arrival / leaving from the dashboard quick buttons and car day check-ins are not in the audit log (the clock page's are). |
 | Audit: corrections | No way to record an administrative correction of history other than writing new business records. |
@@ -53,8 +53,10 @@ management screen, and a complete, immutable audit log, built on the existing ar
 **Permission keys stay the unit of authorization.** Everything that already checks `hasPermission`
 keeps working. New keys are added only where an action needs its own switch:
 `appointments.create`, `appointments.cancel` (archive), `appointments.assign`, `appointments.export`,
-`reports.export`, `finance.export`, `attendance.export`, `products.export`. Role defaults give these to
+`reports.export`, `finance.export`, `products.export`. Role defaults give these to
 exactly the people who could do the action before, so nobody gains or loses access by the upgrade.
+(An `attendance.export` key was planned, but the system has no attendance export: attendance is
+only shown on screen, so no key was added.)
 
 **A registry** (`src/lib/permission-registry.ts`) groups every key into a module (page) and an action
 (view, create, edit, delete, archive, approve / reject, export, assign, manage settings, or a named
