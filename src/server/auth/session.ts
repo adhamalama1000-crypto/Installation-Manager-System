@@ -130,7 +130,9 @@ export async function userFromToken(token: string | undefined | null, cookieLoca
   // Runs on every request, so session, user and settings come back in ONE round trip.
   const rows = await prisma.$queryRaw<SessionRow[]>`
     SELECT s."expiresAt", s."lastSeenAt", u.id, u.name, u.email, u.role, u.color, u."isActive", u."viewerPermissions",
-           u."permissionGrants", u."permissionDenies", u."dataScopes", u."teamId",
+           u."permissionGrants", u."permissionDenies", u."dataScopes",
+           -- A deactivated team no longer gives anyone "team" visibility.
+           (SELECT t.id FROM teams t WHERE t.id = u."teamId" AND t."isActive") AS "teamId",
            (SELECT value FROM settings WHERE key = 'general') AS settings
     FROM sessions s JOIN users u ON u.id = s."userId"
     WHERE s.id = ${id}`;
