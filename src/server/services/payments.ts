@@ -341,6 +341,7 @@ const FINANCE_EXPORT_LIMIT = 20_000;
 /** One line per visit of the month with every amount (opens in Excel). */
 export async function financeCsv(user: CurrentUser, month: string): Promise<string> {
   assertCan(user, "finance.view");
+  assertCan(user, "finance.export");
   const tz = user.settings.timezone;
   const range = monthRange(month, tz);
   const canContact = hasPermission(user, "customers.contact");

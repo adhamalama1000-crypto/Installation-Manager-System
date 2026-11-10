@@ -3,9 +3,9 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Copy, KeyRound, Pencil, Plus, Search } from "lucide-react";
+import { Copy, KeyRound, Pencil, Plus, Search, ShieldCheck } from "lucide-react";
 import type { Role } from "@prisma/client";
-import { Button } from "@/components/ui/button";
+import { Button, ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { Dialog } from "@/components/ui/dialog";
 import { Checkbox, Field, Input, Select } from "@/components/ui/field";
@@ -213,6 +213,9 @@ export function UsersManager({ users, currentUserId }: { users: UserDTO[]; curre
                         <Button variant="ghost" size="sm" onClick={() => openEdit(u)}>
                           <Pencil className="h-3.5 w-3.5" /> {t("common.edit")}
                         </Button>
+                        <ButtonLink href={`/users/${u.id}/access`} variant="ghost" size="sm" aria-label={`${t("access.link")}: ${u.name}`}>
+                          <ShieldCheck className="h-3.5 w-3.5" /> {t("access.link")}
+                        </ButtonLink>
                         {u.isActive && (
                           <Button variant="ghost" size="sm" onClick={() => passwordLink(u)} title={u.hasPassword ? t("users.resetLinkTitle") : t("users.inviteLinkTitle")}>
                             <KeyRound className="h-3.5 w-3.5" /> {u.hasPassword ? t("users.resetLink") : t("users.inviteLink")}

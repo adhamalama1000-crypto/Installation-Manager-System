@@ -4,11 +4,10 @@ import { createT } from "@/i18n/translator";
 import { MOVEMENT_TYPES } from "@/lib/inventory";
 import { isValidDateString } from "@/lib/time";
 import { prisma } from "../db";
-import { assertCan, hasPermission } from "../access";
+import { assertCan, hasPermission, vehicleScoped } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { NotFoundError } from "../errors";
 import { toCsv } from "./reports";
-import { isVehicleScoped } from "@/lib/permissions";
 import { canSeeCosts, checkId, dbDate, keyOf, likeTerm, num, pageOf, warehouseScope, warehouseScopeSql } from "./inventory-common";
 
 /**
@@ -63,7 +62,7 @@ export async function listBalances(user: CurrentUser, f: BalanceFilters, opts: {
   const where = balanceConditions(user, f);
   // The minimum stock is a company-wide threshold: low stock compares it with the total over all
   // warehouses, so it is shown only on the overall view (not per warehouse or for a vehicle).
-  const overall = !f.warehouseId && !isVehicleScoped(user.role);
+  const overall = !f.warehouseId && !vehicleScoped(user);
   const low = overall && f.low === "1";
   const rows = byLocation
     ? await prisma.$queryRaw<(Omit<BalanceRow, "warehouse" | "low" | "value" | "quantity" | "minStock"> & { quantity: Prisma.Decimal; minStock: Prisma.Decimal; averageCost: Prisma.Decimal; wId: string; wCode: string; wNameEn: string; wNameAr: string; total: bigint })[]>`

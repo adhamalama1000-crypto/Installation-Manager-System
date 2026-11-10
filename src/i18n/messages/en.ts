@@ -4,6 +4,7 @@
  * zero / two / few / many.
  */
 import type { Widen } from "../types";
+import { accessEn } from "./access.en";
 import { erpEn } from "./erp.en";
 
 const messages = {
@@ -212,6 +213,10 @@ const messages = {
       ATTENDANCE: "Attendance",
       EVIDENCE: "Work evidence",
       PENALTY: "Violation",
+      FINANCE: "Finance",
+      AUTH: "Sign-in",
+      REPORT: "Report",
+      AUDIT: "Audit log",
     },
     complaintStatus: { NEW: "New", ASSIGNED: "Assigned", RESOLVED: "Resolved", CLOSED: "Closed" },
     specialty: { LOCK: "Locks", SMART_HOME: "Smart home", BOTH: "Both" },
@@ -582,6 +587,7 @@ const messages = {
     chooseSales: "Choose an active Sales employee.",
     originalGone: "The original appointment no longer exists.",
     ownOnly: "You can only modify appointments you created.",
+    assignNotAllowed: "You may not assign or change the technicians of a booking.",
     noCancelStatus: "No active cancellation status is configured.",
     assignedOnly: "Only the assigned technicians can record the outcome of this visit.",
     notReportable: "This appointment is \"{status}\", so no outcome can be recorded.",
@@ -1342,7 +1348,7 @@ const messages = {
     inspectionDaysText: "Smart-home visits on these days should be inspections (Aura's Saturday rule). The booking form warns; it does not block.",
   },
   auditPage: {
-    text: "Append-only record of appointment, user, status and settings changes. Entries cannot be edited or deleted.",
+    text: "Append-only record of every important action: sign-ins, changes, approvals, exports and permission changes, with who, when, from where and the old and new values. Entries cannot be edited or deleted; corrections are added as new entries.",
     search: "Search summary",
     recordType: "Record type",
     allTypes: "All record types",
@@ -2269,6 +2275,7 @@ const messages = {
     },
   },
   ...erpEn,
+  ...accessEn,
 };
 
 export type Messages = Widen<typeof messages>;

@@ -8,7 +8,7 @@ import { minutesOf } from "@/lib/field";
 import { addDaysToKey, dateKey, dayRangeUtc, timeKey, todayKey, weekdayOfKey } from "@/lib/time";
 import { fieldErrorsFromZod, geoSchema, optionalText } from "@/lib/validation";
 import { prisma, type Tx } from "../db";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { appointmentScope, assertCan, hasPermission, inPeopleScope, peopleScope } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { detectImageType, discardFile, readStoredFile, saveFile } from "../storage";
@@ -257,9 +257,11 @@ export async function clock(user: CurrentUser, raw: unknown, now = new Date()) {
 /** The selfie of a check-in: the person themself and attendance managers only (404 otherwise). */
 export async function readSelfie(user: CurrentUser, checkInId: string) {
   if (typeof checkInId !== "string" || checkInId.length > 64) throw new NotFoundError();
-  const row = await prisma.checkIn.findUnique({ where: { id: checkInId }, select: { userId: true, selfieKey: true, selfieContentType: true } });
+  const row = await prisma.checkIn.findUnique({ where: { id: checkInId }, select: { userId: true, selfieKey: true, selfieContentType: true, user: { select: { id: true, teamId: true } } } });
   if (!row?.selfieKey) throw new NotFoundError();
-  if (row.userId !== user.id && !hasPermission(user, "attendance.view") && !hasPermission(user, "attendance.manage")) throw new NotFoundError();
+  // Managers: only people inside their attendance scope.
+  const manager = hasPermission(user, "attendance.view") || hasPermission(user, "attendance.manage");
+  if (row.userId !== user.id && !(manager && inPeopleScope(user, "attendance", row.user))) throw new NotFoundError();
   return { bytes: await readStoredFile(row.selfieKey), contentType: row.selfieContentType ?? "image/jpeg" };
 }
 
@@ -269,8 +271,8 @@ export async function reviewCheckIn(user: CurrentUser, checkInId: string, raw: u
   const parsed = reviewSchema.safeParse(raw);
   if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
   return prisma.$transaction(async (tx) => {
-    const c = await tx.checkIn.findUnique({ where: { id: checkInId }, select: { id: true, kind: true, user: { select: { id: true, name: true } } } });
-    if (!c || (c.kind !== "COMPANY" && c.kind !== "LEAVE")) throw new NotFoundError();
+    const c = await tx.checkIn.findUnique({ where: { id: checkInId }, select: { id: true, kind: true, user: { select: { id: true, name: true, teamId: true } } } });
+    if (!c || (c.kind !== "COMPANY" && c.kind !== "LEAVE") || !inPeopleScope(user, "attendance", c.user)) throw new NotFoundError();
     const r = await tx.attendanceReview.create({ data: { checkInId: c.id, decision: parsed.data.decision, note: parsed.data.note, reviewedById: user.id } });
     await recordAudit(tx, {
       entityType: "ATTENDANCE",
@@ -319,7 +321,10 @@ export async function attendanceRange(user: CurrentUser, fromRaw: string | undef
   const from = from0 > to ? to : from0 < addDaysToKey(to, -62) ? addDaysToKey(to, -62) : from0;
   const days: string[] = [];
   for (let d = from; d <= to; d = addDaysToKey(d, 1)) days.push(d);
-  const peopleWhere: Prisma.UserWhereInput = all ? { role: { in: ["TECHNICIAN", "DRIVER"] }, isActive: true, ...(opts.userId ? { id: opts.userId } : {}) } : { id: user.id };
+  // Managers: field staff inside their attendance scope (everyone by default); others: themselves.
+  const peopleWhere: Prisma.UserWhereInput = all
+    ? { AND: [{ role: { in: ["TECHNICIAN", "DRIVER"] }, isActive: true, ...(opts.userId ? { id: opts.userId } : {}) }, peopleScope(user, "attendance")] }
+    : { id: user.id };
   const range = dayRangeUtc(from, to, tz);
   const [people, checks, leaves, visits] = await Promise.all([
     prisma.user.findMany({ where: peopleWhere, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } }),

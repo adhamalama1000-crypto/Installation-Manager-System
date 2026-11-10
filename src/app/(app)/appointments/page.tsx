@@ -78,7 +78,7 @@ export default async function AppointmentsPage({ searchParams }: { searchParams:
             <a href={exportHref} className={buttonClasses("outline")}>
               <Download className="h-4 w-4" /> {t("common.exportCsv")}
             </a>
-            {user.permissions.includes("appointments.manage") && (
+            {user.permissions.includes("appointments.create") && (
               <ButtonLink href="/appointments/new">
                 <Plus className="h-4 w-4" /> {t("nav.newAppointment")}
               </ButtonLink>

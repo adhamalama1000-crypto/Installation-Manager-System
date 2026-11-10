@@ -726,7 +726,8 @@ export async function importTemplate(user: CurrentUser): Promise<Buffer> {
 
 /** Every product and variant in the import columns (export, edit, import again to update). */
 export async function exportProductsXlsx(user: CurrentUser): Promise<Buffer> {
-  if (!hasPermission(user, "products.view")) assertCan(user, "products.view");
+  assertCan(user, "products.view");
+  assertCan(user, "products.export");
   const costs = canSeeCosts(user);
   const [rows, onHand] = await Promise.all([
     prisma.product.findMany({

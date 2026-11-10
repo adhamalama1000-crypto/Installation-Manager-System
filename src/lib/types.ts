@@ -84,6 +84,8 @@ export type AppointmentDTO = {
   version: number;
   /** Whether the current user may edit / reschedule / cancel / change status. */
   canManage: boolean;
+  /** May cancel (archive) this booking: appointments.cancel and the same own/others rule as editing. */
+  canCancel: boolean;
   /** Whether the current user may record the outcome of the visit (assigned technician or manager). */
   canReport: boolean;
   /** Money for this visit; null for roles that may not see it. */
@@ -146,6 +148,12 @@ export type AuditEntryDTO = {
   entityType: string;
   entityId: string;
   appointmentId: string | null;
+  /** The module (permission registry) the action belongs to; null on entries written before. */
+  module?: string | null;
+  /** Why an administrative correction, cancellation or reversal was made. */
+  reason?: string | null;
+  /** The request it was made in (never credentials). */
+  context?: { ip: string | null; userAgent: string | null; method: string; path: string } | null;
 };
 
 export type UserDTO = {

@@ -109,7 +109,9 @@ describe("permissions", () => {
     const tech = permissionsFor({ role: "TECHNICIAN" }, settings);
     // Inventory (ERP phase 1): technicians read the stock of their own van only (see access rules).
     // ERP upgrade: technicians also see their own violations and deductions (penalties.own).
-    expect([...tech].sort()).toEqual(["appointments.view", "checkins.record", "complaints.view", "customers.contact", "expenses.record", "inventory.view", "leaves.request", "location.view", "penalties.own", "stock.view", "visits.report"]);
+    // Permissions upgrade: exporting the appointment list is its own permission, given to everyone
+    // who could already export it (everyone who sees appointments).
+    expect([...tech].sort()).toEqual(["appointments.export", "appointments.view", "checkins.record", "complaints.view", "customers.contact", "expenses.record", "inventory.view", "leaves.request", "location.view", "penalties.own", "stock.view", "visits.report"]);
     // Complaints: Sales open and close them, technicians see their own; only the head (Admin) assigns and grades.
     expect(sales.has("complaints.view")).toBe(true);
     expect(sales.has("complaints.manage") || sales.has("quality.grade")).toBe(false);
@@ -117,26 +119,27 @@ describe("permissions", () => {
     expect(tech.has("appointments.manage")).toBe(false);
     const accountant = permissionsFor({ role: "ACCOUNTANT" }, settings);
     expect([...accountant].sort()).toEqual([
-      "analytics.view", "appointments.view", "attendance.view", "cash.receive", "customers.contact", "customers.view", "expenses.pay", "finance.view",
-      "inventory.reports", "inventory.view", "penalties.own", "penalties.view", "products.view", "sales.view", "sales.void", "stock.view", "suppliers.view", "warehouses.view",
+      "analytics.view", "appointments.export", "appointments.view", "attendance.view", "cash.receive", "customers.contact", "customers.view", "expenses.pay", "finance.export", "finance.view",
+      "inventory.reports", "inventory.view", "penalties.own", "penalties.view", "products.export", "products.view", "sales.view", "sales.void", "stock.view", "suppliers.view", "warehouses.view",
     ]);
     // The store keeper keeps the serial custody and now also moves and counts warehouse stock, but
     // does not approve adjustments, see costs or manage the catalogue.
     expect([...permissionsFor({ role: "STORE" }, settings)].sort()).toEqual([
-      "appointments.view", "inventory.count", "inventory.issue", "inventory.receive", "inventory.transfer", "inventory.view",
-      "penalties.own", "products.view", "stock.manage", "stock.view", "suppliers.view", "warehouses.view",
+      "appointments.export", "appointments.view", "inventory.count", "inventory.issue", "inventory.receive", "inventory.transfer", "inventory.view",
+      "penalties.own", "products.export", "products.view", "stock.manage", "stock.view", "suppliers.view", "warehouses.view",
     ]);
     expect([...permissionsFor({ role: "WAREHOUSE_MANAGER" }, settings)].sort()).toEqual([
-      "analytics.view", "appointments.view", "inventory.approve", "inventory.count", "inventory.issue", "inventory.receive", "inventory.reports", "inventory.transfer", "inventory.view",
-      "penalties.own", "products.manage", "products.view", "sales.view", "stock.manage", "stock.view", "suppliers.manage", "suppliers.view", "warehouses.manage", "warehouses.view",
+      "analytics.view", "appointments.export", "appointments.view", "inventory.approve", "inventory.count", "inventory.issue", "inventory.receive", "inventory.reports", "inventory.transfer", "inventory.view",
+      "penalties.own", "products.export", "products.manage", "products.view", "sales.view", "stock.manage", "stock.view", "suppliers.manage", "suppliers.view", "warehouses.manage", "warehouses.view",
     ]);
     expect(sales.has("products.view") && !sales.has("inventory.view")).toBe(true);
-    expect([...permissionsFor({ role: "DRIVER" }, settings)].sort()).toEqual(["appointments.view", "car.checkin", "customers.contact", "expenses.record", "location.view", "penalties.own", "route.view"]);
+    expect([...permissionsFor({ role: "DRIVER" }, settings)].sort()).toEqual(["appointments.export", "appointments.view", "car.checkin", "customers.contact", "expenses.record", "location.view", "penalties.own", "route.view"]);
   });
 
   it("viewers only get grantable permissions, and inactive users get none", () => {
     const viewer = permissionsFor({ role: "VIEWER", viewerPermissions: ["appointments.view", "users.manage", "appointments.manage"] }, settings);
-    expect([...viewer]).toEqual(["appointments.view"]);
+    // Exporting what they may see comes with appointments.view (as before the export permission existed).
+    expect([...viewer].sort()).toEqual(["appointments.export", "appointments.view"]);
     expect(permissionsFor({ role: "ADMIN", isActive: false }, settings).size).toBe(0);
   });
 });

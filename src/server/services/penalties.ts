@@ -6,7 +6,7 @@ import { formatDocNumber } from "@/lib/inventory";
 import { cancelViolationSchema, manualViolationSchema, penaltyFor, penaltyRuleSchema, scanSchema, violationDecisionSchema, type PenaltyTriggerValue } from "@/lib/penalties";
 import { addDaysToKey, dateKey, todayKey } from "@/lib/time";
 import { prisma, type Tx } from "../db";
-import { assertCan, hasPermission } from "../access";
+import { assertCan, hasPermission, inPeopleScope, peopleScope, scopeOf } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError } from "../errors";
 import { attendanceRange } from "./attendance";
@@ -135,7 +135,7 @@ export async function recordViolation(user: CurrentUser, raw: unknown, now = new
   const tz = user.settings.timezone;
   if (v.occurredOn > todayKey(tz, now)) throw formError("penalties.errors.future", undefined, "occurredOn");
   return prisma.$transaction(async (tx) => {
-    const employee = await tx.user.findFirst({ where: { id: v.userId, isActive: true }, select: { id: true, name: true } });
+    const employee = await tx.user.findFirst({ where: { AND: [{ id: v.userId, isActive: true }, peopleScope(user, "penalties")] }, select: { id: true, name: true } });
     if (!employee) throw formError("penalties.errors.employee", undefined, "userId");
     const rule = v.ruleId ? await tx.penaltyRule.findFirst({ where: { id: v.ruleId, isActive: true } }) : null;
     if (v.ruleId && !rule) throw formError("penalties.errors.rule", undefined, "ruleId");
@@ -235,7 +235,9 @@ export async function scanViolations(user: CurrentUser, raw: unknown, now = new 
     async (tx) => {
       // One scan at a time, so two people scanning together do not both propose.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(hashtextextended('penalties:scan', 0))`;
-      const candidates = rules.flatMap((rule) => (found.get(rule.trigger) ?? []).map((o) => ({ rule, o, key: `${rule.id}:${o.source}` })));
+      // Only people inside the reader's penalties scope (everyone's by default for those who manage penalties).
+      const inScope = scopeOf(user, "penalties") === "ALL" ? null : new Set((await tx.user.findMany({ where: peopleScope(user, "penalties"), select: { id: true } })).map((u) => u.id));
+      const candidates = rules.flatMap((rule) => (found.get(rule.trigger) ?? []).filter((o) => !inScope || inScope.has(o.userId)).map((o) => ({ rule, o, key: `${rule.id}:${o.source}` })));
       if (!candidates.length) return 0;
       const existing = new Set(
         (await tx.violation.findMany({ where: { sourceKey: { in: candidates.map((c) => c.key) } }, select: { sourceKey: true } })).map((x) => x.sourceKey),
@@ -290,10 +292,11 @@ export async function scanViolations(user: CurrentUser, raw: unknown, now = new 
 // Decisions
 // ---------------------------------------------------------------------------------------------
 
-async function lockViolation(tx: Tx, id: string) {
+/** Locks a violation of a person inside the reader's penalties scope (others are "not found"). */
+async function lockViolation(tx: Tx, user: CurrentUser, id: string) {
   await tx.$queryRaw`SELECT id FROM violations WHERE id = ${id} FOR UPDATE`;
-  const v = await tx.violation.findUnique({ where: { id }, include: { user: { select: { id: true, name: true } } } });
-  if (!v) throw new NotFoundError();
+  const v = await tx.violation.findUnique({ where: { id }, include: { user: { select: { id: true, name: true, teamId: true } } } });
+  if (!v || !inPeopleScope(user, "penalties", v.user)) throw new NotFoundError();
   return v;
 }
 
@@ -308,7 +311,7 @@ export async function decideViolation(user: CurrentUser, id: string, raw: unknow
   assertCan(user, "penalties.approve");
   const d = parseInput(violationDecisionSchema, raw);
   return prisma.$transaction(async (tx) => {
-    const v = await lockViolation(tx, checkId(id));
+    const v = await lockViolation(tx, user, checkId(id));
     if (v.userId === user.id) throw new ForbiddenError("penalties.errors.own");
     if (v.status !== "PROPOSED") throw formError("penalties.errors.notProposed");
     const now = new Date();
@@ -357,7 +360,7 @@ export async function cancelViolation(user: CurrentUser, id: string, raw: unknow
   if (!hasPermission(user, "penalties.manage") && !hasPermission(user, "penalties.approve")) throw new ForbiddenError();
   const { reason } = parseInput(cancelViolationSchema, raw);
   return prisma.$transaction(async (tx) => {
-    const v = await lockViolation(tx, checkId(id));
+    const v = await lockViolation(tx, user, checkId(id));
     if (v.status === "APPROVED" && !hasPermission(user, "penalties.approve")) throw new ForbiddenError();
     if (v.status === "APPROVED" && v.userId === user.id) throw new ForbiddenError("penalties.errors.own");
     if (v.status !== "PROPOSED" && v.status !== "APPROVED") throw formError("penalties.errors.notCancellable");
@@ -437,7 +440,10 @@ export async function listViolations(user: CurrentUser, opts: { status?: string;
   if (!all && !hasPermission(user, "penalties.own")) throw new NotFoundError();
   const and: Prisma.ViolationWhereInput[] = [];
   if (!all) and.push({ userId: user.id }, OWN_VISIBLE);
-  else if (opts.userId) and.push({ userId: opts.userId });
+  else {
+    and.push({ user: peopleScope(user, "penalties") });
+    if (opts.userId) and.push({ userId: opts.userId });
+  }
   if (opts.status && ["PROPOSED", "APPROVED", "REJECTED", "CANCELLED"].includes(opts.status)) and.push({ status: opts.status as ViolationStatus });
   if (opts.month && /^\d{4}-(0[1-9]|1[0-2])$/.test(opts.month)) {
     const first = `${opts.month}-01`;
@@ -469,7 +475,7 @@ export async function listViolations(user: CurrentUser, opts: { status?: string;
 export async function getViolation(user: CurrentUser, id: string) {
   const all = canSeeAll(user);
   if (!all && !hasPermission(user, "penalties.own")) throw new NotFoundError();
-  const v = await prisma.violation.findFirst({ where: { AND: [{ id: checkId(id) }, ...(all ? [] : [{ userId: user.id }, OWN_VISIBLE])] }, include });
+  const v = await prisma.violation.findFirst({ where: { AND: [{ id: checkId(id) }, ...(all ? [{ user: peopleScope(user, "penalties") }] : [{ userId: user.id }, OWN_VISIBLE])] }, include });
   if (!v) throw new NotFoundError();
   const [events, entries] = await Promise.all([
     prisma.violationEvent.findMany({ where: { violationId: v.id }, orderBy: [{ createdAt: "asc" }, { id: "asc" }], include: { actor: { select: { name: true } } } }),
@@ -502,5 +508,5 @@ export async function deductionsForMonth(month: string) {
 /** Active employees a violation can be recorded for. */
 export async function violationPeople(user: CurrentUser) {
   assertCan(user, "penalties.manage");
-  return prisma.user.findMany({ where: { isActive: true }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
+  return prisma.user.findMany({ where: { AND: [{ isActive: true }, peopleScope(user, "penalties")] }, select: { id: true, name: true, role: true }, orderBy: { name: "asc" } });
 }

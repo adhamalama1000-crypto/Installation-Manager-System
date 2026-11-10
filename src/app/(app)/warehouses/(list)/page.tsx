@@ -8,8 +8,7 @@ import { WarehouseDialogButton } from "@/components/erp/warehouse-forms";
 import { control, nameOf, submitBtn, tableHead, th, thEnd } from "@/components/erp/labels";
 import { getT } from "@/i18n/server";
 import { money } from "@/lib/constants";
-import { isVehicleScoped } from "@/lib/permissions";
-import { hasPermission } from "@/server/access";
+import { hasPermission, vehicleScoped } from "@/server/access";
 import { requirePagePermission } from "@/server/auth/session";
 import { listWarehouses, technicianOptions } from "@/server/services/inventory-warehouses";
 
@@ -28,7 +27,7 @@ export default async function WarehousesPage({ searchParams }: { searchParams: P
     manage ? technicianOptions(user) : Promise.resolve([]),
   ]);
   const L = t.locale;
-  const own = isVehicleScoped(user.role);
+  const own = vehicleScoped(user);
   const costs = result.rows.some((w) => w.value !== null);
   const qs = (page: number) => {
     const p = new URLSearchParams();

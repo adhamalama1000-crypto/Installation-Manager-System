@@ -202,6 +202,15 @@ model User {
   color             String?
   /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
   viewerPermissions String[]             @default([])
+  /// Individual permissions added to the role's defaults (Admin, permission screen).
+  permissionGrants  String[]             @default([])
+  /// Individual permissions removed from the role's defaults.
+  permissionDenies  String[]             @default([])
+  /// Data scope per module that differs from the role default: { "appointments": "TEAM", ... }.
+  dataScopes        Json?
+  /// The team the person belongs to ("team records" scope).
+  teamId            String?
+  team              Team?                @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
   createdAt         DateTime             @default(now()) @db.Timestamptz(3)
   updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
   passwordChangedAt DateTime?            @db.Timestamptz(3)
@@ -281,6 +290,7 @@ model User {
   deductionsRecorded   DeductionEntry[]   @relation("DeductionEntryCreator")
 
   @@index([role, isActive])
+  @@index([teamId])
   @@map("users")
 }
 
@@ -563,6 +573,12 @@ model AuditLog {
   entityId      String
   /// e.g. APPOINTMENT_CREATED, APPOINTMENT_RESCHEDULED, USER_ROLE_CHANGED ...
   action        String
+  /// The module (page) the action belongs to (src/lib/permission-registry.ts); null on older rows.
+  module        String?
+  /// Why an administrative correction, cancellation or reversal was made, when one was given.
+  reason        String?
+  /// Request context: IP address, user agent, method and path (never credentials).
+  context       Json?
   summary       String
   /// { key, params }: the summary as a message key, shown in each reader's language. Null on rows
   /// written before localization (their `summary` text is shown).
@@ -579,6 +595,8 @@ model AuditLog {
   @@index([appointmentId, createdAt])
   @@index([actorId, createdAt])
   @@index([createdAt])
+  @@index([module, createdAt])
+  @@index([action, createdAt])
   @@index([summary(ops: raw("gin_trgm_ops"))], type: Gin, map: "audit_logs_summary_trgm_idx")
   @@map("audit_logs")
 }
@@ -1787,4 +1805,17 @@ model DeductionEntry {
   @@unique([violationId, kind])
   @@index([month, userId])
   @@map("deduction_entries")
+}
+
+/// A team of employees (for the "team records" data scope).
+model Team {
+  id        String   @id @default(cuid())
+  name      String
+  nameAr    String?
+  isActive  Boolean  @default(true)
+  members   User[]   @relation("TeamMembers")
+  createdAt DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt DateTime @updatedAt @db.Timestamptz(3)
+
+  @@map("teams")
 }

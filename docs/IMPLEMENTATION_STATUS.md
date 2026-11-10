@@ -191,3 +191,54 @@ Found and fixed while testing:
 - **Costs wiped on edit.** Someone who may not see costs editing a draft would have cleared the costs already on it. Those costs are now kept.
 - **Stocktake snapshot.** Where the warehouse allows negative stock, the snapshot can hold a negative system quantity, so the check constraint now covers only counted quantities. This was changed before the migration left the development database.
 
+
+### Individual permissions, data scopes and the audit log (2026-11-10)
+
+Branch `claude/kind-galileo-lewq66`, restarted from `main` after #17. The audit and plan are in
+[PERMISSIONS_AUDIT_PLAN.md](PERMISSIONS_AUDIT_PLAN.md); how it works in
+[modules/PERMISSIONS.md](modules/PERMISSIONS.md) and [modules/AUDIT_LOG.md](modules/AUDIT_LOG.md).
+
+- **Migration (additive):** `20261110090000_permissions_teams_audit_context`: 4 nullable or defaulted
+  columns on `users` (`permissionGrants`, `permissionDenies`, `dataScopes`, `teamId`), 3 nullable
+  columns on `audit_logs` (`module`, `reason`, `context`), a new `teams` table, 3 indexes, one foreign
+  key (`ON DELETE SET NULL`), a trigger refusing team deletes and a statement trigger refusing
+  `TRUNCATE` of `audit_logs`. No existing row, column, constraint or trigger changes; the rollback is
+  in the file.
+- **Database checks:** applied with `migrate deploy` to the development database (existing data
+  kept, `migrate status`: up to date) and to three new, empty databases; `migrate diff` between a
+  fresh database and the schema: no difference. The seed runs on a fresh database.
+- **Compatibility:** role defaults are unchanged; rights split out of broader ones
+  (`appointments.create` / `.cancel` / `.assign` / `.export`, `reports.export`, `finance.export`,
+  `products.export`) are implied by the old ones, and default scopes reproduce the old fixed rules,
+  so nobody gained or lost access by the upgrade. The role test was extended for the implied rights;
+  no existing expectation was removed.
+
+| Check | Result |
+|---|---|
+| `npm run lint` | No errors |
+| `npm run typecheck` | No errors |
+| `npm test` (unit and integration) | 45 files, **364 / 364 passed**. 36 new: 11 registry and effective-permission unit tests, 13 service tests (escalation, stored difference, templates, copy, reset, view-only users, separate assign / cancel, own and team scopes in bookings, customers, leaves and expenses, append-only and `TRUNCATE` refused, corrections, sanitiser, check-in entries), 12 API tests through the real route handlers (401 / 403 for every non-Admin, self-change refused, Admin-only rights written into the database still refused, changes applied on the next request, changed ids answer 404, team scope and deactivated teams, exports, sign-in / failure / lockout / sign-out entries with request context and no password). |
+| `npm run build` | Succeeded |
+| `npm run test:e2e` | **48 / 48 passed** on a freshly migrated and seeded database (run on three fresh databases during the work, 48 / 48 each). 3 new: the permission matrix narrows a Sales employee, the server refuses their booking and the hand-made API calls, the audit log shows the change with its reason and request; the Admin's own matrix is locked and a correction is added through the dialog; the screen in Arabic, right to left, at phone width without horizontal scrolling. |
+
+Found and fixed while testing:
+- **Accountants lost the receipts.** Prisma treats an empty condition inside `OR` as matching
+  nothing, so "all records" put inside an `OR` hid every expense. Scope helpers now return no
+  condition at all for "all".
+- **Decimal values in change sets.** The first secret sanitiser copied Prisma `Decimal` values into
+  plain objects; it now only walks plain objects and arrays.
+- **Renaming a team cleared its Arabic name.** A change without `nameAr` now leaves it as it is.
+- **A deactivated team still gave team visibility.** The session now resolves the team only while it
+  is active.
+- **Header actions pushed out by a long description** (the audit page's *Export CSV* sat 28 px past
+  the content edge at 1440 px). Header actions now keep their width, up to half the row; measured on
+  every page with header actions, in Arabic and English, at 1440, 1024 and 768 px: none outside the
+  header.
+
+Known, not changed here:
+- Running the browser suite a **second time on the same database on the same day** fails
+  `e2e/field.spec.ts` and `e2e/expenses-car.spec.ts`: `e2e/attendance.spec.ts` (last in the run)
+  clocks the same technician out, so the next run finds the day already closed. CI and the checks
+  above use a fresh database.
+- At 1024 px the filter bars of the product, stock, stock document and movement lists are wider
+  than the page (86–277 px); this predates this work.

@@ -1,5 +1,6 @@
 import type { Role, User } from "@prisma/client";
 import { prisma } from "@/server/db";
+import { scopesFor } from "@/lib/permission-registry";
 import { permissionsFor } from "@/lib/permissions";
 import type { CurrentUser } from "@/server/auth/session";
 import { DEFAULT_SETTINGS } from "@/server/services/settings";
@@ -8,11 +9,15 @@ import type { SettingsValues } from "@/lib/validation";
 export { prisma };
 
 export async function resetDb() {
-  await prisma.$executeRawUnsafe(
-    `TRUNCATE TABLE deduction_entries, violation_events, violations, penalty_rules, work_reviews, evidence_rules, attendance_reviews, work_locations, sales_invoice_lines, sales_invoices, suppliers, product_images, stocktake_lines, product_serials, inventory_movements, stock_document_lines, stock_documents, stocktakes, document_sequences,
+  // audit_logs refuses TRUNCATE unless the transaction allows it explicitly (test database only).
+  await prisma.$transaction(async (tx) => {
+    await tx.$queryRawUnsafe(`SELECT set_config('ims.allow_audit_truncate', 'on', true)`);
+    await tx.$executeRawUnsafe(
+    `TRUNCATE TABLE teams, deduction_entries, violation_events, violations, penalty_rules, work_reviews, evidence_rules, attendance_reviews, work_locations, sales_invoice_lines, sales_invoices, suppliers, product_images, stocktake_lines, product_serials, inventory_movements, stock_document_lines, stock_documents, stocktakes, document_sequences,
       stock_balances, warehouse_bins, warehouses, products, brands, catalog_categories, slot_holds, transport_expenses, alerts_sent, technician_positions, check_ins, maintenance_calls, complaints, attachments, notifications, audit_logs, stock_movements, stock_items, product_models, cash_custody, technician_leaves, appointment_technicians, appointments, customer_locations, customers,
       password_tokens, sessions, login_attempts, settings, appointment_statuses, users RESTART IDENTITY CASCADE`,
-  );
+    );
+  });
 }
 
 export async function seedStatuses() {
@@ -52,6 +57,7 @@ export async function makeUser(role: Role, overrides: Partial<User> = {}): Promi
 /** The user as the services see them; English by default so messages in assertions are stable. */
 export function asCurrent(user: User, settings: Partial<SettingsValues> = {}, locale: "ar" | "en" = "en"): CurrentUser {
   const s = { ...DEFAULT_SETTINGS, ...settings };
+  const permissions = permissionsFor(user, s);
   return {
     id: user.id,
     name: user.name,
@@ -60,7 +66,10 @@ export function asCurrent(user: User, settings: Partial<SettingsValues> = {}, lo
     color: user.color,
     isActive: user.isActive,
     viewerPermissions: user.viewerPermissions,
-    permissions: [...permissionsFor(user, s)],
+    permissions: [...permissions],
+    // The same computation as the session (src/server/auth/session.ts).
+    scopes: scopesFor({ role: user.role, permissions }, user.dataScopes),
+    teamId: user.teamId,
     settings: s,
     sessionId: "test",
     locale,

@@ -20,6 +20,9 @@ export function AppointmentActions({
   statusKind,
   statuses,
   tz,
+  canEdit = true,
+  canCancel = true,
+  canCreate = true,
 }: {
   id: string;
   version: number;
@@ -27,6 +30,12 @@ export function AppointmentActions({
   statusKind: string;
   statuses: StatusDTO[];
   tz: string;
+  /** appointments.manage on this booking (edit, reschedule, status). */
+  canEdit?: boolean;
+  /** appointments.cancel on this booking. */
+  canCancel?: boolean;
+  /** appointments.create (follow-up booking). */
+  canCreate?: boolean;
 }) {
   const t = useT();
   const router = useRouter();
@@ -82,19 +91,27 @@ export function AppointmentActions({
 
   return (
     <>
-      <ButtonLink href={`/appointments/${id}/edit`} variant="outline">
-        <Pencil className="h-4 w-4" /> {t("common.edit")}
-      </ButtonLink>
-      <ButtonLink href={`/appointments/${id}/edit#schedule`} variant="outline">
-        <CalendarClock className="h-4 w-4" /> {t("actions.reschedule")}
-      </ButtonLink>
-      <ButtonLink href={`/appointments/new?followUp=${id}`} variant="outline">
-        <CalendarPlus className="h-4 w-4" /> {t("actions.followUp")}
-      </ButtonLink>
-      <Button variant="outline" onClick={() => { setError(null); setNewStatus(statusId); setStatusOpen(true); }}>
-        <RefreshCw className="h-4 w-4" /> {t("actions.changeStatus")}
-      </Button>
-      {statusKind !== "CANCELLED" && (
+      {canEdit && (
+        <>
+          <ButtonLink href={`/appointments/${id}/edit`} variant="outline">
+            <Pencil className="h-4 w-4" /> {t("common.edit")}
+          </ButtonLink>
+          <ButtonLink href={`/appointments/${id}/edit#schedule`} variant="outline">
+            <CalendarClock className="h-4 w-4" /> {t("actions.reschedule")}
+          </ButtonLink>
+        </>
+      )}
+      {canCreate && (
+        <ButtonLink href={`/appointments/new?followUp=${id}`} variant="outline">
+          <CalendarPlus className="h-4 w-4" /> {t("actions.followUp")}
+        </ButtonLink>
+      )}
+      {canEdit && (
+        <Button variant="outline" onClick={() => { setError(null); setNewStatus(statusId); setStatusOpen(true); }}>
+          <RefreshCw className="h-4 w-4" /> {t("actions.changeStatus")}
+        </Button>
+      )}
+      {canCancel && statusKind !== "CANCELLED" && (
         <Button variant="ghost" className="text-danger hover:bg-danger-soft hover:text-danger" onClick={() => { setError(null); setCancelOpen(true); }}>
           <Ban className="h-4 w-4" /> {t("common.cancel")}
         </Button>

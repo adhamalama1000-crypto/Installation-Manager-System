@@ -1,9 +1,11 @@
 import { apiRoute } from "@/server/http";
+import { recordExport } from "@/server/services/audit";
 import { financeCsv, parseMonth } from "@/server/services/payments";
 
 export const GET = apiRoute(async ({ req, user }) => {
   const month = parseMonth(new URL(req.url).searchParams.get("month"), user.settings.timezone);
   const csv = await financeCsv(user, month);
+  await recordExport(user, "finance", "FINANCE", { month });
   return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

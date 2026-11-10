@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { cache } from "react";
 import type { Role } from "@prisma/client";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, type Locale } from "@/i18n/config";
+import { scopesFor, type DataScope } from "@/lib/permission-registry";
 import { permissionsFor, type Permission } from "@/lib/permissions";
 import type { SettingsValues } from "@/lib/validation";
 import { prisma } from "../db";
@@ -21,6 +22,10 @@ export type CurrentUser = {
   isActive: boolean;
   viewerPermissions: string[];
   permissions: Permission[];
+  /** Data scope per scoped module (configured by an Admin, else the role default; Admin: ALL). */
+  scopes: Record<string, DataScope>;
+  /** The person's team ("team records" scope); null = no team. */
+  teamId: string | null;
   settings: SettingsValues;
   sessionId: string;
   /** Interface language of this request: the language cookie, else the saved preference, else Arabic. */
@@ -111,6 +116,10 @@ type SessionRow = {
   color: string | null;
   isActive: boolean;
   viewerPermissions: string[];
+  permissionGrants: string[] | null;
+  permissionDenies: string[] | null;
+  dataScopes: unknown;
+  teamId: string | null;
   settings: unknown;
 };
 
@@ -121,6 +130,9 @@ export async function userFromToken(token: string | undefined | null, cookieLoca
   // Runs on every request, so session, user and settings come back in ONE round trip.
   const rows = await prisma.$queryRaw<SessionRow[]>`
     SELECT s."expiresAt", s."lastSeenAt", u.id, u.name, u.email, u.role, u.color, u."isActive", u."viewerPermissions",
+           u."permissionGrants", u."permissionDenies", u."dataScopes",
+           -- A deactivated team no longer gives anyone "team" visibility.
+           (SELECT t.id FROM teams t WHERE t.id = u."teamId" AND t."isActive") AS "teamId",
            (SELECT value FROM settings WHERE key = 'general') AS settings
     FROM sessions s JOIN users u ON u.id = s."userId"
     WHERE s.id = ${id}`;
@@ -135,6 +147,7 @@ export async function userFromToken(token: string | undefined | null, cookieLoca
     await prisma.session.update({ where: { id }, data: { lastSeenAt: new Date() } }).catch(() => undefined);
   }
   const settings = parseSettings(u.settings);
+  const permissions = permissionsFor(u, settings);
   return {
     id: u.id,
     name: u.name,
@@ -143,7 +156,9 @@ export async function userFromToken(token: string | undefined | null, cookieLoca
     color: u.color,
     isActive: u.isActive,
     viewerPermissions: u.viewerPermissions,
-    permissions: [...permissionsFor(u, settings)],
+    permissions: [...permissions],
+    scopes: scopesFor({ role: u.role, permissions }, u.dataScopes),
+    teamId: u.teamId,
     settings,
     sessionId: id,
     // The cookie decides (sign-in sets it from the saved preference), so pages and APIs agree.

@@ -1,7 +1,7 @@
 import { availabilitySchema, fieldErrorsFromZod } from "@/lib/validation";
 import { computeEnd, zonedToUtc } from "@/lib/time";
 import { prisma } from "@/server/db";
-import { assertCan } from "@/server/access";
+import { assertCanAny } from "@/server/access";
 import { ValidationError } from "@/server/errors";
 import { apiRoute, readJson } from "@/server/http";
 import { technicianAvailability } from "@/server/services/scheduling";
@@ -10,7 +10,7 @@ import { areaGeo } from "@/lib/areas";
 
 /** Live availability of all active technicians for a proposed slot (booking form). */
 export const POST = apiRoute(async ({ req, user }) => {
-  assertCan(user, "appointments.manage");
+  assertCanAny(user, "appointments.create", "appointments.manage");
   const parsed = availabilitySchema.safeParse(await readJson(req));
   if (!parsed.success) throw new ValidationError(fieldErrorsFromZod(parsed.error));
   const settings = user.settings; // loaded with the session for this request

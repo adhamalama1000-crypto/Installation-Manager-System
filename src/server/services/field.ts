@@ -8,7 +8,7 @@ import { checkInSchema, fieldErrorsFromZod, geoSchema, type SettingsValues } fro
 import { areaGeo } from "@/lib/areas";
 import type { CheckInDTO } from "@/lib/types";
 import { prisma, type Tx } from "../db";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { appointmentScope, assertCan, hasPermission, peopleScope } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { moneyParam } from "../i18n-params";
@@ -148,6 +148,20 @@ export async function insertCheckIn(
       createdAt: now,
     },
   });
+  // Every check-in is in the audit log: attendance (company, leaving, the car) and the visit's
+  // stages. The clock page records its own entry with the photo and the place.
+  if (!extra.attendance) {
+    const attendanceKind = kind === "COMPANY" || kind === "LEAVE" || kind.startsWith("CAR_");
+    await recordAudit(tx, {
+      entityType: attendanceKind ? "ATTENDANCE" : "APPOINTMENT",
+      entityId: attendanceKind ? row.id : (visit?.id ?? row.id),
+      appointmentId: visit?.id ?? null,
+      action: `CHECK_IN_${kind}`,
+      summary: msg("attendanceAudit.checkIn", { name: user.name, kind: `@field.stage.${kind}`, time: timeKey(now, tz) }),
+      changes: { checkIn: row.id, kind, latitude: geo?.lat ?? null, longitude: geo?.lng ?? null, accuracyM: row.accuracyM, distanceM: distance, far, lateMinutes: late, earlyMinutes: early },
+      actorId: user.id,
+    });
+  }
   if (geo && kind !== "LEAVE" && kind !== "CAR_BACK") {
     await tx.technicianPosition.upsert({
       where: { userId: user.id },
@@ -594,7 +608,7 @@ export async function attendance(user: CurrentUser, monthRaw: string | undefined
   const last = addDaysToKey(addMonthsToKey(startOfMonthKey(first), 1), -1);
   const range = dayRangeUtc(first, last, tz);
   const techWhere: Prisma.UserWhereInput = all
-    ? { role: { in: ["TECHNICIAN", "DRIVER"] }, OR: [{ isActive: true }, { checkIns: { some: { day: { gte: dbDate(first), lte: dbDate(last) } } } }] }
+    ? { AND: [{ role: { in: ["TECHNICIAN", "DRIVER"] }, OR: [{ isActive: true }, { checkIns: { some: { day: { gte: dbDate(first), lte: dbDate(last) } } } }] }, peopleScope(user, "attendance")] }
     : { id: user.id };
   const [techs, checkIns, leaves, visits, complaints] = await Promise.all([
     prisma.user.findMany({ where: techWhere, select: { id: true, name: true }, orderBy: { name: "asc" } }),

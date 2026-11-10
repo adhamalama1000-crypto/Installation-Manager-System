@@ -4,12 +4,21 @@
  * actions the server would refuse anyway).
  */
 import type { Role } from "@prisma/client";
+import { ADMIN_ONLY_PERMISSIONS, viewerMayHold } from "./permission-registry";
 
 export const PERMISSIONS = [
   /** See appointments. Technicians are additionally restricted to their own assignments. */
   "appointments.view",
-  /** Create, edit, reschedule, assign technicians, change status, cancel. */
+  /** Edit and reschedule bookings, change their status (and the booking-office tools: day plan, quotes). */
   "appointments.manage",
+  /** Book new appointments. */
+  "appointments.create",
+  /** Cancel (archive) bookings, with a reason. */
+  "appointments.cancel",
+  /** Assign and change the technicians of a booking. */
+  "appointments.assign",
+  /** Export the appointment list (CSV). */
+  "appointments.export",
   /** Customer directory pages. */
   "customers.view",
   /** Customer phone numbers. */
@@ -30,12 +39,19 @@ export const PERMISSIONS = [
   "finance.view",
   /** Confirm that cash a technician collected was handed over. */
   "cash.receive",
+  /** Export the monthly finance statement (CSV). */
+  "finance.export",
   /** Stock by serial number. Technicians only see the items they hold. */
   "stock.view",
   /** Register goods in, hand items to technicians, take them back, mark returned / faulty; models and warranty. */
   "stock.manage",
+  /** Reports pages. */
   "reports.view",
+  /** Export reports (CSV). */
+  "reports.export",
+  /** Users, roles, individual permissions, data scopes and teams (Admin only). */
   "users.manage",
+  /** System settings (Admin only). */
   "settings.manage",
   /** System-wide audit log. */
   "audit.view",
@@ -66,6 +82,8 @@ export const PERMISSIONS = [
   "products.view",
   /** Create and edit products, units, categories and brands. */
   "products.manage",
+  /** Export the product catalogue (Excel). */
+  "products.export",
   /** Warehouses, technicians' vehicles and bins (read). */
   "warehouses.view",
   /** Create and edit warehouses, vehicles and bins, including the negative-stock policy. */
@@ -146,10 +164,62 @@ export type PermissionSubject = {
   role: Role;
   viewerPermissions?: string[] | null;
   isActive?: boolean;
+  /** Individual permissions added to the role's (set by an Admin on the permission screen). */
+  permissionGrants?: string[] | null;
+  /** Individual permissions removed from the role's. */
+  permissionDenies?: string[] | null;
 };
 
+const ALL = new Set<string>(PERMISSIONS);
+
+/**
+ * Actions that got their own permission later are implied by the permission that covered them
+ * before, in the role defaults only, so nobody gains or loses anything by the change; an Admin can
+ * still remove each one individually.
+ */
+const IMPLIED: [Permission, Permission[]][] = [
+  ["appointments.manage", ["appointments.create", "appointments.cancel", "appointments.assign"]],
+  ["appointments.view", ["appointments.export"]],
+  ["reports.view", ["reports.export"]],
+  ["finance.view", ["finance.export"]],
+  ["products.view", ["products.export"]],
+];
+
+/** What a role has before any individual change (the template the permission screen starts from). */
+export function roleDefaults(user: Pick<PermissionSubject, "role" | "viewerPermissions">, settings: PermissionSettings): Set<Permission> {
+  const base = roleBase(user, settings);
+  for (const [from, to] of IMPLIED) if (base.has(from)) for (const p of to) base.add(p);
+  return base;
+}
+
+/**
+ * Effective permissions: the role's, plus the individual grants, minus the individual denials.
+ * Admins always have everything. Admin-only permissions (users, settings, audit log) are never
+ * given to anyone else, and a Viewer only ever holds view and export permissions, whatever is
+ * stored. Inactive users have none.
+ */
 export function permissionsFor(user: PermissionSubject, settings: PermissionSettings): Set<Permission> {
   if (user.isActive === false) return new Set();
+  if (user.role === "ADMIN") return new Set(PERMISSIONS);
+  const out = roleDefaults(user, settings);
+  for (const g of user.permissionGrants ?? []) if (ALL.has(g)) out.add(g as Permission);
+  for (const d of user.permissionDenies ?? []) out.delete(d as Permission);
+  for (const p of ADMIN_ONLY_PERMISSIONS) out.delete(p);
+  if (user.role === "VIEWER") for (const p of [...out]) if (!viewerMayHold(p)) out.delete(p);
+  return out;
+}
+
+/** The individual changes that turn a role's defaults into the wanted set (what is stored). */
+export function overridesFor(user: Pick<PermissionSubject, "role" | "viewerPermissions">, settings: PermissionSettings, wanted: Iterable<string>): { grants: Permission[]; denies: Permission[] } {
+  const base = roleDefaults(user, settings);
+  const want = new Set([...wanted].filter((p) => ALL.has(p)));
+  return {
+    grants: PERMISSIONS.filter((p) => want.has(p) && !base.has(p)),
+    denies: PERMISSIONS.filter((p) => base.has(p) && !want.has(p)),
+  };
+}
+
+function roleBase(user: Pick<PermissionSubject, "role" | "viewerPermissions">, settings: PermissionSettings): Set<Permission> {
   switch (user.role) {
     case "ADMIN":
       return new Set(PERMISSIONS);

@@ -6,7 +6,7 @@ import { appointmentCode } from "@/lib/constants";
 import { addDaysToKey, addMonthsToKey, dayRangeUtc, startOfMonthKey, todayKey } from "@/lib/time";
 import { fieldErrorsFromZod, optionalText } from "@/lib/validation";
 import { prisma } from "../db";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { appointmentScope, assertCan, hasPermission, inPeopleScope, peopleScope } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors";
 import { moneyParam } from "../i18n-params";
@@ -102,8 +102,8 @@ export async function addExpense(user: CurrentUser, raw: unknown, now: Date = ne
 
 async function ownPending(user: CurrentUser, id: string) {
   if (typeof id !== "string" || id.length > 64) throw new NotFoundError();
-  const e = await prisma.transportExpense.findUnique({ where: { id } });
-  if (!e || (e.userId !== user.id && !hasPermission(user, "expenses.pay"))) throw new NotFoundError();
+  const e = await prisma.transportExpense.findFirst({ where: { AND: [{ id }, visibleExpenses(user)] } });
+  if (!e) throw new NotFoundError();
   if (e.userId !== user.id) throw new ForbiddenError();
   if (e.status !== "PENDING") throw new ValidationError({ _form: msg("expenses.errors.notPending") }, msg("expenses.errors.notPending"));
   return e;
@@ -131,8 +131,8 @@ export async function addReceipt(user: CurrentUser, id: string, bytes: Uint8Arra
 
 export async function readReceipt(user: CurrentUser, id: string): Promise<{ bytes: Buffer; contentType: string }> {
   if (typeof id !== "string" || id.length > 64) throw new NotFoundError();
-  const e = await prisma.transportExpense.findUnique({ where: { id }, select: { userId: true, receiptKey: true, receiptContentType: true } });
-  if (!e || !e.receiptKey || (e.userId !== user.id && !hasPermission(user, "expenses.pay"))) throw new NotFoundError();
+  const e = await prisma.transportExpense.findFirst({ where: { AND: [{ id }, visibleExpenses(user)] }, select: { userId: true, receiptKey: true, receiptContentType: true } });
+  if (!e || !e.receiptKey) throw new NotFoundError();
   return { bytes: await readStoredFile(e.receiptKey), contentType: e.receiptContentType! };
 }
 
@@ -162,14 +162,25 @@ function monthRange(month: string) {
 
 export type ExpenseSummary = { user: { id: string; name: string }; total: number; pending: number; count: number };
 
-/** A month of expenses: everyone's for the accountant, otherwise the reader's own. */
+/**
+ * The expenses the reader may see: their own, and with `expenses.pay` those of the people in their
+ * expenses scope (everyone's by default for the accountant; own / team when an Admin narrows it).
+ */
+function visibleExpenses(user: CurrentUser): Prisma.TransportExpenseWhereInput {
+  if (!hasPermission(user, "expenses.pay")) return { userId: user.id };
+  const people = peopleScope(user, "expenses");
+  // An empty filter inside OR matches nothing in Prisma: "everyone" must be no condition at all.
+  return Object.keys(people).length ? { OR: [{ userId: user.id }, { user: people }] } : {};
+}
+
+/** A month of expenses: everyone's (in scope) for the accountant, otherwise the reader's own. */
 export async function listExpenses(user: CurrentUser, monthRaw?: string, now: Date = new Date()) {
   const all = hasPermission(user, "expenses.pay");
   if (!all) assertCan(user, "expenses.record");
   const month = /^\d{4}-(0[1-9]|1[0-2])$/.test(monthRaw ?? "") ? monthRaw! : todayKey(user.settings.timezone, now).slice(0, 7);
   const { first, last } = monthRange(month);
   const rows = await prisma.transportExpense.findMany({
-    where: { day: { gte: dbDate(first), lte: dbDate(last) }, ...(all ? {} : { userId: user.id }) },
+    where: { AND: [{ day: { gte: dbDate(first), lte: dbDate(last) } }, visibleExpenses(user)] },
     include,
     orderBy: [{ day: "desc" }, { createdAt: "desc" }],
   });
@@ -197,6 +208,9 @@ export async function payExpenses(user: CurrentUser, raw: unknown, now: Date = n
   const { userId, month } = parsed.data;
   const { first, last } = monthRange(month);
   return prisma.$transaction(async (tx) => {
+    // Only people inside the payer's expenses scope.
+    const target = await tx.user.findUnique({ where: { id: userId }, select: { id: true, teamId: true } });
+    if (!target || !inPeopleScope(user, "expenses", target)) throw new NotFoundError();
     const pending = await tx.transportExpense.findMany({ where: { userId, status: "PENDING", day: { gte: dbDate(first), lte: dbDate(last) } }, select: { id: true, amount: true } });
     if (!pending.length) return { count: 0, total: 0 };
     const total = pending.reduce((s, e) => s + e.amount.toNumber(), 0);

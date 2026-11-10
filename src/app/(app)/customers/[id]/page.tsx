@@ -35,7 +35,7 @@ export default async function CustomerPage({ params }: { params: Promise<{ id: s
         title={c.name}
         description={t("customers.since", { date: shortDate(c.createdAt, tz, L) })}
         actions={
-          user.permissions.includes("appointments.manage") && (
+          user.permissions.includes("appointments.create") && (
             <ButtonLink href="/appointments/new">
               <Plus className="h-4 w-4" /> {t("nav.newAppointment")}
             </ButtonLink>

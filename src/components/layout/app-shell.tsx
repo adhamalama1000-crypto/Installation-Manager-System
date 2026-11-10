@@ -88,7 +88,7 @@ function SidebarContent({ user, onNavigate }: { user: ShellUser; onNavigate?: ()
   const nav = all.filter((i) => !i.group);
   const inventoryNav = all.filter((i) => i.group === "inventory");
   const inventoryHeading = useId();
-  const canCreate = user.permissions.includes("appointments.manage");
+  const canCreate = user.permissions.includes("appointments.create");
   const navLink = ({ href, label, icon: Icon }: (typeof all)[number]) => {
     const active = isActive(pathname, href);
     return (
@@ -208,7 +208,7 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
           <span className="text-sm font-semibold">{t("app.short")}</span>
         </Link>
         <div className="ms-auto flex items-center gap-2">
-          {user.permissions.includes("appointments.manage") && (
+          {user.permissions.includes("appointments.create") && (
             <Link
               href="/appointments/new"
               className="hidden h-9 items-center gap-1.5 rounded-lg bg-brand-strong px-3 text-sm font-medium text-white hover:bg-brand-stronger sm:flex lg:hidden"

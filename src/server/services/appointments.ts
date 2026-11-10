@@ -105,8 +105,13 @@ const TX_OPTIONS = { timeout: 20_000, maxWait: 10_000 };
 // Serialisation (with per-permission redaction)
 // ---------------------------------------------------------------------------------------------
 
-export function canManageAppointment(user: CurrentUser, appt: { createdById: string }): boolean {
-  if (!hasPermission(user, "appointments.manage")) return false;
+/**
+ * Whether the reader may change this booking with the given permission (edit by default; cancel
+ * uses `appointments.cancel`): the permission, and the booking is theirs unless Sales may edit
+ * each other's bookings (a setting) or they are an Admin.
+ */
+export function canManageAppointment(user: CurrentUser, appt: { createdById: string }, permission: Permission = "appointments.manage"): boolean {
+  if (!hasPermission(user, permission)) return false;
   if (user.role === "ADMIN") return true;
   return user.settings.salesCanEditOthersAppointments || appt.createdById === user.id;
 }
@@ -188,6 +193,7 @@ export function toAppointmentDTO(a: AppointmentView, user: CurrentUser): Appoint
     updatedAt: a.updatedAt.toISOString(),
     version: a.version,
     canManage: canManageAppointment(user, a),
+    canCancel: canManageAppointment(user, a, "appointments.cancel"),
     canReport: canReportVisit(user, a),
     payment: paymentDTO(user, a, a.collectedBy, a.custody),
     installed: a.installed,
@@ -625,8 +631,10 @@ async function conflictErrorFor(technicianIds: string[], startsAt: Date, endsAt:
 }
 
 export async function createAppointment(user: CurrentUser, raw: unknown): Promise<AppointmentDTO> {
-  assertCan(user, "appointments.manage");
+  assertCan(user, "appointments.create");
   const input = parseInput(raw);
+  // Choosing the technicians is its own permission.
+  if (input.technicianIds.length && !hasPermission(user, "appointments.assign")) throw new ForbiddenError("appointmentErrors.assignNotAllowed");
   const settings = await getSettings();
   const tz = settings.timezone;
 
@@ -770,14 +778,14 @@ async function lockAppointmentRow(tx: Tx, id: string) {
   if (!rows.length) throw new NotFoundError("errors.appointmentNotFound");
 }
 
-/** Loads an appointment for modification, enforcing visibility, edit rights and optimistic locking. */
-async function loadForUpdate(tx: Tx, user: CurrentUser, id: string, version?: number) {
+/** Loads an appointment for modification, enforcing visibility, the action's right and optimistic locking. */
+async function loadForUpdate(tx: Tx, user: CurrentUser, id: string, version?: number, permission: Permission = "appointments.manage") {
   if (typeof id !== "string" || id.length > 64) throw new NotFoundError("errors.appointmentNotFound");
   await lockAppointmentRow(tx, id);
   const visible = await tx.appointment.findFirst({ where: { AND: [{ id }, appointmentScope(user)] }, select: { id: true } });
   if (!visible) throw new NotFoundError("errors.appointmentNotFound");
   const existing = await loadFull(tx, id);
-  if (!canManageAppointment(user, existing)) {
+  if (!canManageAppointment(user, existing, permission)) {
     throw new ForbiddenError("appointmentErrors.ownOnly");
   }
   if (version !== undefined && version !== existing.version) throw new StaleRecordError();
@@ -801,6 +809,8 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
       }
       if (dateKey(existing.startsAt, tz) !== input.date) assertNotPast(user, input.date, tz);
       const currentTechIds = existing.technicians.map((t) => t.technicianId);
+      const sameTeam = currentTechIds.length === input.technicianIds.length && currentTechIds.every((t) => input.technicianIds.includes(t));
+      if (!sameTeam && !hasPermission(user, "appointments.assign")) throw new ForbiddenError("appointmentErrors.assignNotAllowed");
       await validateTechnicians(tx, input.technicianIds, currentTechIds);
       await lockTechnicians(tx, [...currentTechIds, ...input.technicianIds]);
       if (status.blocksSchedule) {
@@ -971,14 +981,16 @@ async function applyStatusChange(
   version: number | undefined,
   note: string | null,
 ): Promise<AppointmentDTO> {
-  assertCan(user, "appointments.manage");
+  // Cancelling is its own permission (archive); other status changes are edits.
+  const permission: Permission = "kind" in statusIdOrKind ? "appointments.cancel" : "appointments.manage";
+  assertCan(user, permission);
   const settings = await getSettings();
   const tz = settings.timezone;
   // Filled inside the transaction; used to explain an overlap violation afterwards.
   const ctx: { techIds: string[]; startsAt?: Date; endsAt?: Date } = { techIds: [] };
   try {
     await prisma.$transaction(async (tx) => {
-      const existing = await loadForUpdate(tx, user, id, version);
+      const existing = await loadForUpdate(tx, user, id, version, permission);
       const techIds = existing.technicians.map((t) => t.technicianId);
       Object.assign(ctx, { techIds, startsAt: existing.startsAt, endsAt: existing.endsAt });
       const status =
