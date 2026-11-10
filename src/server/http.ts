@@ -7,7 +7,9 @@ import type { ApiErrorBody } from "@/lib/types";
 import { localeFromCookieHeader, type Locale } from "@/i18n/config";
 import { createT } from "@/i18n/translator";
 import { getUserFromRequest, type CurrentUser } from "./auth/session";
+import { clientIp } from "./auth/rate-limit";
 import { AppError, ForbiddenError, UnauthorizedError, ValidationError } from "./errors";
+import { contextFromRequest, runWithRequestContext } from "./request-context";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 const MAX_BODY_BYTES = 1_000_000;
@@ -115,7 +117,8 @@ export function apiRoute(handler: Handler) {
       const user = await getUserFromRequest(req);
       if (!user) throw new UnauthorizedError();
       const params = ctx?.params ? await ctx.params : {};
-      const result = await handler({ req, user, params });
+      // Every audit entry written while the handler runs records who called it and how.
+      const result = await runWithRequestContext(contextFromRequest(req, clientIp(req)), () => handler({ req, user, params }));
       if (result instanceof Response) return await compressed(req, result);
       if (req.method === "GET") return await compressed(req, jsonWithEtag(req, result ?? { ok: true }));
       return await compressed(req, NextResponse.json(result ?? { ok: true }, { headers: { "Cache-Control": "no-store" } }));
@@ -131,7 +134,7 @@ export function publicRoute(handler: (args: { req: Request; locale: Locale }) =>
     const locale = localeFromCookieHeader(req.headers.get("cookie"));
     try {
       assertSameOrigin(req);
-      const result = await handler({ req, locale });
+      const result = await runWithRequestContext(contextFromRequest(req, clientIp(req)), () => handler({ req, locale }));
       if (result instanceof Response) return result;
       return NextResponse.json(result ?? { ok: true }, { headers: { "Cache-Control": "no-store" } });
     } catch (error) {

@@ -1,4 +1,5 @@
 import { apiRoute } from "@/server/http";
+import { recordExport } from "@/server/services/audit";
 import { exportBalancesCsv, exportLedgerCsv } from "@/server/services/inventory-stock";
 
 /** Query: kind (balances | ledger) and the same filters as the lists. Needs inventory.reports. */
@@ -10,6 +11,7 @@ export const GET = apiRoute(async ({ req, user }) => {
     kind === "ledger"
       ? await exportLedgerCsv(user, { productId: get("productId"), warehouseId: get("warehouseId"), type: get("type"), q: get("q"), from: get("from"), to: get("to") })
       : await exportBalancesCsv(user, { view: get("view"), warehouseId: get("warehouseId"), q: get("q"), categoryId: get("categoryId"), low: get("low") });
+  await recordExport(user, kind, "INVENTORY", { kind, filters: Object.fromEntries(p) });
   return new Response(csv, {
     headers: {
       "Content-Type": "text/csv; charset=utf-8",

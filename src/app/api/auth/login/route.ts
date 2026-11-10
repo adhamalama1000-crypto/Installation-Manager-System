@@ -1,4 +1,6 @@
 import { NextResponse } from "next/server";
+import { msg } from "@/i18n/translator";
+import { recordAudit } from "@/server/services/audit";
 import { fieldErrorsFromZod, loginSchema } from "@/lib/validation";
 import { prisma } from "@/server/db";
 import { RateLimitError, UnauthorizedError, ValidationError } from "@/server/errors";
@@ -16,16 +18,29 @@ export const POST = publicRoute(async ({ req }) => {
   const { email, password } = parsed.data;
   const ip = clientIp(req);
 
-  if (await isLoginBlocked(email, ip)) throw new RateLimitError();
+  if (await isLoginBlocked(email, ip)) {
+    await recordAudit(prisma, { entityType: "AUTH", entityId: email.slice(0, 254), action: "LOGIN_BLOCKED", summary: msg("authAudit.loginBlocked", { email }), changes: { email }, actorId: null });
+    throw new RateLimitError();
+  }
 
   const user = await prisma.user.findUnique({ where: { email } });
   const ok = await verifyPassword(password, user?.passwordHash);
   if (!user || !ok || !user.isActive) {
     await recordLoginAttempt(email, ip, false);
+    // The audit log says why (for the Admin); the person signing in gets one generic message.
+    await recordAudit(prisma, {
+      entityType: "AUTH",
+      entityId: user?.id ?? email.slice(0, 254),
+      action: "LOGIN_FAILED",
+      summary: msg("authAudit.loginFailed", { email }),
+      changes: { email, cause: !user ? "unknown account" : !ok ? "wrong password" : "inactive account" },
+      actorId: user?.id ?? null,
+    });
     // Same message for unknown email, wrong password and inactive account.
     throw new UnauthorizedError("auth.invalid");
   }
   await recordLoginAttempt(email, ip, true);
+  await recordAudit(prisma, { entityType: "AUTH", entityId: user.id, action: "LOGIN_SUCCEEDED", summary: msg("authAudit.loginSucceeded", { name: user.name }), changes: { email }, actorId: user.id });
   const { token, expiresAt } = await createSession(user.id, { userAgent: req.headers.get("user-agent"), ipAddress: ip });
   const res = NextResponse.json({ ok: true, user: { id: user.id, name: user.name, role: user.role } });
   res.cookies.set(sessionCookie(token, expiresAt, req));
