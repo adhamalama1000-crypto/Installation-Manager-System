@@ -1,10 +1,12 @@
-import { Palette, SlidersHorizontal, Tags } from "lucide-react";
+import { Palette, ShieldCheck, SlidersHorizontal, Tags } from "lucide-react";
+import { EvidenceRules } from "@/components/settings/evidence-rules";
 import { GeneralSettings } from "@/components/settings/general-settings";
 import { SalesColors } from "@/components/settings/sales-colors";
 import { StatusesManager } from "@/components/settings/statuses-manager";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { PageHeader } from "@/components/ui/misc";
 import { requirePagePermission } from "@/server/auth/session";
+import { listEvidenceRules } from "@/server/services/evidence";
 import { getSettings } from "@/server/services/settings";
 import { listStatuses } from "@/server/services/statuses";
 import { salesPeople } from "@/server/services/users";
@@ -16,8 +18,8 @@ export async function generateMetadata(): Promise<Metadata> {
 }
 
 export default async function SettingsPage() {
-  const [, t] = await Promise.all([requirePagePermission("settings.manage"), getT()]);
-  const [settings, statuses, people] = await Promise.all([getSettings(), listStatuses(t.locale), salesPeople({ includeInactive: true })]);
+  const [user, t] = await Promise.all([requirePagePermission("settings.manage"), getT()]);
+  const [settings, statuses, people, evidenceRules] = await Promise.all([getSettings(), listStatuses(t.locale), salesPeople({ includeInactive: true }), listEvidenceRules(user)]);
   return (
     <>
       <PageHeader title={t("nav.settings")} description={t("settings.text")} />
@@ -27,6 +29,10 @@ export default async function SettingsPage() {
           <CardBody>
             <GeneralSettings initial={settings} />
           </CardBody>
+        </Card>
+        <Card>
+          <CardHeader title={t("evidence.rules.title")} description={t("evidence.rules.text")} icon={<ShieldCheck className="h-4 w-4" />} />
+          <EvidenceRules rules={evidenceRules} />
         </Card>
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
           <Card>

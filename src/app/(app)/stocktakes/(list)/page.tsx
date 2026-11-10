@@ -86,7 +86,7 @@ export default async function StocktakesPage({ searchParams }: { searchParams: P
                 {result.rows.map((s) => (
                   <tr key={s.id} className="hover:bg-surface-muted/50">
                     <td className="px-4 py-2.5">
-                      <Link href={`/stocktakes/${s.id}`} className="font-mono font-semibold text-brand-text hover:underline">
+                      <Link prefetch={false} href={`/stocktakes/${s.id}`} className="font-mono font-semibold text-brand-text hover:underline">
                         <bdi>{s.number}</bdi>
                       </Link>
                     </td>

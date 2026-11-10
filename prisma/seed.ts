@@ -358,11 +358,11 @@ async function main() {
 async function seedInventory(managerId: string, karimId: string) {
   const year = Number(dayKey(0).slice(0, 4));
   const docDate = new Date(`${dayKey(-7)}T00:00:00.000Z`);
-  const cat = async (nameEn: string, nameAr: string, parentId: string | null = null) => (await prisma.catalogCategory.create({ data: { nameEn, nameAr, parentId } })).id;
-  const locks = await cat("Smart locks", "أقفال ذكية");
+  const cat = async (nameEn: string, nameAr: string, parentId: string | null = null, code: string | null = null) => (await prisma.catalogCategory.create({ data: { nameEn, nameAr, parentId, code } })).id;
+  const locks = await cat("Smart locks", "أقفال ذكية", null, "LCK");
   const fingerprint = await cat("Fingerprint locks", "أقفال بصمة", locks);
-  const smartHome = await cat("Smart home", "سمارت هوم");
-  const cctv = await cat("CCTV", "كاميرات مراقبة");
+  const smartHome = await cat("Smart home", "سمارت هوم", null, "SMH");
+  const cctv = await cat("CCTV", "كاميرات مراقبة", null, "CAM");
   const cables = await cat("Cables & accessories", "كابلات وإكسسوارات");
   const brand = async (name: string) => (await prisma.brand.create({ data: { name } })).id;
   const [yale, aqara, hik] = [await brand("Yale"), await brand("Aqara"), await brand("Hikvision")];
@@ -377,6 +377,15 @@ async function seedInventory(managerId: string, karimId: string) {
   for (const { qty, ...p } of products) {
     const row = await prisma.product.create({ data: { ...p, averageCost: p.purchaseCost, createdById: managerId } });
     created.push({ id: row.id, sku: p.sku, cost: p.purchaseCost, qty, serials: p.trackSerials ? Array.from({ length: qty }, (_, i) => `YL2-${year}-${String(i + 1).padStart(4, "0")}`) : [] });
+  }
+  // A product with colour variants: stock is kept per colour (the product itself holds none).
+  const shared = { categoryId: fingerprint, brandId: yale, model: "Model X", unitId: "unit-pcs", warrantyMonths: 24, trackSerials: true, createdById: managerId };
+  const modelX = await prisma.product.create({ data: { ...shared, sku: "LCK-00001", nameEn: "Smart Lock Model X", nameAr: "قفل ذكي موديل X", purchaseCost: 4200, sellingPrice: 5900, hasVariants: true } });
+  for (const [en, ar, color, qty] of [["Black", "أسود", "#1F1F1F", 2], ["Silver", "فضي", "#C0C0C0", 1], ["Gold", "ذهبي", "#C9A227", 0]] as const) {
+    const v = await prisma.product.create({
+      data: { ...shared, sku: `LCK-00001-${en.toUpperCase()}`, nameEn: `Smart Lock Model X - ${en}`, nameAr: `قفل ذكي موديل X - ${ar}`, parentId: modelX.id, variantNameEn: en, variantNameAr: ar, colorHex: color, purchaseCost: 4200, sellingPrice: 5900, averageCost: 4200, minStock: 1 },
+    });
+    if (qty) created.push({ id: v.id, sku: v.sku, cost: 4200, qty, serials: Array.from({ length: qty }, (_, i) => `SLX-${en.slice(0, 2).toUpperCase()}-${String(i + 1).padStart(3, "0")}`) });
   }
   const main = await prisma.warehouse.create({ data: { code: "MAIN", nameEn: "Main store", nameAr: "المخزن الرئيسي", kind: "WAREHOUSE", address: "Head office, New Cairo", createdById: managerId } });
   const binA = await prisma.warehouseBin.create({ data: { warehouseId: main.id, code: "A-01", name: "Locks shelf" } });
@@ -427,7 +436,7 @@ async function seedInventory(managerId: string, karimId: string) {
   }
   await prisma.stockDocument.update({ where: { id: transfer.id }, data: { status: "POSTED", postedAt: new Date(), postedById: managerId } });
   // Later documents continue the numbering.
-  await prisma.documentSequence.createMany({ data: [{ key: `OB-${year}`, lastNumber: 1 }, { key: `TRF-${year}`, lastNumber: 1 }], skipDuplicates: true });
+  await prisma.documentSequence.createMany({ data: [{ key: `OB-${year}`, lastNumber: 1 }, { key: `TRF-${year}`, lastNumber: 1 }, { key: "SKU:LCK", lastNumber: 1 }], skipDuplicates: true });
 }
 
 main()

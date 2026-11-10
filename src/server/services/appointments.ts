@@ -48,6 +48,7 @@ import {
 } from "../errors";
 import { diffValues, recordAudit } from "./audit";
 import { resolveComplaintsForVisit } from "./complaints";
+import { assertEvidenceAndSubmit } from "./evidence";
 import { insertCheckIn } from "./field";
 import { assertNotHeld, canBookInPast, releaseOwnHolds } from "./booking-helpers";
 import { localized, notifyUsers } from "./notifications";
@@ -1123,8 +1124,12 @@ export async function recordVisitOutcome(user: CurrentUser, id: string, raw: unk
       const installed = await installSerials(tx, user, existing, input.serials ?? [], settings.timezone, now);
       // Delivery rules from Settings apply when a technician marks the visit done (managers may
       // record a finished visit afterwards, as in Aura).
-      if (input.outcome === "COMPLETED" && existing.status.kind !== "COMPLETED" && !hasPermission(user, "appointments.manage")) {
-        await assertDelivered(tx, existing, settings, collection?.data ?? null);
+      if (input.outcome === "COMPLETED" && existing.status.kind !== "COMPLETED") {
+        const enforce = !hasPermission(user, "appointments.manage");
+        if (enforce) await assertDelivered(tx, existing, settings, collection?.data ?? null);
+        // Work evidence for this kind of visit (src/server/services/evidence.ts): refused while
+        // missing, and submitted for review when the rule asks for one.
+        await assertEvidenceAndSubmit(tx, user, existing, { customerConfirmed: input.customerConfirmed, customerName: input.customerName }, enforce);
       }
       if (status.id === existing.statusId && report === existing.visitReport && !collection && !installed.length) return;
       const techIds = existing.technicians.map((t) => t.technicianId);

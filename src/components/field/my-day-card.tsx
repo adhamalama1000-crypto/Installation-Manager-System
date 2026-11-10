@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Building2, LogOut, Trophy } from "lucide-react";
+import { Building2, Camera, LogOut, Trophy } from "lucide-react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
@@ -14,7 +14,7 @@ import { timeKey } from "@/lib/time";
 import type { CheckInDTO } from "@/lib/types";
 
 /** The technician's arrival at the company and departure for the day (Aura حضور / انصراف), and this month's points. */
-export function MyDayCard({ company, leave, tz, points }: { company: CheckInDTO | null; leave: CheckInDTO | null; tz: string; points: number | null }) {
+export function MyDayCard({ company, leave, tz, points, selfieRequired = false }: { company: CheckInDTO | null; leave: CheckInDTO | null; tz: string; points: number | null; selfieRequired?: boolean }) {
   const t = useT();
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
@@ -59,11 +59,20 @@ export function MyDayCard({ company, leave, tz, points }: { company: CheckInDTO 
           ) : undefined
         }
       />
+      <div className="px-5 pt-4">
+        <Link href="/attendance/clock" className="inline-flex items-center gap-1.5 text-sm font-medium text-brand-text hover:underline">
+          <Camera className="h-4 w-4" /> {t("clock.title")}
+        </Link>
+      </div>
       <div className="grid grid-cols-1 gap-3 p-5 sm:grid-cols-2">
         <div className="space-y-1">
           <p className="text-sm font-medium text-fg">{t("field.stage.COMPANY")}</p>
           {company ? (
             line(company)
+          ) : selfieRequired ? (
+            <Link href="/attendance/clock" className="flex h-10 w-full items-center justify-center gap-2 rounded-lg bg-brand-strong text-sm font-semibold text-white hover:bg-brand-stronger">
+              <Camera className="h-4 w-4" /> {t("clock.in")}
+            </Link>
           ) : (
             <Button className="w-full" loading={busy === "COMPANY"} disabled={busy !== null} onClick={() => checkIn("COMPANY")}>
               <Building2 className="h-4 w-4" /> {t("field.arriveCompany")}
@@ -74,6 +83,10 @@ export function MyDayCard({ company, leave, tz, points }: { company: CheckInDTO 
           <p className="text-sm font-medium text-fg">{t("field.stage.LEAVE")}</p>
           {leave ? (
             line(leave)
+          ) : selfieRequired ? (
+            <Link href="/attendance/clock" className="flex h-10 w-full items-center justify-center gap-2 rounded-lg border border-line-strong text-sm font-semibold hover:bg-surface-muted">
+              <Camera className="h-4 w-4" /> {t("clock.out")}
+            </Link>
           ) : (
             <Button variant="outline" className="w-full" loading={busy === "LEAVE"} disabled={!company || busy !== null} onClick={() => checkIn("LEAVE")}>
               <LogOut className="h-4 w-4 rtl:rotate-180" /> {t("field.leaveDay")}

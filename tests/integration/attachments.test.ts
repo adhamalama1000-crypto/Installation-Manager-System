@@ -71,7 +71,7 @@ describe("photos and signatures", () => {
     expect(forViewer.items.map((i) => i.kind)).toEqual(["BEFORE_PHOTO", "AFTER_PHOTO", "SIGNATURE"]);
     expect(forViewer.rights).toMatchObject({ BEFORE_PHOTO: false, AFTER_PHOTO: false, SIGNATURE: false });
     expect(forViewer.items.every((i) => !i.canDelete)).toBe(true);
-    expect((await listAttachments(asCurrent(tech), a.id)).rights).toEqual({ BEFORE_PHOTO: false, AFTER_PHOTO: true, SIGNATURE: true, PAYMENT_PROOF: true, DEPOSIT_PROOF: false });
+    expect((await listAttachments(asCurrent(tech), a.id)).rights).toEqual({ BEFORE_PHOTO: false, AFTER_PHOTO: true, SIGNATURE: true, PAYMENT_PROOF: true, DEPOSIT_PROOF: false, VIDEO: true });
 
     const file = await readAttachment(asCurrent(viewer), before.id);
     expect(file.contentType).toBe("image/jpeg");

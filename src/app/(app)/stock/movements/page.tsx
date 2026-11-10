@@ -105,7 +105,7 @@ export default async function StockLedgerPage({ searchParams }: { searchParams: 
                   <tr key={m.id} className="align-top">
                     <td className="whitespace-nowrap px-4 py-2.5 text-fg-muted">{dateTime(m.createdAt, tz, L)}</td>
                     <td className="px-4 py-2.5">
-                      <Link href={`/stock/documents/${m.document.id}`} className="font-mono font-semibold text-brand-text hover:underline">
+                      <Link prefetch={false} href={`/stock/documents/${m.document.id}`} className="font-mono font-semibold text-brand-text hover:underline">
                         <bdi>{m.document.number}</bdi>
                       </Link>
                       <span className="block text-xs text-fg-subtle">{docTypeLabel(t, m.document.type, m.document.returnKind)}</span>

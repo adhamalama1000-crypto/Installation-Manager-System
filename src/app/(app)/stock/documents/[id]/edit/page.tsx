@@ -46,9 +46,11 @@ export default async function EditStockDocumentPage({ params }: { params: Promis
           documentDate: d.documentDate,
           reference: d.reference,
           counterparty: d.counterparty,
+          supplier: d.supplier ? { id: d.supplier.id, label: t.locale === "ar" && d.supplier.nameAr ? d.supplier.nameAr : d.supplier.name } : null,
+          appointmentRef: d.appointment?.code ?? null,
           note: d.note,
           lines: d.lines.map((l) => ({
-            product: { id: l.product.id, sku: l.product.sku, nameEn: l.product.nameEn, nameAr: l.product.nameAr, trackSerials: l.product.trackSerials, unit: { code: l.product.unit.code, allowsFraction: l.product.unit.allowsFraction } },
+            product: { id: l.product.id, sku: l.product.sku, nameEn: l.product.nameEn, nameAr: l.product.nameAr, trackSerials: l.product.trackSerials, serialsOptional: l.product.serialsOptional, unit: { code: l.product.unit.code, allowsFraction: l.product.unit.allowsFraction } },
             quantity: l.quantity,
             unitCost: l.unitCost,
             fromBinId: l.fromBin?.id ?? null,

@@ -50,9 +50,13 @@ function balanceConditions(user: CurrentUser, f: BalanceFilters): Prisma.Sql {
   return Prisma.join(conds, " AND ");
 }
 
-export async function listBalances(user: CurrentUser, f: BalanceFilters, opts: { withTotalValue?: boolean } = {}) {
+/** The most rows a CSV export holds. */
+const EXPORT_LIMIT = 20_000;
+
+export async function listBalances(user: CurrentUser, f: BalanceFilters, opts: { withTotalValue?: boolean; pageSize?: number } = {}) {
   assertCan(user, "inventory.view");
-  const pageSize = 50;
+  // 50 rows a page on screen; the CSV export reads up to its limit in one statement.
+  const pageSize = Math.max(1, Math.min(opts.pageSize ?? 50, EXPORT_LIMIT));
   const { page, skip, take } = pageOf(f.page, pageSize);
   const byLocation = f.view === "location";
   const costs = canSeeCosts(user);
@@ -95,7 +99,7 @@ export async function listBalances(user: CurrentUser, f: BalanceFilters, opts: {
         ORDER BY p."sku"
         LIMIT ${take} OFFSET ${skip}`;
   const total = rows.length ? Number(rows[0]!.total) : 0;
-  // The total value is one more query; the CSV export reads page after page and does not need it.
+  // The total value is one more query; the CSV export does not need it.
   const totals = costs && opts.withTotalValue !== false ? await stockValue(user, f) : null;
   return {
     total,
@@ -230,8 +234,6 @@ export type LedgerRow = Awaited<ReturnType<typeof listMovements>>["rows"][number
 
 // ---- Exports ---------------------------------------------------------------------------------
 
-const EXPORT_LIMIT = 20_000;
-
 export async function exportBalancesCsv(user: CurrentUser, f: BalanceFilters): Promise<string> {
   assertCan(user, "inventory.reports");
   const t = createT(user.locale);
@@ -246,20 +248,18 @@ export async function exportBalancesCsv(user: CurrentUser, f: BalanceFilters): P
     t("stock.fields.minStock"),
     t("stock.fields.value"),
   ]);
-  for (let page = 1; out.length <= EXPORT_LIMIT; page++) {
-    const r = await listBalances(user, { ...f, view, page }, { withTotalValue: false });
-    for (const b of r.rows) {
-      out.push([
-        b.sku,
-        t.locale === "ar" ? b.nameAr : b.nameEn,
-        b.unitCode,
-        ...(view === "location" ? [b.warehouse?.code ?? "", b.bin ?? ""] : []),
-        b.quantity,
-        b.minStock,
-        b.value ?? "",
-      ]);
-    }
-    if (page >= r.pageCount) break;
+  // One statement for the whole export (it used to read 50 rows a page, recounting each time).
+  const r = await listBalances(user, { ...f, view, page: 1 }, { withTotalValue: false, pageSize: EXPORT_LIMIT });
+  for (const b of r.rows) {
+    out.push([
+      b.sku,
+      t.locale === "ar" ? b.nameAr : b.nameEn,
+      b.unitCode,
+      ...(view === "location" ? [b.warehouse?.code ?? "", b.bin ?? ""] : []),
+      b.quantity,
+      b.minStock,
+      b.value ?? "",
+    ]);
   }
   return toCsv(out);
 }

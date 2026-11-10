@@ -152,6 +152,18 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
           <Field label={t("settings.revisitFee")} hint={t("settings.revisitFeeHint")} error={errors.revisitFee}>
             {(p) => <Input {...p} type="number" min={0} step={50} value={v.revisitFee} onChange={(e) => upd({ revisitFee: Number(e.target.value) })} />}
           </Field>
+          <Field label={t("attendanceSettings.companyRadius")} error={errors.companyRadiusM}>
+            {(p) => <Input {...p} type="number" min={25} max={5000} step={25} value={v.companyRadiusM} onChange={(e) => upd({ companyRadiusM: Number(e.target.value) })} />}
+          </Field>
+          <Field label={t("attendanceSettings.customerRadius")} error={errors.customerRadiusM}>
+            {(p) => <Input {...p} type="number" min={25} max={5000} step={25} value={v.customerRadiusM} onChange={(e) => upd({ customerRadiusM: Number(e.target.value) })} />}
+          </Field>
+          <Field label={t("attendanceSettings.maxAccuracy")} hint={t("attendanceSettings.maxAccuracyHint")} error={errors.maxAccuracyM}>
+            {(p) => <Input {...p} type="number" min={10} max={5000} step={10} value={v.maxAccuracyM} onChange={(e) => upd({ maxAccuracyM: Number(e.target.value) })} />}
+          </Field>
+          <div className="sm:col-span-2 xl:col-span-3">
+            <Checkbox label={t("attendanceSettings.selfieRequired")} description={t("attendanceSettings.selfieRequiredHint")} checked={v.attendanceSelfieRequired} onChange={(e) => upd({ attendanceSelfieRequired: e.target.checked })} />
+          </div>
         </div>
       </fieldset>
       <fieldset>

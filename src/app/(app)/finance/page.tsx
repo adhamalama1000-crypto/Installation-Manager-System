@@ -10,6 +10,7 @@ import type { T } from "@/i18n/translator";
 import type { Metadata } from "next";
 import { money } from "@/lib/constants";
 import { addMonthsToKey, formatKey } from "@/lib/time";
+import { hasPermission } from "@/server/access";
 import { requirePagePermission } from "@/server/auth/session";
 import { financeStatement, parseMonth } from "@/server/services/payments";
 
@@ -109,6 +110,38 @@ export default async function FinancePage({ searchParams }: { searchParams: Prom
       <div className="mt-6">
         <CashHoldings holdings={f.holdings} entries={f.heldEntries} canReceive={f.canReceive} tz={tz} />
       </div>
+
+      <Card className="mt-6 overflow-hidden">
+        <CardHeader
+          title={t("financeDeductions.title")}
+          description={t("financeDeductions.text")}
+          actions={
+            hasPermission(user, "penalties.view") ? (
+              <Link href={`/penalties?status=APPROVED&month=${month}`} prefetch={false} className={buttonClasses("ghost", "sm")}>
+                {t("erpNav.penalties")}
+              </Link>
+            ) : undefined
+          }
+        />
+        {f.deductions.people.length === 0 ? (
+          <p className="px-5 pb-5 text-sm text-fg-subtle">{t("financeDeductions.none")}</p>
+        ) : (
+          <ul className="divide-y divide-line border-t border-line" aria-label={t("financeDeductions.title")}>
+            {f.deductions.people.map((d) => (
+              <li key={d.userId} className="flex items-center justify-between gap-3 px-5 py-2.5 text-sm">
+                <span>
+                  {d.name} <span className="text-xs text-fg-subtle">· {t("financeDeductions.count", { count: d.count })}</span>
+                </span>
+                <span className="font-medium tabular-nums text-fg">{egp(d.amount)}</span>
+              </li>
+            ))}
+            <li className="flex items-center justify-between px-5 py-2.5 text-sm font-semibold">
+              <span>{t("financeDeductions.total")}</span>
+              <span className="tabular-nums">{egp(f.deductions.total)}</span>
+            </li>
+          </ul>
+        )}
+      </Card>
 
       <Card className="mt-6 overflow-hidden">
         <CardHeader title={t("finance.owedTitle")} description={t("finance.owedText")} />

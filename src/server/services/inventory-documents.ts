@@ -3,8 +3,9 @@ import { Prisma, type StockDocStatus, type StockDocType, type StockReturnKind } 
 import { msg } from "@/i18n/translator";
 import { DOC_PREFIX, STOCK_DOC_STATUSES, STOCK_DOC_TYPES, cancelDocSchema, docPermissions, docWarehouseSides, formatDocNumber, lineTakesCost, stockDocSchema, type StockDocInput } from "@/lib/inventory";
 import { isValidDateString } from "@/lib/time";
+import { appointmentCode } from "@/lib/constants";
 import { prisma, type Tx } from "../db";
-import { assertCan, hasPermission } from "../access";
+import { appointmentScope, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { NotFoundError, StaleRecordError, ValidationError } from "../errors";
 import { recordAudit } from "./audit";
@@ -31,6 +32,53 @@ type NormalLine = {
   reason: string | null;
 };
 
+type DocLinks = { supplierId: string | null; customerId: string | null; appointmentId: string | null; counterparty: string | null };
+
+/**
+ * Resolves the supplier, customer and visit a document names. A supplier goes on receipts and
+ * supplier returns, a customer on customer returns, a visit on issues and returns; others are
+ * dropped. The supplier's or customer's name is also kept as the document's text counterparty.
+ */
+async function resolveLinks(tx: Tx, user: CurrentUser, input: StockDocInput, errors: Record<string, string>): Promise<DocLinks> {
+  const supplierSide = input.type === "RECEIPT" || (input.type === "RETURN" && input.returnKind === "SUPPLIER");
+  const customerSide = input.type === "RETURN" && input.returnKind === "CUSTOMER";
+  const visitSide = input.type === "ISSUE" || input.type === "RETURN";
+  let counterparty = input.counterparty;
+  let supplierId: string | null = null;
+  let customerId: string | null = null;
+  let appointmentId: string | null = null;
+  if (supplierSide && input.supplierId) {
+    const s = await tx.supplier.findUnique({ where: { id: input.supplierId }, select: { id: true, name: true, isActive: true } });
+    if (!s) errors.supplierId = msg("suppliers.errors.notFound");
+    else if (!s.isActive) errors.supplierId = msg("suppliers.errors.inactive");
+    else {
+      supplierId = s.id;
+      counterparty = counterparty ?? s.name;
+    }
+  }
+  if (customerSide && input.customerId) {
+    const c = await tx.customer.findUnique({ where: { id: input.customerId }, select: { id: true, name: true } });
+    if (!c) errors.customerId = msg("errors.notFound");
+    else {
+      customerId = c.id;
+      counterparty = counterparty ?? c.name;
+    }
+  }
+  if (visitSide && input.appointmentRef) {
+    const n = Number(input.appointmentRef.replace(/\D/g, ""));
+    const a = n > 0 && n < 2_147_483_647 ? await tx.appointment.findFirst({ where: { AND: [{ number: n }, appointmentScope(user)] }, select: { id: true, customerId: true, customer: { select: { name: true } } } }) : null;
+    if (!a) errors.appointmentRef = msg("docLinks.visitNotFound");
+    else {
+      appointmentId = a.id;
+      if (customerSide && !customerId) {
+        customerId = a.customerId;
+        counterparty = counterparty ?? a.customer.name;
+      }
+    }
+  }
+  return { supplierId, customerId, appointmentId, counterparty };
+}
+
 /** Checks a document against the catalogue and warehouses and returns its lines as stored. */
 async function validateDraft(
   tx: Tx,
@@ -38,8 +86,9 @@ async function validateDraft(
   input: StockDocInput,
   now: Date,
   previous: { lineNo: number; productId: string; unitCost: Prisma.Decimal | null }[] = [],
-): Promise<NormalLine[]> {
+): Promise<{ lines: NormalLine[]; links: DocLinks }> {
   const errors: Record<string, string> = {};
+  const links = await resolveLinks(tx, user, input, errors);
   // Someone who may not see costs never received them, so their edit keeps the costs already on
   // the draft (same line, same product) instead of clearing them.
   const hiddenCost = new Map(canSeeCosts(user) ? [] : previous.filter((l) => l.unitCost).map((l) => [`${l.lineNo}|${l.productId}`, l.unitCost!.toNumber()]));
@@ -70,6 +119,7 @@ async function validateDraft(
     const at = (f: string, m: string) => (errors[`lines.${i}.${f}`] ??= m);
     const p = product.get(l.productId);
     if (!p || !p.isActive) at("productId", msg("stock.errors.product"));
+    else if (p.hasVariants) at("productId", msg("variants.errors.pickVariant", { product: `${p.sku} ${p.nameEn}`, productAr: `${p.sku} ${p.nameAr}` }));
     // Adjustments name one warehouse; the bin goes on the side the stock moves.
     let fromBinId = sides.from ? l.fromBinId : null;
     let toBinId = sides.to ? l.toBinId : null;
@@ -88,8 +138,9 @@ async function validateDraft(
     checkBin(toBinId, adjWh ?? toId, "toBinId");
     if (p) {
       if (!p.unit.allowsFraction && !Number.isInteger(l.quantity)) at("quantity", msg("stock.errors.wholeUnits", { unit: p.unit.nameEn, unitAr: p.unit.nameAr }));
-      if (p.trackSerials) {
-        if (!Number.isInteger(l.quantity) || l.serials.length !== l.quantity) at("serials", msg("stock.errors.serialCount", { count: l.quantity, given: l.serials.length }));
+      if (p.trackSerials || p.serialsOptional) {
+        if (p.trackSerials && (!Number.isInteger(l.quantity) || l.serials.length !== l.quantity)) at("serials", msg("stock.errors.serialCount", { count: l.quantity, given: l.serials.length }));
+        if (p.serialsOptional && l.serials.length && (!Number.isInteger(l.quantity) || l.serials.length > l.quantity)) at("serials", msg("serialModes.tooManySerials", { count: l.quantity, given: l.serials.length }));
         for (const s of l.serials) {
           const k = `${p.id}|${s}`;
           if (seenSerials.has(k)) at("serials", msg("stock.errors.serialTwice", { list: s }));
@@ -110,12 +161,12 @@ async function validateDraft(
       fromBinId,
       toBinId,
       direction: input.type === "ADJUSTMENT" ? l.direction : null,
-      serials: p?.trackSerials ? l.serials : [],
+      serials: p?.trackSerials || p?.serialsOptional ? l.serials : [],
       reason: l.reason,
     };
   });
   if (Object.keys(errors).length) throw new ValidationError(errors);
-  return lines;
+  return { lines, links };
 }
 
 function headerData(input: StockDocInput) {
@@ -150,12 +201,12 @@ export async function createDocument(user: CurrentUser, raw: unknown, opts: { po
   }
   try {
     return await prisma.$transaction(async (tx) => {
-      const lines = await validateDraft(tx, user, input, now);
+      const { lines, links } = await validateDraft(tx, user, input, now);
       const year = Number(input.documentDate.slice(0, 4));
       const prefix = DOC_PREFIX[input.type];
       const number = formatDocNumber(prefix, year, await nextSequence(tx, `${prefix}-${year}`));
       const doc = await tx.stockDocument.create({
-        data: { ...headerData(input), number, clientRequestId: input.clientRequestId ?? null, createdById: user.id, createdAt: now, lines: { create: lines } },
+        data: { ...headerData(input), ...links, number, clientRequestId: input.clientRequestId ?? null, createdById: user.id, createdAt: now, lines: { create: lines } },
       });
       await recordAudit(tx, {
         entityType: "INVENTORY",
@@ -191,10 +242,10 @@ export async function updateDocument(user: CurrentUser, id: string, raw: unknown
       const perms = docPermissions(doc.type, doc.returnKind);
       assertCan(user, perms.prepare);
       if (opts.post) assertCan(user, perms.post);
-      const lines = await validateDraft(tx, user, input, now, doc.lines);
+      const { lines, links } = await validateDraft(tx, user, input, now, doc.lines);
       // The type and return kind stay as they are (checked above).
-      const { fromWarehouseId, toWarehouseId, documentDate, reference, counterparty, note } = headerData(input);
-      const header = { fromWarehouseId, toWarehouseId, documentDate, reference, counterparty, note };
+      const { fromWarehouseId, toWarehouseId, documentDate, reference, note } = headerData(input);
+      const header = { fromWarehouseId, toWarehouseId, documentDate, reference, note, ...links };
       await tx.stockDocumentLine.deleteMany({ where: { documentId: doc.id } });
       await tx.stockDocument.update({ where: { id: doc.id }, data: { ...header, version: { increment: 1 }, lines: { create: lines } } });
       await recordAudit(tx, {
@@ -314,10 +365,13 @@ export async function getDocument(user: CurrentUser, id: string) {
       postedBy: { select: userSelect },
       cancelledBy: { select: userSelect },
       stocktake: { select: { id: true, number: true } },
+      supplier: { select: { id: true, code: true, name: true, nameAr: true } },
+      customer: { select: { id: true, name: true } },
+      appointment: { select: { id: true, number: true } },
       lines: {
         orderBy: { lineNo: "asc" },
         include: {
-          product: { select: { id: true, sku: true, nameEn: true, nameAr: true, trackSerials: true, unit: { select: { code: true, nameEn: true, nameAr: true, allowsFraction: true } } } },
+          product: { select: { id: true, sku: true, nameEn: true, nameAr: true, trackSerials: true, serialsOptional: true, unit: { select: { code: true, nameEn: true, nameAr: true, allowsFraction: true } } } },
           fromBin: { select: { id: true, code: true } },
           toBin: { select: { id: true, code: true } },
         },
@@ -344,6 +398,9 @@ export async function getDocument(user: CurrentUser, id: string) {
     reference: d.reference,
     counterparty: d.counterparty,
     note: d.note,
+    supplier: d.supplier,
+    customer: hasPermission(user, "customers.view") ? d.customer : null,
+    appointment: d.appointment ? { id: d.appointment.id, code: appointmentCode(d.appointment.number) } : null,
     stocktake: d.stocktake,
     version: d.version,
     createdBy: d.createdBy,
@@ -402,4 +459,24 @@ export function preparableTypes(user: CurrentUser): { type: StockDocType; return
     { type: "OPENING", returnKind: null },
   ];
   return all.filter((t) => hasPermission(user, docPermissions(t.type, t.returnKind).prepare));
+}
+
+/** Stock documents that name a booked visit (issued for it or returned from it), for its page. */
+export async function documentsForAppointment(user: CurrentUser, appointmentId: string) {
+  if (!hasPermission(user, "inventory.view") || typeof appointmentId !== "string" || appointmentId.length > 64) return [];
+  const rows = await prisma.stockDocument.findMany({
+    where: { AND: [{ appointmentId }, documentScope(user)] },
+    orderBy: [{ documentDate: "desc" }, { createdAt: "desc" }],
+    take: 20,
+    select: {
+      id: true,
+      number: true,
+      type: true,
+      returnKind: true,
+      status: true,
+      documentDate: true,
+      lines: { orderBy: { lineNo: "asc" }, select: { quantity: true, serials: true, product: { select: { sku: true, nameEn: true, nameAr: true, unit: { select: { code: true } } } } } },
+    },
+  });
+  return rows.map((d) => ({ ...d, documentDate: keyOf(d.documentDate), lines: d.lines.map((l) => ({ ...l, quantity: num(l.quantity) })) }));
 }

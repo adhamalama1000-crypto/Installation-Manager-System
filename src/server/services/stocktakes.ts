@@ -43,7 +43,7 @@ export async function createStocktake(user: CurrentUser, raw: unknown, now = new
       if (!w || !w.isActive) throw new ValidationError({ warehouseId: msg("stock.errors.warehouse") });
       const open = await tx.stocktake.findFirst({ where: { warehouseId: w.id, status: { in: OPEN } }, select: { number: true } });
       if (open) throw new ValidationError({ warehouseId: msg("stocktakes.errors.alreadyOpen", { number: open.number }) }, msg("stocktakes.errors.alreadyOpen", { number: open.number }));
-      const balances = await tx.stockBalance.findMany({ where: { warehouseId: w.id, quantity: { not: 0 } }, include: { product: { select: { trackSerials: true } } } });
+      const balances = await tx.stockBalance.findMany({ where: { warehouseId: w.id, quantity: { not: 0 } }, include: { product: { select: { trackSerials: true, serialsOptional: true } } } });
       const serials = await tx.productSerial.findMany({ where: { warehouseId: w.id }, select: { productId: true, binId: true, serial: true }, orderBy: { serial: "asc" } });
       const serialsAt = new Map<string, string[]>();
       for (const s of serials) {
@@ -66,7 +66,7 @@ export async function createStocktake(user: CurrentUser, raw: unknown, now = new
               binId: b.binId,
               binKey: b.binKey,
               systemQuantity: b.quantity,
-              systemSerials: b.product.trackSerials ? (serialsAt.get(`${b.productId}|${b.binKey}`) ?? []) : [],
+              systemSerials: b.product.trackSerials || b.product.serialsOptional ? (serialsAt.get(`${b.productId}|${b.binKey}`) ?? []) : [],
             })),
           },
         },
@@ -133,7 +133,7 @@ export async function getStocktake(user: CurrentUser, id: string) {
       adjustment: { select: { id: true, number: true, status: true } },
       lines: {
         include: {
-          product: { select: { id: true, sku: true, nameEn: true, nameAr: true, trackSerials: true, unit: { select: { code: true, allowsFraction: true } } } },
+          product: { select: { id: true, sku: true, nameEn: true, nameAr: true, trackSerials: true, serialsOptional: true, unit: { select: { code: true, allowsFraction: true } } } },
           bin: { select: { code: true } },
           countedBy: { select: { id: true, name: true } },
         },
@@ -192,10 +192,11 @@ export async function getStocktake(user: CurrentUser, id: string) {
 export type StocktakeDetail = Awaited<ReturnType<typeof getStocktake>>;
 
 /** A counted line that does not match the snapshot (for serials: a different set, even of the same size). */
-function differs(l: { countedQuantity: Prisma.Decimal | null; systemQuantity: Prisma.Decimal; countedSerials: string[]; systemSerials: string[]; product: { trackSerials: boolean } }) {
+function differs(l: { countedQuantity: Prisma.Decimal | null; systemQuantity: Prisma.Decimal; countedSerials: string[]; systemSerials: string[]; product: { trackSerials: boolean; serialsOptional?: boolean } }) {
   if (l.countedQuantity === null) return false;
   if (!D(l.countedQuantity).equals(l.systemQuantity)) return true;
-  if (!l.product.trackSerials) return false;
+  // Optional serials are compared only when the counter listed the serials found.
+  if (!l.product.trackSerials && !(l.product.serialsOptional && l.countedSerials.length)) return false;
   const counted = new Set(l.countedSerials);
   return l.systemSerials.some((x) => !counted.has(x)) || l.countedSerials.length !== l.systemSerials.length;
 }
@@ -216,7 +217,7 @@ export async function saveCounts(user: CurrentUser, id: string, raw: unknown, no
     await assertStatus(tx, id, ["COUNTING"]);
     const current = await tx.stocktakeLine.findMany({
       where: { stocktakeId: id, id: { in: lines.map((l) => l.lineId) } },
-      include: { product: { select: { trackSerials: true, unit: { select: { allowsFraction: true, nameEn: true, nameAr: true } } } } },
+      include: { product: { select: { trackSerials: true, serialsOptional: true, unit: { select: { allowsFraction: true, nameEn: true, nameAr: true } } } } },
     });
     const byId = new Map(current.map((l) => [l.id, l]));
     const errors: Record<string, string> = {};
@@ -228,6 +229,10 @@ export async function saveCounts(user: CurrentUser, id: string, raw: unknown, no
       }
       if (line.product.trackSerials) {
         if (l.countedQuantity !== null && l.countedQuantity !== l.countedSerials.length) errors[`lines.${i}.countedSerials`] = msg("stocktakes.errors.serialCount");
+      } else if (line.product.serialsOptional) {
+        const qty = l.countedQuantity ?? (l.countedSerials.length || null);
+        if (qty !== null && !Number.isInteger(qty)) errors[`lines.${i}.countedQuantity`] = msg("stock.errors.wholeUnits", { unit: line.product.unit.nameEn, unitAr: line.product.unit.nameAr });
+        if (qty !== null && l.countedSerials.length > qty) errors[`lines.${i}.countedSerials`] = msg("serialModes.tooManySerials", { count: qty, given: l.countedSerials.length });
       } else {
         if (l.countedSerials.length) errors[`lines.${i}.countedSerials`] = msg("stock.errors.noSerials");
         if (l.countedQuantity !== null && !line.product.unit.allowsFraction && !Number.isInteger(l.countedQuantity)) {
@@ -238,12 +243,17 @@ export async function saveCounts(user: CurrentUser, id: string, raw: unknown, no
     if (Object.keys(errors).length) throw new ValidationError(errors);
     for (const l of lines) {
       const line = byId.get(l.lineId)!;
-      const counted = line.product.trackSerials && (l.countedQuantity !== null || l.countedSerials.length) ? l.countedSerials.length : l.countedQuantity;
+      const counted =
+        line.product.trackSerials && (l.countedQuantity !== null || l.countedSerials.length)
+          ? l.countedSerials.length
+          : line.product.serialsOptional
+            ? (l.countedQuantity ?? (l.countedSerials.length || null))
+            : l.countedQuantity;
       await tx.stocktakeLine.update({
         where: { id: line.id },
         data: {
           countedQuantity: counted,
-          countedSerials: line.product.trackSerials ? l.countedSerials : [],
+          countedSerials: line.product.trackSerials || line.product.serialsOptional ? l.countedSerials : [],
           reason: l.reason,
           countedById: counted === null ? null : user.id,
           countedAt: counted === null ? null : now,
@@ -263,8 +273,9 @@ export async function addStocktakeLine(user: CurrentUser, id: string, raw: unkno
   await prisma.$transaction(async (tx) => {
     const { warehouseId } = await lockStocktake(tx, id);
     await assertStatus(tx, id, ["COUNTING"]);
-    const product = await tx.product.findUnique({ where: { id: productId }, select: { isActive: true } });
+    const product = await tx.product.findUnique({ where: { id: productId }, select: { isActive: true, hasVariants: true, sku: true, nameEn: true, nameAr: true } });
     if (!product?.isActive) throw new ValidationError({ productId: msg("stock.errors.product") });
+    if (product.hasVariants) throw new ValidationError({ productId: msg("variants.errors.pickVariant", productParam("product", product)) });
     if (binId) {
       const bin = await tx.warehouseBin.findFirst({ where: { id: binId, warehouseId, isActive: true }, select: { id: true } });
       if (!bin) throw new ValidationError({ binId: msg("stock.errors.bin") });
@@ -287,9 +298,13 @@ export async function submitStocktake(user: CurrentUser, id: string, raw: unknow
     await lockStocktake(tx, id);
     const s = await assertStatus(tx, id, ["COUNTING"]);
     if (typeof version === "number" && version !== s.version) throw new StaleRecordError();
-    const lines = await tx.stocktakeLine.findMany({ where: { stocktakeId: id }, include: { product: { select: { sku: true, nameEn: true, nameAr: true, trackSerials: true } } } });
+    const lines = await tx.stocktakeLine.findMany({ where: { stocktakeId: id }, include: { product: { select: { sku: true, nameEn: true, nameAr: true, trackSerials: true, serialsOptional: true } } } });
     const uncounted = lines.filter((l) => l.countedQuantity === null);
     if (uncounted.length) throw formError("stocktakes.errors.uncounted", { count: uncounted.length, ...productParam("product", uncounted[0]!.product) });
+    // Optional serials: fewer units than recorded serials means some serials are gone, and only
+    // the counter can say which.
+    const unnamed = lines.find((l) => l.product.serialsOptional && !l.countedSerials.length && D(l.countedQuantity!).lessThan(l.systemSerials.length));
+    if (unnamed) throw formError("serialModes.listSerialsFound", { ...productParam("product", unnamed.product), count: unnamed.systemSerials.length });
     const unexplained = lines.filter((l) => differs(l) && !l.reason);
     if (unexplained.length) throw formError("stocktakes.errors.unexplained", { count: unexplained.length, ...productParam("product", unexplained[0]!.product) });
     const w = await tx.warehouse.findUniqueOrThrow({ where: { id: s.warehouseId }, select: { code: true } });
@@ -323,7 +338,7 @@ export async function approveStocktake(user: CurrentUser, id: string, raw: unkno
       const s = await assertStatus(tx, id, ["SUBMITTED"]);
       const lines = await tx.stocktakeLine.findMany({
         where: { stocktakeId: id },
-        include: { product: { select: { trackSerials: true } } },
+        include: { product: { select: { trackSerials: true, serialsOptional: true } } },
         orderBy: [{ product: { sku: "asc" } }, { binKey: "asc" }],
       });
       const balances = await tx.stockBalance.findMany({ where: { warehouseId }, select: { productId: true, binKey: true, quantity: true } });
@@ -341,6 +356,19 @@ export async function approveStocktake(user: CurrentUser, id: string, raw: unkno
           return [
             ...(missing.length ? [{ productId: l.productId, quantity: missing.length, direction: "DECREASE" as const, fromBinId: l.binId, toBinId: null, serials: missing, reason: l.reason }] : []),
             ...(extra.length ? [{ productId: l.productId, quantity: extra.length, direction: "INCREASE" as const, fromBinId: null, toBinId: l.binId, serials: extra, reason: l.reason }] : []),
+          ];
+        }
+        if (l.product.serialsOptional && l.countedSerials.length) {
+          // Missing serials leave, extra serials come in, and plain units make up the rest so
+          // the count ends at what was counted.
+          const missing = l.systemSerials.filter((x) => !l.countedSerials.includes(x));
+          const extra = l.countedSerials.filter((x) => !l.systemSerials.includes(x));
+          const plain = D(l.systemQuantity).minus(counted).minus(missing.length).plus(extra.length);
+          const out = D(missing.length).plus(Prisma.Decimal.max(plain, 0));
+          const into = D(extra.length).plus(Prisma.Decimal.max(plain.negated(), 0));
+          return [
+            ...(out.greaterThan(0) ? [{ productId: l.productId, quantity: out.toNumber(), direction: "DECREASE" as const, fromBinId: l.binId, toBinId: null, serials: missing, reason: l.reason }] : []),
+            ...(into.greaterThan(0) ? [{ productId: l.productId, quantity: into.toNumber(), direction: "INCREASE" as const, fromBinId: null, toBinId: l.binId, serials: extra, reason: l.reason }] : []),
           ];
         }
         if (diff.isZero()) return [];

@@ -208,7 +208,9 @@ export type LeaveClash = {
 /** A file attached to a visit, as shown in the browser (the bytes come from /api/attachments/[id]). */
 export type AttachmentDTO = {
   id: string;
-  kind: "BEFORE_PHOTO" | "AFTER_PHOTO" | "SIGNATURE" | "PAYMENT_PROOF" | "DEPOSIT_PROOF";
+  kind: "BEFORE_PHOTO" | "AFTER_PHOTO" | "SIGNATURE" | "PAYMENT_PROOF" | "DEPOSIT_PROOF" | "VIDEO";
+  /** image/jpeg, image/png, image/webp; video/mp4, video/quicktime or video/webm. */
+  contentType: string;
   url: string;
   uploadedBy: { id: string; name: string };
   createdAt: string;

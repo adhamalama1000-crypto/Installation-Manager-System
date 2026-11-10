@@ -107,6 +107,8 @@ enum AttachmentKind {
   PAYMENT_PROOF
   /// Screenshot of the deposit transfer (one current proof per visit).
   DEPOSIT_PROOF
+  /// A short video of the work (MP4, QuickTime or WebM), when the evidence rule asks for one.
+  VIDEO
 }
 
 /// Semantic meaning of a (configurable) appointment status. Used for dashboard counts and
@@ -257,6 +259,26 @@ model User {
   stocktakesSubmitted   Stocktake[]             @relation("StocktakeSubmitter")
   stocktakesDecided     Stocktake[]             @relation("StocktakeDecider")
   stocktakeLinesCounted StocktakeLine[]         @relation("StocktakeCounter")
+  productImagesUploaded ProductImage[]          @relation("ProductImageUploader")
+  suppliersCreated      Supplier[]              @relation("SupplierCreator")
+  productImagesDeleted  ProductImage[]          @relation("ProductImageDeleter")
+
+  salesCreated   SalesInvoice[] @relation("SaleCreator")
+  salesConfirmed SalesInvoice[] @relation("SaleConfirmer")
+  salesCancelled SalesInvoice[] @relation("SaleCanceller")
+
+  workLocationsCreated WorkLocation[]     @relation("WorkLocationCreator")
+  attendanceReviews    AttendanceReview[] @relation("AttendanceReviewer")
+  evidenceRulesEdited  EvidenceRule[]     @relation("EvidenceRuleEditor")
+  workReviews          WorkReview[]       @relation("WorkReviewActor")
+  penaltyRulesEdited   PenaltyRule[]      @relation("PenaltyRuleEditor")
+  violations           Violation[]        @relation("ViolationEmployee")
+  violationsCreated    Violation[]        @relation("ViolationCreator")
+  violationsDecided    Violation[]        @relation("ViolationDecider")
+  violationsCancelled  Violation[]        @relation("ViolationCanceller")
+  violationEvents      ViolationEvent[]   @relation("ViolationEventActor")
+  deductions           DeductionEntry[]   @relation("DeductionEmployee")
+  deductionsRecorded   DeductionEntry[]   @relation("DeductionEntryCreator")
 
   @@index([role, isActive])
   @@map("users")
@@ -320,8 +342,11 @@ model Customer {
   createdAt            DateTime @default(now()) @db.Timestamptz(3)
   updatedAt            DateTime @updatedAt @db.Timestamptz(3)
 
-  locations    CustomerLocation[]
-  appointments Appointment[]
+  locations      CustomerLocation[]
+  appointments   Appointment[]
+  stockDocuments StockDocument[]
+
+  salesInvoices SalesInvoice[]
 
   @@index([phoneDigits])
   @@index([secondaryPhoneDigits])
@@ -435,6 +460,8 @@ model Appointment {
   /// Delivery checklist items ticked by the technician (ids from src/lib/delivery.ts).
   deliveryChecklist String[]        @default([])
   attachments       Attachment[]
+  workReviews       WorkReview[]
+  violations        Violation[]
   stockItems        StockItem[]
   stockMovements    StockMovement[]
 
@@ -488,9 +515,14 @@ model Appointment {
   createdAt DateTime @default(now()) @db.Timestamptz(3)
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
-  technicians   AppointmentTechnician[]
-  auditLogs     AuditLog[]
-  notifications Notification[]
+  technicians    AppointmentTechnician[]
+  auditLogs      AuditLog[]
+  notifications  Notification[]
+  stockDocuments StockDocument[]
+
+  salesInvoices SalesInvoice[]
+
+  clockIns CheckIn[] @relation("CheckInRelatedVisit")
 
   @@index([startsAt])
   @@index([endsAt])
@@ -698,7 +730,8 @@ model Attachment {
   appointmentId String
   appointment   Appointment    @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
   kind          AttachmentKind
-  /// image/jpeg, image/png or image/webp (checked against the file's own bytes).
+  /// image/jpeg, image/png or image/webp; video/mp4, video/quicktime or video/webm for VIDEO
+  /// (checked against the file's own bytes).
   contentType   String
   byteSize      Int
   sha256        String
@@ -798,7 +831,25 @@ model CheckIn {
   note          String?
   createdAt     DateTime     @default(now()) @db.Timestamptz(3)
 
+  /// Clock-in / out at a customer's site: the visit it relates to (appointmentId is for visit stages only).
+  relatedAppointmentId String?
+  relatedAppointment   Appointment?       @relation("CheckInRelatedVisit", fields: [relatedAppointmentId], references: [id], onDelete: Restrict)
+  /// Clock-in / out: where the person said they are, and the approved work location.
+  site                 AttendanceSite?
+  workLocationId       String?
+  workLocation         WorkLocation?      @relation(fields: [workLocationId], references: [id], onDelete: Restrict)
+  /// Live-camera selfie in file storage (served only to the person and attendance managers).
+  selfieKey            String?            @unique
+  selfieContentType    String?
+  selfieSha256         String?
+  /// The geofence radius applied and the expected position (company, customer pin, work location).
+  geofenceM            Int?
+  expectedLatitude     Decimal?           @db.Decimal(9, 6)
+  expectedLongitude    Decimal?           @db.Decimal(9, 6)
+  reviews              AttendanceReview[]
+
   @@index([day, userId])
+  @@index([relatedAppointmentId])
   @@index([appointmentId, kind])
   @@index([userId, createdAt])
   @@map("check_ins")
@@ -968,6 +1019,8 @@ model Unit {
 /// Product category; a category with a parent is a subcategory (two levels).
 model CatalogCategory {
   id        String            @id @default(cuid())
+  /// Optional upper-case prefix for automatic SKUs (e.g. LCK -> LCK-00001); unique.
+  code      String?           @unique
   nameEn    String
   nameAr    String
   parentId  String?
@@ -997,48 +1050,65 @@ model Brand {
 
 /// A stock-keeping product (the ERP catalogue). Quantities live in stock_balances.
 model Product {
-  id             String              @id @default(cuid())
+  id              String              @id @default(cuid())
   /// Upper-case, unique.
-  sku            String              @unique
+  sku             String              @unique
   /// Unique when given.
-  barcode        String?             @unique
-  nameEn         String
-  nameAr         String
+  barcode         String?             @unique
+  nameEn          String
+  nameAr          String
   /// A category or a subcategory (its parent is then the category).
-  categoryId     String?
-  category       CatalogCategory?    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
-  brandId        String?
-  brand          Brand?              @relation(fields: [brandId], references: [id], onDelete: Restrict)
-  model          String?
-  description    String?
-  unitId         String
-  unit           Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  categoryId      String?
+  category        CatalogCategory?    @relation(fields: [categoryId], references: [id], onDelete: Restrict)
+  brandId         String?
+  brand           Brand?              @relation(fields: [brandId], references: [id], onDelete: Restrict)
+  model           String?
+  description     String?
+  unitId          String
+  unit            Unit                @relation(fields: [unitId], references: [id], onDelete: Restrict)
   /// Default purchase cost (used for a receipt line without its own cost).
-  purchaseCost   Decimal?            @db.Decimal(12, 2)
-  sellingPrice   Decimal?            @db.Decimal(12, 2)
+  purchaseCost    Decimal?            @db.Decimal(12, 2)
+  sellingPrice    Decimal?            @db.Decimal(12, 2)
   /// Moving average cost over all warehouses, kept by the posting engine.
-  averageCost    Decimal             @default(0) @db.Decimal(14, 4)
+  averageCost     Decimal             @default(0) @db.Decimal(14, 4)
   /// Low-stock threshold (total over all warehouses).
-  minStock       Decimal             @default(0) @db.Decimal(14, 3)
-  warrantyMonths Int                 @default(0)
-  /// Every unit has a serial number recorded on each movement.
-  trackSerials   Boolean             @default(false)
-  isActive       Boolean             @default(true)
+  minStock        Decimal             @default(0) @db.Decimal(14, 3)
+  warrantyMonths  Int                 @default(0)
+  /// Every unit has a serial number recorded on each movement (serial mode "mandatory").
+  trackSerials    Boolean             @default(false)
+  /// Serial numbers are recorded when known, not for every unit (serial mode "optional").
+  serialsOptional Boolean             @default(false)
+  /// This product has variants (colours, configurations): it holds no stock itself, its variants do.
+  hasVariants     Boolean             @default(false)
+  /// The product this one is a variant of. Category, brand, unit, warranty and serial mode follow the parent.
+  parentId        String?
+  parent          Product?            @relation("ProductVariants", fields: [parentId], references: [id], onDelete: Restrict)
+  variants        Product[]           @relation("ProductVariants")
+  /// The variant's own name ("Black" / "أسود"); nameEn / nameAr hold the full name.
+  variantNameEn   String?
+  variantNameAr   String?
+  /// Swatch colour of the variant (#RRGGBB).
+  colorHex        String?
+  isActive        Boolean             @default(true)
   /// Optimistic-locking counter.
-  version        Int                 @default(1)
-  createdById    String
-  createdBy      User                @relation("ProductCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  updatedById    String?
-  updatedBy      User?               @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
-  createdAt      DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt      DateTime            @updatedAt @db.Timestamptz(3)
-  balances       StockBalance[]
-  lines          StockDocumentLine[]
-  movements      InventoryMovement[]
-  serials        ProductSerial[]
-  stocktakeLines StocktakeLine[]
+  version         Int                 @default(1)
+  createdById     String
+  createdBy       User                @relation("ProductCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById     String?
+  updatedBy       User?               @relation("ProductUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  createdAt       DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime            @updatedAt @db.Timestamptz(3)
+  balances        StockBalance[]
+  lines           StockDocumentLine[]
+  movements       InventoryMovement[]
+  serials         ProductSerial[]
+  stocktakeLines  StocktakeLine[]
+  images          ProductImage[]
+
+  salesLines SalesInvoiceLine[]
 
   @@index([categoryId])
+  @@index([parentId])
   @@index([brandId])
   @@index([isActive, nameEn])
   @@index([createdAt])
@@ -1075,6 +1145,8 @@ model Warehouse {
   movements     InventoryMovement[] @relation("MovementWarehouse")
   serials       ProductSerial[]
   stocktakes    Stocktake[]
+
+  salesInvoices SalesInvoice[]
 
   @@index([kind, isActive])
   @@map("warehouses")
@@ -1169,13 +1241,28 @@ model StockDocument {
   cancelledById   String?
   cancelledBy     User?               @relation("StockDocCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
   cancelReason    String?
+  /// The supplier (receipts, supplier returns) and customer (customer returns), when chosen from
+  /// the masters; `counterparty` keeps the name as text for older documents.
+  supplierId      String?
+  supplier        Supplier?           @relation(fields: [supplierId], references: [id], onDelete: Restrict)
+  customerId      String?
+  customer        Customer?           @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// The booked visit this stock was issued for (or returned from).
+  appointmentId   String?
+  appointment     Appointment?        @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
   lines           StockDocumentLine[]
   movements       InventoryMovement[]
+
+  /// The sale whose confirmation posted this issue.
+  salesInvoice SalesInvoice?
 
   @@index([type, status, documentDate])
   @@index([status, createdAt])
   @@index([fromWarehouseId, documentDate])
   @@index([toWarehouseId, documentDate])
+  @@index([supplierId, documentDate])
+  @@index([customerId])
+  @@index([appointmentId])
   @@map("stock_documents")
 }
 
@@ -1326,4 +1413,378 @@ model StocktakeLine {
 
   @@unique([stocktakeId, productId, binKey])
   @@map("stocktake_lines")
+}
+
+/// A photo of a product or variant (file storage, like visit photos). Removing it only marks the row.
+model ProductImage {
+  id           String    @id @default(cuid())
+  productId    String
+  product      Product   @relation(fields: [productId], references: [id], onDelete: Restrict)
+  contentType  String
+  byteSize     Int
+  sha256       String
+  storageKey   String    @unique
+  sortOrder    Int       @default(0)
+  uploadedById String
+  uploadedBy   User      @relation("ProductImageUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime  @default(now()) @db.Timestamptz(3)
+  deletedAt    DateTime? @db.Timestamptz(3)
+  deletedById  String?
+  deletedBy    User?     @relation("ProductImageDeleter", fields: [deletedById], references: [id], onDelete: Restrict)
+
+  @@index([productId, sortOrder])
+  @@map("product_images")
+}
+
+/// A supplier (the receipts and supplier returns name it). Never deleted: deactivated.
+model Supplier {
+  id            String          @id @default(cuid())
+  /// Upper-case, unique; generated as SUP-00001 when not typed.
+  code          String          @unique
+  name          String
+  nameAr        String?
+  contactPerson String?
+  phone         String?
+  /// Digits only, for searching.
+  phoneDigits   String?
+  email         String?
+  address       String?
+  taxNumber     String?
+  notes         String?
+  isActive      Boolean         @default(true)
+  version       Int             @default(1)
+  createdById   String
+  createdBy     User            @relation("SupplierCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
+  documents     StockDocument[]
+
+  @@index([isActive, name])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "suppliers_name_trgm_idx")
+  @@index([phoneDigits])
+  @@map("suppliers")
+}
+
+enum SalesInvoiceStatus {
+  DRAFT
+  CONFIRMED
+  CANCELLED
+}
+
+/// A sale to a customer. Only CONFIRMED invoices count as sales; confirming posts the stock
+/// issue (stockDocumentId) through the ledger; cancelling a confirmed one reverses it.
+model SalesInvoice {
+  id              String             @id @default(cuid())
+  /// INV-2026-000001
+  number          String             @unique
+  status          SalesInvoiceStatus @default(DRAFT)
+  invoiceDate     DateTime           @db.Date
+  customerId      String?
+  customer        Customer?          @relation(fields: [customerId], references: [id], onDelete: Restrict)
+  /// Name and phone as on the invoice (a walk-in customer has no customerId).
+  customerName    String
+  customerPhone   String?
+  appointmentId   String?
+  appointment     Appointment?       @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  /// The stock leaves from here.
+  warehouseId     String
+  warehouse       Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  paymentMethod   PaymentMethod?
+  note            String?
+  subtotal        Decimal            @default(0) @db.Decimal(12, 2)
+  discountTotal   Decimal            @default(0) @db.Decimal(12, 2)
+  total           Decimal            @default(0) @db.Decimal(12, 2)
+  stockDocumentId String?            @unique
+  stockDocument   StockDocument?     @relation(fields: [stockDocumentId], references: [id], onDelete: Restrict)
+  clientRequestId String?            @unique
+  version         Int                @default(1)
+  createdById     String
+  createdBy       User               @relation("SaleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt       DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime           @updatedAt @db.Timestamptz(3)
+  confirmedAt     DateTime?          @db.Timestamptz(3)
+  confirmedById   String?
+  confirmedBy     User?              @relation("SaleConfirmer", fields: [confirmedById], references: [id], onDelete: Restrict)
+  cancelledAt     DateTime?          @db.Timestamptz(3)
+  cancelledById   String?
+  cancelledBy     User?              @relation("SaleCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancelReason    String?
+  lines           SalesInvoiceLine[]
+
+  @@index([status, invoiceDate])
+  @@index([customerId])
+  @@index([appointmentId])
+  @@index([warehouseId, invoiceDate])
+  @@index([createdById, invoiceDate])
+  @@map("sales_invoices")
+}
+
+model SalesInvoiceLine {
+  id        String       @id @default(cuid())
+  invoiceId String
+  invoice   SalesInvoice @relation(fields: [invoiceId], references: [id], onDelete: Restrict)
+  lineNo    Int
+  productId String
+  product   Product      @relation(fields: [productId], references: [id], onDelete: Restrict)
+  quantity  Decimal      @db.Decimal(14, 3)
+  unitPrice Decimal      @db.Decimal(12, 2)
+  /// Amount off the line (not a percentage).
+  discount  Decimal      @default(0) @db.Decimal(12, 2)
+  lineTotal Decimal      @db.Decimal(12, 2)
+  /// Cost per unit the stock left at (set on confirmation, for margin and turnover).
+  unitCost  Decimal?     @db.Decimal(14, 4)
+  serials   String[]     @default([])
+
+  @@unique([invoiceId, lineNo])
+  @@index([productId])
+  @@map("sales_invoice_lines")
+}
+
+enum AttendanceSite {
+  COMPANY
+  CUSTOMER
+  WORK_LOCATION
+}
+
+enum AttendanceDecision {
+  ACCEPTED
+  REJECTED
+}
+
+/// An approved place to clock in other than the company (a branch, a large site): a geofence.
+model WorkLocation {
+  id          String    @id @default(cuid())
+  name        String
+  nameAr      String?
+  latitude    Decimal   @db.Decimal(9, 6)
+  longitude   Decimal   @db.Decimal(9, 6)
+  radiusM     Int       @default(200)
+  isActive    Boolean   @default(true)
+  createdById String
+  createdBy   User      @relation("WorkLocationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime  @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime  @updatedAt @db.Timestamptz(3)
+  checkIns    CheckIn[]
+
+  @@map("work_locations")
+}
+
+/// A manager's decision on a flagged clock-in / out (append-only; the latest one counts).
+model AttendanceReview {
+  id           String             @id @default(cuid())
+  checkInId    String
+  checkIn      CheckIn            @relation(fields: [checkInId], references: [id], onDelete: Restrict)
+  decision     AttendanceDecision
+  note         String?
+  reviewedById String
+  reviewedBy   User               @relation("AttendanceReviewer", fields: [reviewedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([checkInId, createdAt])
+  @@map("attendance_reviews")
+}
+
+/// What each kind of visit must show before it is done ('' = any visit type / any category).
+/// The most specific active rule applies (src/lib/evidence.ts).
+model EvidenceRule {
+  id                          String   @id @default(cuid())
+  visitType                   String   @default("")
+  productCategory             String   @default("")
+  minBeforePhotos             Int      @default(0)
+  minAfterPhotos              Int      @default(0)
+  requireVideo                Boolean  @default(false)
+  requireSignature            Boolean  @default(false)
+  requireCustomerConfirmation Boolean  @default(false)
+  /// A reviewer approves the submitted work (otherwise "done" is final).
+  requireReview               Boolean  @default(false)
+  isActive                    Boolean  @default(true)
+  updatedById                 String?
+  updatedBy                   User?    @relation("EvidenceRuleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt                   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt                   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([visitType, productCategory])
+  @@map("evidence_rules")
+}
+
+enum WorkReviewEvent {
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
+/// The review history of a visit's work: append-only events (submitted, approved, rejected with a reason).
+model WorkReview {
+  id                String          @id @default(cuid())
+  appointmentId     String
+  appointment       Appointment     @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  event             WorkReviewEvent
+  note              String?
+  /// The customer confirmed the work at submission (and who confirmed it).
+  customerConfirmed Boolean         @default(false)
+  customerName      String?
+  actorId           String
+  actor             User            @relation("WorkReviewActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt         DateTime        @default(now()) @db.Timestamptz(3)
+
+  @@index([appointmentId, createdAt])
+  @@index([event, createdAt])
+  @@map("work_reviews")
+}
+
+/// What starts a violation: recorded by hand, or found in attendance and work reviews.
+enum PenaltyTrigger {
+  MANUAL
+  LATE_ARRIVAL
+  EARLY_LEAVE
+  MISSING_CLOCK_OUT
+  ABSENCE
+  ATTENDANCE_REJECTED
+  WORK_REJECTED
+}
+
+/// How a rule turns a violation into a penalty.
+enum PenaltyAction {
+  /// A written warning, no money.
+  WARNING
+  /// A fixed amount.
+  FIXED
+  /// An amount per minute (late / early) after the rule's grace minutes, up to its cap.
+  PER_MINUTE
+}
+
+enum ViolationKind {
+  WARNING
+  DEDUCTION
+}
+
+enum ViolationStatus {
+  /// Waiting for a decision; nothing is deducted.
+  PROPOSED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum ViolationEventType {
+  PROPOSED
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum DeductionEntryKind {
+  APPROVAL
+  REVERSAL
+}
+
+/// A penalty rule (Admins). Rules only propose violations; a person approves each one.
+model PenaltyRule {
+  id            String         @id @default(cuid())
+  name          String
+  nameAr        String?
+  trigger       PenaltyTrigger
+  action        PenaltyAction
+  /// FIXED: the amount; PER_MINUTE: the amount per minute; WARNING: 0.
+  amount        Decimal        @default(0) @db.Decimal(12, 2)
+  /// Minutes forgiven before a late arrival / early leave counts.
+  graceMinutes  Int            @default(0)
+  /// The most one violation may cost (PER_MINUTE).
+  maxAmount     Decimal?       @db.Decimal(12, 2)
+  /// The first N occurrences in a month are warnings only.
+  warningsFirst Int            @default(0)
+  description   String?
+  isActive      Boolean        @default(true)
+  updatedById   String?
+  updatedBy     User?          @relation("PenaltyRuleEditor", fields: [updatedById], references: [id], onDelete: SetNull)
+  createdAt     DateTime       @default(now()) @db.Timestamptz(3)
+  updatedAt     DateTime       @updatedAt @db.Timestamptz(3)
+  violations    Violation[]
+
+  @@map("penalty_rules")
+}
+
+/// A violation by an employee: a warning or a deduction. Nothing is deducted until it is
+/// approved; a decided violation is never edited or deleted (database trigger), only cancelled
+/// with a reason, which reverses its deduction.
+model Violation {
+  id             String           @id @default(cuid())
+  /// VIO-2026-00001
+  number         String           @unique
+  userId         String
+  user           User             @relation("ViolationEmployee", fields: [userId], references: [id], onDelete: Restrict)
+  ruleId         String?
+  rule           PenaltyRule?     @relation(fields: [ruleId], references: [id], onDelete: Restrict)
+  trigger        PenaltyTrigger
+  /// What it was found from (rule and source record), so a scan never proposes it twice.
+  sourceKey      String?          @unique
+  /// Company-local day it happened.
+  occurredOn     DateTime         @db.Date
+  /// Minutes late / early, when that is what it is about.
+  minutes        Int?
+  kind           ViolationKind
+  amount         Decimal          @default(0) @db.Decimal(12, 2)
+  /// What the rule (or the person recording it) proposed, kept when the approver changes it.
+  proposedKind   ViolationKind
+  proposedAmount Decimal          @default(0) @db.Decimal(12, 2)
+  description    String
+  appointmentId  String?
+  appointment    Appointment?     @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  status         ViolationStatus  @default(PROPOSED)
+  createdById    String
+  createdBy      User             @relation("ViolationCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt      DateTime         @default(now()) @db.Timestamptz(3)
+  decidedById    String?
+  decidedBy      User?            @relation("ViolationDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?        @db.Timestamptz(3)
+  decisionNote   String?
+  cancelledById  String?
+  cancelledBy    User?            @relation("ViolationCanceller", fields: [cancelledById], references: [id], onDelete: Restrict)
+  cancelledAt    DateTime?        @db.Timestamptz(3)
+  cancelReason   String?
+  events         ViolationEvent[]
+  entries        DeductionEntry[]
+
+  @@index([status, occurredOn])
+  @@index([userId, occurredOn])
+  @@map("violations")
+}
+
+/// Every step of a violation (append-only).
+model ViolationEvent {
+  id          String             @id @default(cuid())
+  violationId String
+  violation   Violation          @relation(fields: [violationId], references: [id], onDelete: Restrict)
+  event       ViolationEventType
+  kind        ViolationKind
+  amount      Decimal            @db.Decimal(12, 2)
+  note        String?
+  actorId     String
+  actor       User               @relation("ViolationEventActor", fields: [actorId], references: [id], onDelete: Restrict)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@index([violationId, createdAt])
+  @@map("violation_events")
+}
+
+/// What finance deducts: one entry when a deduction is approved, one negative entry if it is
+/// cancelled afterwards (append-only). Finance reads only these.
+model DeductionEntry {
+  id          String             @id @default(cuid())
+  violationId String
+  violation   Violation          @relation(fields: [violationId], references: [id], onDelete: Restrict)
+  userId      String
+  user        User               @relation("DeductionEmployee", fields: [userId], references: [id], onDelete: Restrict)
+  /// Payroll month of the violation (YYYY-MM).
+  month       String
+  /// Positive on approval, negative on reversal.
+  amount      Decimal            @db.Decimal(12, 2)
+  kind        DeductionEntryKind
+  createdById String
+  createdBy   User               @relation("DeductionEntryCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt   DateTime           @default(now()) @db.Timestamptz(3)
+
+  @@unique([violationId, kind])
+  @@index([month, userId])
+  @@map("deduction_entries")
 }

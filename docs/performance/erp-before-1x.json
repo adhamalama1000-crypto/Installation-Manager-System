@@ -1,0 +1,478 @@
+{
+  "base": "http://localhost:3100",
+  "at": "2026-11-04T16:13:46.062Z",
+  "runs": 9,
+  "rounds": 7,
+  "server": [
+    {
+      "name": "page dashboard",
+      "status": 200,
+      "medianMs": 52.8,
+      "p95Ms": 72.4,
+      "bytes": 274735,
+      "queries": 10,
+      "dbMs": 23.3
+    },
+    {
+      "name": "page stock on hand",
+      "status": 200,
+      "medianMs": 62.6,
+      "p95Ms": 67,
+      "bytes": 159667,
+      "queries": 9,
+      "dbMs": 27.5
+    },
+    {
+      "name": "page stock by warehouse",
+      "status": 200,
+      "medianMs": 71.3,
+      "p95Ms": 95.2,
+      "bytes": 174165,
+      "queries": 9,
+      "dbMs": 56.9
+    },
+    {
+      "name": "page stock low only",
+      "status": 200,
+      "medianMs": 63.4,
+      "p95Ms": 68,
+      "bytes": 177203,
+      "queries": 9,
+      "dbMs": 25
+    },
+    {
+      "name": "page stock documents",
+      "status": 200,
+      "medianMs": 46,
+      "p95Ms": 53.6,
+      "bytes": 121138,
+      "queries": 9,
+      "dbMs": 21.7
+    },
+    {
+      "name": "page stock ledger",
+      "status": 200,
+      "medianMs": 36.4,
+      "p95Ms": 43.5,
+      "bytes": 199071,
+      "queries": 12,
+      "dbMs": 4.1
+    },
+    {
+      "name": "page products",
+      "status": 200,
+      "medianMs": 30.4,
+      "p95Ms": 43.9,
+      "bytes": 131678,
+      "queries": 11,
+      "dbMs": 1.3
+    },
+    {
+      "name": "page products search 'camera'",
+      "status": 200,
+      "medianMs": 27.5,
+      "p95Ms": 38.6,
+      "bytes": 131018,
+      "queries": 11,
+      "dbMs": 6.2
+    },
+    {
+      "name": "page products search SKU",
+      "status": 200,
+      "medianMs": 29.3,
+      "p95Ms": 33.1,
+      "bytes": 92225,
+      "queries": 11,
+      "dbMs": 14.9
+    },
+    {
+      "name": "page product detail",
+      "status": 200,
+      "medianMs": 21.1,
+      "p95Ms": 28.8,
+      "bytes": 76532,
+      "queries": 14,
+      "dbMs": 0.5
+    },
+    {
+      "name": "page warehouses",
+      "status": 200,
+      "medianMs": 50,
+      "p95Ms": 71.7,
+      "bytes": 120907,
+      "queries": 8,
+      "dbMs": 27.5
+    },
+    {
+      "name": "page warehouse detail",
+      "status": 200,
+      "medianMs": 24.4,
+      "p95Ms": 27.9,
+      "bytes": 87354,
+      "queries": 8,
+      "dbMs": 4.7
+    },
+    {
+      "name": "page stock document detail",
+      "status": 200,
+      "medianMs": 21.5,
+      "p95Ms": 26,
+      "bytes": 57374,
+      "queries": 13,
+      "dbMs": 0.4
+    },
+    {
+      "name": "page stocktakes",
+      "status": 200,
+      "medianMs": 16.8,
+      "p95Ms": 27.1,
+      "bytes": 68418,
+      "queries": 7,
+      "dbMs": 0.4
+    },
+    {
+      "name": "page reports (this year)",
+      "status": 200,
+      "medianMs": 94.4,
+      "p95Ms": 107.4,
+      "bytes": 233659,
+      "queries": 10,
+      "dbMs": 106.9
+    },
+    {
+      "name": "page appointments",
+      "status": 200,
+      "medianMs": 39.6,
+      "p95Ms": 64,
+      "bytes": 314039,
+      "queries": 6,
+      "dbMs": 4.2
+    },
+    {
+      "name": "RSC nav dashboard",
+      "status": 200,
+      "medianMs": 31.4,
+      "p95Ms": 38.4,
+      "bytes": 116461,
+      "queries": 10,
+      "dbMs": 10.9
+    },
+    {
+      "name": "RSC nav stock on hand",
+      "status": 200,
+      "medianMs": 43.9,
+      "p95Ms": 69.1,
+      "bytes": 69474,
+      "queries": 9,
+      "dbMs": 26.4
+    },
+    {
+      "name": "RSC nav stock by warehouse",
+      "status": 200,
+      "medianMs": 60.3,
+      "p95Ms": 103.3,
+      "bytes": 77521,
+      "queries": 9,
+      "dbMs": 44.5
+    },
+    {
+      "name": "RSC nav stock low only",
+      "status": 200,
+      "medianMs": 35.6,
+      "p95Ms": 40.5,
+      "bytes": 78213,
+      "queries": 9,
+      "dbMs": 22
+    },
+    {
+      "name": "RSC nav stock documents",
+      "status": 200,
+      "medianMs": 34.4,
+      "p95Ms": 43.2,
+      "bytes": 49070,
+      "queries": 9,
+      "dbMs": 14.1
+    },
+    {
+      "name": "RSC nav stock ledger",
+      "status": 200,
+      "medianMs": 32.1,
+      "p95Ms": 43.8,
+      "bytes": 91770,
+      "queries": 12,
+      "dbMs": 2.7
+    },
+    {
+      "name": "RSC nav products",
+      "status": 200,
+      "medianMs": 19.6,
+      "p95Ms": 32.5,
+      "bytes": 54910,
+      "queries": 11,
+      "dbMs": 1.5
+    },
+    {
+      "name": "RSC nav products search 'camera'",
+      "status": 200,
+      "medianMs": 22.9,
+      "p95Ms": 37.1,
+      "bytes": 54557,
+      "queries": 11,
+      "dbMs": 5.7
+    },
+    {
+      "name": "RSC nav products search SKU",
+      "status": 200,
+      "medianMs": 24.8,
+      "p95Ms": 29.7,
+      "bytes": 34052,
+      "queries": 11,
+      "dbMs": 12.2
+    },
+    {
+      "name": "RSC nav product detail",
+      "status": 200,
+      "medianMs": 13.2,
+      "p95Ms": 15.9,
+      "bytes": 22385,
+      "queries": 14,
+      "dbMs": 0.5
+    },
+    {
+      "name": "RSC nav warehouses",
+      "status": 200,
+      "medianMs": 42.3,
+      "p95Ms": 51,
+      "bytes": 46182,
+      "queries": 8,
+      "dbMs": 25.7
+    },
+    {
+      "name": "RSC nav warehouse detail",
+      "status": 200,
+      "medianMs": 17.3,
+      "p95Ms": 26.5,
+      "bytes": 18392,
+      "queries": 8,
+      "dbMs": 6.6
+    },
+    {
+      "name": "RSC nav stock document detail",
+      "status": 200,
+      "medianMs": 14.3,
+      "p95Ms": 19.1,
+      "bytes": 16139,
+      "queries": 13,
+      "dbMs": 0.3
+    },
+    {
+      "name": "RSC nav stocktakes",
+      "status": 200,
+      "medianMs": 10.1,
+      "p95Ms": 20.8,
+      "bytes": 20233,
+      "queries": 7,
+      "dbMs": 0.5
+    },
+    {
+      "name": "RSC nav reports (this year)",
+      "status": 200,
+      "medianMs": 78.9,
+      "p95Ms": 94.7,
+      "bytes": 112019,
+      "queries": 10,
+      "dbMs": 106.1
+    },
+    {
+      "name": "RSC nav appointments",
+      "status": 200,
+      "medianMs": 23.9,
+      "p95Ms": 38.3,
+      "bytes": 145880,
+      "queries": 6,
+      "dbMs": 3.5
+    },
+    {
+      "name": "RSC nav stock (technician van)",
+      "status": 200,
+      "medianMs": 37,
+      "p95Ms": 61.9,
+      "bytes": 63019,
+      "queries": 5,
+      "dbMs": 17.9
+    },
+    {
+      "name": "API products ?q=lock",
+      "status": 200,
+      "medianMs": 15.2,
+      "p95Ms": 21.5,
+      "bytes": 19372,
+      "queries": 8,
+      "dbMs": 8.6
+    },
+    {
+      "name": "API products page 50",
+      "status": 200,
+      "medianMs": 14.6,
+      "p95Ms": 17.8,
+      "bytes": 19604,
+      "queries": 8,
+      "dbMs": 1.8
+    },
+    {
+      "name": "API products picker (warehouse)",
+      "status": 200,
+      "medianMs": 17.3,
+      "p95Ms": 20.3,
+      "bytes": 19636,
+      "queries": 8,
+      "dbMs": 6.1
+    },
+    {
+      "name": "API product detail",
+      "status": 200,
+      "medianMs": 10.2,
+      "p95Ms": 13.7,
+      "bytes": 1652,
+      "queries": 11,
+      "dbMs": 0.4
+    },
+    {
+      "name": "API inventory balances",
+      "status": 200,
+      "medianMs": 38.7,
+      "p95Ms": 60.6,
+      "bytes": 14680,
+      "queries": 3,
+      "dbMs": 48.9
+    },
+    {
+      "name": "API inventory ledger",
+      "status": 200,
+      "medianMs": 15.9,
+      "p95Ms": 19.9,
+      "bytes": 33630,
+      "queries": 9,
+      "dbMs": 2.3
+    },
+    {
+      "name": "API availability",
+      "status": 200,
+      "medianMs": 7.3,
+      "p95Ms": 10.8,
+      "bytes": 277,
+      "queries": 5,
+      "dbMs": 0.1
+    },
+    {
+      "name": "API balances CSV export",
+      "status": 200,
+      "medianMs": 1681.5,
+      "p95Ms": 1715.8,
+      "bytes": 152189,
+      "queries": 61,
+      "dbMs": 1487
+    }
+  ],
+  "browser": {
+    "throttle": 1,
+    "loginMs": 679,
+    "fullLoadStock": 131,
+    "steps": [
+      {
+        "name": "Dashboard → Stock on hand",
+        "medianMs": 328,
+        "maxMs": 344,
+        "samples": [
+          328,
+          325,
+          344,
+          326,
+          342,
+          327
+        ]
+      },
+      {
+        "name": "Stock → Products",
+        "medianMs": 327,
+        "maxMs": 328,
+        "samples": [
+          328,
+          324,
+          327,
+          328,
+          327,
+          327
+        ]
+      },
+      {
+        "name": "Products → product detail",
+        "medianMs": 52,
+        "maxMs": 63,
+        "samples": [
+          63,
+          52,
+          49,
+          55,
+          46,
+          34
+        ]
+      },
+      {
+        "name": "Product → Stock documents",
+        "medianMs": 329,
+        "maxMs": 330,
+        "samples": [
+          329,
+          327,
+          324,
+          329,
+          330,
+          328
+        ]
+      },
+      {
+        "name": "Documents → Stock ledger",
+        "medianMs": 328,
+        "maxMs": 329,
+        "samples": [
+          328,
+          328,
+          328,
+          328,
+          329,
+          329
+        ]
+      },
+      {
+        "name": "Ledger → Warehouses",
+        "medianMs": 328,
+        "maxMs": 329,
+        "samples": [
+          328,
+          328,
+          325,
+          329,
+          329,
+          328
+        ]
+      },
+      {
+        "name": "Warehouses → Dashboard",
+        "medianMs": 109,
+        "maxMs": 137,
+        "samples": [
+          111,
+          101,
+          137,
+          88,
+          94,
+          109
+        ]
+      }
+    ],
+    "allMedianMs": 327,
+    "allP95Ms": 330,
+    "prefetchPerNav": 0
+  }
+}

@@ -10,6 +10,7 @@ import type { Permission } from "./permissions";
 import { isValidDateString } from "./time";
 import { parseSerials, SERIAL_RE } from "./constants";
 import { optionalText } from "./validation";
+import { CATEGORY_CODE_RE, normalizeCategoryCode } from "./product-codes";
 
 export const STOCK_DOC_TYPES: StockDocType[] = ["RECEIPT", "ISSUE", "TRANSFER", "RETURN", "ADJUSTMENT", "OPENING"];
 export const STOCK_DOC_STATUSES: StockDocStatus[] = ["DRAFT", "POSTED", "CANCELLED"];
@@ -175,6 +176,8 @@ export const unitSchema = z.object({
 });
 
 export const categorySchema = z.object({
+  /** Optional SKU prefix; left out = unchanged on an edit. */
+  code: z.preprocess(normalizeCategoryCode, z.string().regex(CATEGORY_CODE_RE, msg("variants.errors.categoryCode")).nullable().optional()),
   nameEn: requiredText("catalog.nameEn", 100),
   nameAr: requiredText("catalog.nameAr", 100),
   parentId: optionalId,
@@ -187,31 +190,93 @@ export const brandSchema = z.object({
   isActive: boolField(true),
 });
 
-export const productSchema = z.object({
-  sku: z.preprocess(normalizeCode, z.string({ error: required("catalog.products.sku") }).min(1, required("catalog.products.sku")).regex(SKU_RE, msg("catalog.errors.sku"))),
-  barcode: z.preprocess((v) => {
+/** How serial numbers are kept: none, when known (optional), or one per unit (mandatory). */
+export const SERIAL_MODES = ["NONE", "OPTIONAL", "REQUIRED"] as const;
+export type SerialMode = (typeof SERIAL_MODES)[number];
+export function serialModeOf(p: { trackSerials: boolean; serialsOptional?: boolean | null }): SerialMode {
+  return p.trackSerials ? "REQUIRED" : p.serialsOptional ? "OPTIONAL" : "NONE";
+}
+export function serialFlags(mode: SerialMode): { trackSerials: boolean; serialsOptional: boolean } {
+  return { trackSerials: mode === "REQUIRED", serialsOptional: mode === "OPTIONAL" };
+}
+
+const skuField = z.preprocess(
+  (v) => {
     const n = normalizeCode(v);
     return n === "" || n === undefined ? null : n;
-  }, z.string().regex(BARCODE_RE, msg("catalog.errors.barcode")).nullable()),
-  nameEn: requiredText("catalog.nameEn", 200),
-  nameAr: requiredText("catalog.nameAr", 200),
-  categoryId: optionalId,
-  brandId: optionalId,
-  model: optionalText(100),
-  description: optionalText(2000),
-  unitId: requiredId("catalog.products.unit"),
+  },
+  z.string().regex(SKU_RE, msg("catalog.errors.sku")).nullable(),
+);
+const barcodeField = z.preprocess((v) => {
+  const n = normalizeCode(v);
+  return n === "" || n === undefined ? null : n;
+}, z.string().regex(BARCODE_RE, msg("catalog.errors.barcode")).nullable());
+const colorField = z.preprocess(
+  (v) => (typeof v === "string" ? (v.trim() === "" ? null : v.trim().toUpperCase()) : (v ?? null)),
+  z.string().regex(/^#[0-9A-F]{6}$/, msg("variants.errors.color")).nullable(),
+);
+
+export const productSchema = z
+  .object({
+    /** Blank on a new product: generated (PREFIX-00001). Blank on an edit: unchanged. */
+    sku: skuField,
+    barcode: barcodeField,
+    /** Ask for an internal EAN-13 barcode when there is none. */
+    generateBarcode: boolField(false),
+    nameEn: requiredText("catalog.nameEn", 200),
+    nameAr: requiredText("catalog.nameAr", 200),
+    categoryId: optionalId,
+    brandId: optionalId,
+    model: optionalText(100),
+    description: optionalText(2000),
+    unitId: requiredId("catalog.products.unit"),
+    purchaseCost: moneyField(2),
+    sellingPrice: moneyField(2),
+    minStock: z.preprocess((v) => (v === "" || v === null || v === undefined ? 0 : v), countField),
+    warrantyMonths: z.preprocess(
+      (v) => toNumber(v) ?? 0,
+      z.number({ error: msg("validation.number") }).int(msg("validation.wholeMonths")).min(0, msg("validation.negative")).max(600, msg("catalog.errors.warranty")),
+    ),
+    /** Older clients send trackSerials only; serialMode wins when both are given. */
+    trackSerials: boolField(false),
+    serialMode: z.preprocess((v) => (v === "" || v === null ? undefined : v), z.enum(SERIAL_MODES, { error: msg("variants.errors.serialMode") }).optional()),
+    isActive: boolField(true),
+    version: versionField,
+  })
+  .transform(({ serialMode, trackSerials, ...rest }) => {
+    const mode: SerialMode = serialMode ?? (trackSerials ? "REQUIRED" : "NONE");
+    return { ...rest, serialMode: mode, trackSerials: mode === "REQUIRED" };
+  });
+export type ProductInput = z.output<typeof productSchema>;
+
+/** One variant of a product (colour / configuration). Shared details come from the product. */
+export const variantSchema = z.object({
+  sku: skuField,
+  barcode: barcodeField,
+  generateBarcode: boolField(false),
+  variantNameEn: requiredText("variants.nameEn", 100),
+  variantNameAr: requiredText("variants.nameAr", 100),
+  colorHex: colorField,
   purchaseCost: moneyField(2),
   sellingPrice: moneyField(2),
   minStock: z.preprocess((v) => (v === "" || v === null || v === undefined ? 0 : v), countField),
-  warrantyMonths: z.preprocess(
-    (v) => toNumber(v) ?? 0,
-    z.number({ error: msg("validation.number") }).int(msg("validation.wholeMonths")).min(0, msg("validation.negative")).max(600, msg("catalog.errors.warranty")),
-  ),
-  trackSerials: boolField(false),
   isActive: boolField(true),
   version: versionField,
 });
-export type ProductInput = z.output<typeof productSchema>;
+export type VariantInput = z.output<typeof variantSchema>;
+
+/** Several variants at once ("Black, Silver, Gold"). */
+export const variantsBulkSchema = z.object({
+  variants: z.array(variantSchema).min(1, msg("variants.errors.none")).max(50, msg("variants.errors.tooMany")),
+});
+
+/** An existing product becomes a variant of this one (it keeps its SKU, stock and history). */
+export const attachVariantSchema = z.object({
+  productId: requiredId("variants.existing"),
+  variantNameEn: requiredText("variants.nameEn", 100),
+  variantNameAr: requiredText("variants.nameAr", 100),
+  colorHex: colorField,
+});
 
 // ---- Warehouses ------------------------------------------------------------------------------
 
@@ -262,6 +327,12 @@ export const stockDocSchema = z
     reference: optionalText(100),
     counterparty: optionalText(200),
     note: optionalText(1000),
+    /** From the supplier master (receipts, supplier returns). */
+    supplierId: optionalId,
+    /** From the customers (customer returns). */
+    customerId: optionalId,
+    /** The booked visit, by its code (APT-000123 or 123): issues and returns. */
+    appointmentRef: optionalText(20),
     clientRequestId: z.preprocess((v) => (v === "" ? undefined : v), z.string().min(8).max(64).optional()),
     version: versionField,
     lines: z.array(docLineSchema).min(1, msg("stock.errors.noLines")).max(200, msg("stock.errors.tooManyLines")),

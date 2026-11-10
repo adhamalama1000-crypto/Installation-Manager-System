@@ -13,7 +13,7 @@ import { nameOf } from "./labels";
 import { useAction } from "./use-action";
 
 type Unit = { id: string; code: string; nameEn: string; nameAr: string; allowsFraction: boolean; isActive: boolean; sortOrder: number; productCount: number };
-type Category = { id: string; nameEn: string; nameAr: string; parentId: string | null; isActive: boolean; sortOrder: number; productCount: number };
+type Category = { id: string; code?: string | null; nameEn: string; nameAr: string; parentId: string | null; isActive: boolean; sortOrder: number; productCount: number };
 type Brand = { id: string; name: string; isActive: boolean; productCount: number };
 
 type Editing<T> = { open: boolean; item: T | null };
@@ -133,12 +133,12 @@ export function UnitsManager({ units }: { units: Unit[] }) {
 export function CategoriesManager({ categories }: { categories: Category[] }) {
   const t = useT();
   const [state, setState] = useState<Editing<Category>>({ open: false, item: null });
-  const [v, setV] = useState({ nameEn: "", nameAr: "", parentId: "", isActive: true, sortOrder: "0" });
+  const [v, setV] = useState({ code: "", nameEn: "", nameAr: "", parentId: "", isActive: true, sortOrder: "0" });
   const { busy, errors, setErrors, run } = useAction();
   const tops = categories.filter((c) => !c.parentId);
   const open = (c: Category | null, parentId = "") => {
     setErrors({});
-    setV(c ? { nameEn: c.nameEn, nameAr: c.nameAr, parentId: c.parentId ?? "", isActive: c.isActive, sortOrder: String(c.sortOrder) } : { nameEn: "", nameAr: "", parentId, isActive: true, sortOrder: "0" });
+    setV(c ? { code: c.code ?? "", nameEn: c.nameEn, nameAr: c.nameAr, parentId: c.parentId ?? "", isActive: c.isActive, sortOrder: String(c.sortOrder) } : { code: "", nameEn: "", nameAr: "", parentId, isActive: true, sortOrder: "0" });
     setState({ open: true, item: c });
   };
   const hasChildren = (id: string) => categories.some((c) => c.parentId === id);
@@ -157,14 +157,14 @@ export function CategoriesManager({ categories }: { categories: Category[] }) {
       ) : (
         <ul className="divide-y divide-line">
           {tops.flatMap((c) => [
-            <Row key={c.id} title={nameOf(c, t)} inactive={!c.isActive} count={c.productCount} edit={<EditButton label={t("catalog.categories.edit")} onClick={() => open(c)} />} />,
+            <Row key={c.id} title={c.code ? `${nameOf(c, t)} · ${c.code}` : nameOf(c, t)} inactive={!c.isActive} count={c.productCount} edit={<EditButton label={t("catalog.categories.edit")} onClick={() => open(c)} />} />,
             ...categories
               .filter((s) => s.parentId === c.id)
               .map((s) => (
                 <Row
                   key={s.id}
                   indent
-                  title={nameOf(s, t)}
+                  title={s.code ? `${nameOf(s, t)} · ${s.code}` : nameOf(s, t)}
                   sub={t("catalog.categories.subOf", { parent: nameOf(c, t) })}
                   inactive={!s.isActive}
                   count={s.productCount}
@@ -211,6 +211,9 @@ export function CategoriesManager({ categories }: { categories: Category[] }) {
           </Field>
           <Field label={t("catalog.units.sortOrder")} error={errors.sortOrder}>
             {(p) => <Input {...p} value={v.sortOrder} onChange={(e) => setV({ ...v, sortOrder: e.target.value })} inputMode="numeric" dir="ltr" />}
+          </Field>
+          <Field label={t("codes.categoryCode")} hint={t("codes.categoryCodeHint")} error={errors.code}>
+            {(p) => <Input {...p} value={v.code} onChange={(e) => setV({ ...v, code: e.target.value })} maxLength={6} autoCapitalize="characters" dir="ltr" className="font-mono" placeholder="LCK" />}
           </Field>
           <div className="sm:col-span-2">
             <Checkbox label={t("common.active")} checked={v.isActive} onChange={(e) => setV({ ...v, isActive: e.target.checked })} />

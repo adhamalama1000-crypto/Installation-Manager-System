@@ -31,6 +31,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 13. [Notifications - what is and isn't included](#notifications---what-is-and-isnt-included)
 14. [Performance](#performance)
 15. [Known limitations](#known-limitations)
+16. [Documentation](#documentation)
 
 ---
 
@@ -56,6 +57,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 - **Field tracking** (from Aura): technicians check in with the phone's location when they reach the company, pick up the lock, call the customer, set off (with an estimated arrival), arrive, start, finish or report a problem, and leave. Check-ins far from the company (400 m) or the customer's pin (300 m), late arrivals and early departures are flagged; Sales and the Admins are told as it happens. A problem the customer caused adds the repeat-visit fee once. The **Live board** shows where every technician is (also for the office screen, through a Viewer account), **Attendance & points** scores each month with Aura's rule, and a scheduled call sends late alerts to the Admins.
 - **Transport expenses and the company car** (from Aura): technicians and the driver record what they paid to reach a visit, with a receipt photo, and the Accountant pays each person's pending month in one go. Bookings can ask for the company car; the **Car route** page orders the day's car visits (the stops the head of installations ordered by hand first, then each period from the nearest stop), warns about more than 3 drops in a period or drops 20 km apart, and lets the new **Driver** role check in when leaving, dropping and picking up the teams, and coming back. The car is shown on the live board, and the booking form warns when the car is busy that period.
 - **Booking helpers** (from Aura): a 10-minute **hold** on technicians while Sales confirms with the customer, a **suggested technician** (specialty, how full their day is, how close their neighbouring visit is), reading a **quotation link** from the company website into the customer, price and items (prices hidden from technicians), where the lock is, whether an electrician is needed, smart-home **site readiness**, Aura's area centres when a site has no pin, an inspection-only weekday warning, and **no booking in the past** except by an Admin. Reports show the busiest areas.
+- **ERP upgrade (November 2026)**: automatic concurrency-safe SKUs and variant codes, product variants, optional or mandatory serial numbers, internal EAN-13 barcodes and product images; Excel import (preview, row and column errors, one transaction) and export; suppliers and stock documents linked to booked visits; sales invoices that post their stock issue, and sales analytics from confirmed sales only; clock-in / clock-out with a live-camera photo, configurable geofences and a daily attendance review; work evidence rules per kind of visit with video and a manager's review; violations, warnings and deductions with approval, cancellation and finance entries. See [Documentation](#documentation) and [docs/USER_GUIDE_AR.md](docs/USER_GUIDE_AR.md).
 - **ERP inventory (phase 1)**: a product catalogue (Arabic and English names, SKU, barcode, categories, brands, units, costs, minimum stock, warranty, serial tracking), warehouses and technicians' vans with bins, numbered stock documents (goods receipt, issue, transfer, customer and supplier return, adjustment, opening balance) that are drafted, posted and corrected only by reversal, an immutable stock ledger with balances per location and moving average cost, physical stocktakes that freeze the warehouse and post one adjustment on approval, and a new **Warehouse manager** role. See [docs/INVENTORY.md](docs/INVENTORY.md).
 - **Arabic first, with English**: the app opens in Arabic, right to left, and every page, form, validation message, notification, audit entry, CSV export and WhatsApp text can be switched to English (sidebar, sign-in page or profile). The choice is kept in a cookie and on the user's account.
 - **Responsive UI** (phone, tablet, desktop) with light, dark and system themes, accessible focus states, empty/error states and toast feedback.
@@ -177,6 +179,8 @@ Permissions are defined once in [`src/lib/permissions.ts`](src/lib/permissions.t
 
 The ERP inventory permissions (`products.*`, `warehouses.*`, `inventory.*`) and the Warehouse manager role are described in [docs/INVENTORY.md](docs/INVENTORY.md#permissions-and-roles).
 
+The complete matrix of every permission and role, including the ERP upgrade (`suppliers.*`, `sales.*`, `analytics.view`, `attendance.*`, `evidence.review`, `penalties.*`), is generated from the code in [docs/modules/PERMISSIONS.md](docs/modules/PERMISSIONS.md).
+
 ¹ An Admin can restrict Sales to editing only the appointments they created (Settings → "Sales can edit any appointment").
 ² Configurable (Settings → "Technicians see customer phone numbers").
 ³ Configurable (Settings → "Sales can view reports").
@@ -244,7 +248,7 @@ e2e/                       Playwright browser tests
 
 ## Database
 
-Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`, `complaints`, `maintenance_calls`, `check_ins`, `technician_positions`, `alerts_sent`, `transport_expenses`, `slot_holds`; ERP inventory: `units`, `catalog_categories`, `brands`, `products`, `warehouses`, `warehouse_bins`, `stock_balances`, `stock_documents`, `stock_document_lines`, `inventory_movements`, `product_serials`, `document_sequences`, `stocktakes`, `stocktake_lines` (see [docs/INVENTORY.md](docs/INVENTORY.md)).
+Main tables: `users`, `sessions`, `password_tokens`, `login_attempts`, `customers`, `customer_locations`, `appointments`, `appointment_technicians`, `appointment_statuses`, `audit_logs`, `notifications`, `settings`, `attachments`, `complaints`, `maintenance_calls`, `check_ins`, `technician_positions`, `alerts_sent`, `transport_expenses`, `slot_holds`; ERP inventory: `units`, `catalog_categories`, `brands`, `products`, `warehouses`, `warehouse_bins`, `stock_balances`, `stock_documents`, `stock_document_lines`, `inventory_movements`, `product_serials`, `document_sequences`, `stocktakes`, `stocktake_lines` (see [docs/INVENTORY.md](docs/INVENTORY.md)); ERP upgrade: `product_images`, `suppliers`, `sales_invoices`, `sales_invoice_lines`, `work_locations`, `attendance_reviews`, `evidence_rules`, `work_reviews`, `penalty_rules`, `violations`, `violation_events`, `deduction_entries` (see [docs/modules/](docs/modules/)).
 
 Uploaded files are stored on disk under `UPLOAD_DIR` (default `./storage/uploads`), with their type, size and SHA-256 recorded in `attachments`. Back up that folder together with the database.
 
@@ -357,10 +361,36 @@ Judge speed on `npm run build && npm start`, not `npm run dev`: the development 
 
 - No map picker or geocoding: Sales paste a map link (or coordinates). Coordinates can be read automatically from full Google Maps URLs. Short links (`maps.app.goo.gl`) are saved and opened as-is.
 - Text search uses PostgreSQL `ILIKE` with `pg_trgm` indexes; search terms shorter than 3 characters cannot use them and scan instead.
-- Recurring appointments are not implemented. Attachments are images only (JPEG, PNG, WebP); browsers that cannot decode a photo (e.g. HEIC on some desktop browsers) ask for another one.
+- Recurring appointments are not implemented. Visit attachments are images (JPEG, PNG, WebP) and, since the ERP upgrade, videos (MP4, MOV, WebM); browsers that cannot decode a photo (e.g. HEIC on some desktop browsers) ask for another one.
 - Two languages only (Arabic and English). Numbers use Western digits in both. Admin-defined names (statuses have an optional Arabic name; product models, areas and people do not) are shown as entered.
 - WhatsApp messages are never sent automatically: the day plan opens WhatsApp with the text filled in (no WhatsApp Business API or e-mail provider is connected). Numbers without a country code are treated as Egyptian.
 - The repeat-visit fee is entered by Sales rather than set automatically.
 - Aura features still partial: transport expenses are not in the finance CSV; drivers are not notified of every status change on a car visit; the smart-home readiness reminder is on the booking form and the visit, not on the dashboard. Some features work differently on purpose (PIN login, fixed periods, order numbers, Google Sheets sync, "book anyway" over a conflict); see [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md).
-- ERP inventory phase 1 does not yet move the legacy serial custody into the new ledger, link issues to booked visits, or include suppliers and purchase orders; see [docs/INVENTORY.md](docs/INVENTORY.md#known-limitations).
+- The legacy serial custody is not yet moved into the inventory ledger, and there are no purchase orders; each module's limitations are listed in its page under [docs/modules/](docs/modules/).
 - No e-mail is sent: Aura's morning e-mail and e-mailed late alerts need an e-mail provider, which is not configured. Late alerts arrive as in-app notifications, and the day plan shows the morning summary. See [docs/FEATURE_MIGRATION_MATRIX.md](docs/FEATURE_MIGRATION_MATRIX.md) and [docs/IMPLEMENTATION_STATUS.md](docs/IMPLEMENTATION_STATUS.md).
+
+## Documentation
+
+| Document | What it covers |
+|---|---|
+| [docs/USER_GUIDE_AR.md](docs/USER_GUIDE_AR.md) | دليل الاستخدام بالعربي، خطوة بخطوة لكل دور |
+| [docs/ERP_UPGRADE_AUDIT.md](docs/ERP_UPGRADE_AUDIT.md) | The audit before the ERP upgrade and the safe database strategy |
+| [docs/modules/AUTHENTICATION.md](docs/modules/AUTHENTICATION.md) | Sign-in, sessions, password links, the password visibility toggle |
+| [docs/modules/PERMISSIONS.md](docs/modules/PERMISSIONS.md) | Roles, the full permission matrix (generated from the code), scopes |
+| [docs/modules/INVENTORY.md](docs/modules/INVENTORY.md) | Stock, ledger, posting rules (design details in [docs/INVENTORY.md](docs/INVENTORY.md)) |
+| [docs/modules/PRODUCTS.md](docs/modules/PRODUCTS.md) | The product catalogue |
+| [docs/modules/PRODUCT_VARIANTS.md](docs/modules/PRODUCT_VARIANTS.md) | Colours and configurations as stock-keeping variants |
+| [docs/modules/SKU_AND_BARCODE.md](docs/modules/SKU_AND_BARCODE.md) | Automatic codes and internal barcodes |
+| [docs/modules/WAREHOUSES.md](docs/modules/WAREHOUSES.md) | Warehouses, vans and bins |
+| [docs/modules/STOCK_DOCUMENTS.md](docs/modules/STOCK_DOCUMENTS.md) | Receipts, issues, transfers, returns, adjustments, suppliers, visit links |
+| [docs/modules/STOCKTAKES.md](docs/modules/STOCKTAKES.md) | Physical counts |
+| [docs/modules/EXCEL_IMPORT_EXPORT.md](docs/modules/EXCEL_IMPORT_EXPORT.md) | Excel template, import and export |
+| [docs/modules/SALES_ANALYTICS.md](docs/modules/SALES_ANALYTICS.md) | Sales invoices and sales analytics |
+| [docs/modules/ATTENDANCE.md](docs/modules/ATTENDANCE.md) | Clock-in / clock-out with a photo, geofences, daily review |
+| [docs/modules/GPS_TRACKING.md](docs/modules/GPS_TRACKING.md) | Check-ins with location, live board, late alerts |
+| [docs/modules/TECHNICIAN_MANAGEMENT.md](docs/modules/TECHNICIAN_MANAGEMENT.md) | The field team end to end |
+| [docs/modules/WORK_EVIDENCE.md](docs/modules/WORK_EVIDENCE.md) | Evidence rules, videos, review workflow |
+| [docs/modules/PENALTIES_AND_DEDUCTIONS.md](docs/modules/PENALTIES_AND_DEDUCTIONS.md) | Violations, warnings, deductions, approval, finance entries |
+| [docs/modules/DATA_ENTRY.md](docs/modules/DATA_ENTRY.md) | Searchable pickers, defaults, drafts, bulk entry |
+| [docs/modules/PERFORMANCE.md](docs/modules/PERFORMANCE.md) | ERP performance work and before / after measurements |
+| [docs/PERFORMANCE.md](docs/PERFORMANCE.md) | The earlier performance audit (October 2026) |

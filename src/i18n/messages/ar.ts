@@ -3,6 +3,7 @@
  * صيغ الجمع العربية: zero / one / two / few (3-10) / many (11-99) / other.
  */
 import type { Messages } from "./en";
+import { erpAr } from "./erp.ar";
 
 export const ar: Messages = {
   app: {
@@ -205,6 +206,11 @@ export const ar: Messages = {
       WAREHOUSE: "مخزن",
       INVENTORY: "مستند مخزون",
       STOCKTAKE: "جرد",
+      SUPPLIER: "مورد",
+      SALE: "فاتورة بيع",
+      ATTENDANCE: "الحضور",
+      EVIDENCE: "إثبات الشغل",
+      PENALTY: "مخالفة",
     },
     complaintStatus: { NEW: "جديدة", ASSIGNED: "اتوزّعت", RESOLVED: "اتحلّت", CLOSED: "مقفولة" },
     specialty: { LOCK: "لوك", SMART_HOME: "سمارت هوم", BOTH: "الاتنين" },
@@ -253,6 +259,15 @@ export const ar: Messages = {
     inventory: {
       view: { label: "أرصدة ومستندات المخزون", description: "الرصيد الحالي ومستندات المخزون ودفتر الحركات (قراءة فقط)." },
       reports: { label: "قيمة المخزون والتكلفة", description: "تكلفة الشراء ومتوسط التكلفة وقيمة المخزون وتصدير بيانات المخزون." },
+    },
+    suppliers: {
+      view: { label: "الموردون", description: "قائمة الموردين واستلامات كل مورد (عرض فقط)." },
+    },
+    sales: {
+      view: { label: "فواتير البيع", description: "فواتير البيع المؤكدة والمسودات (عرض فقط)." },
+    },
+    analytics: {
+      view: { label: "تحليلات المبيعات", description: "الأكثر والأقل مبيعًا، الاتجاهات، معدل الدوران وقيمة المخزون." },
     },
   },
   money: {
@@ -1450,15 +1465,19 @@ export const ar: Messages = {
       SIGNATURE: "توقيع العميل",
       PAYMENT_PROOF: "صورة التحويل",
       DEPOSIT_PROOF: "صورة العربون",
+      VIDEO: "فيديوهات",
     },
     hint: {
-      BEFORE_PHOTO: "الباب أو الموقع قبل الشغل، يضيفها السيلز.",
+      BEFORE_PHOTO: "الباب أو الموقع قبل الشغل، يضيفها السيلز (ويضيفها الفني في الموقع لو الزيارة دي محتاجة صور قبل).",
       AFTER_PHOTO: "الشغل بعد ما خلص، يضيفها الفني.",
       SIGNATURE: "العميل يوقّع على الشاشة بالموافقة على الشغل.",
       PAYMENT_PROOF: "سكرين شوت لتحويل إنستاباي أو المحفظة أو البنك المدفوع في الزيارة.",
       DEPOSIT_PROOF: "سكرين شوت لتحويل العربون.",
+      VIDEO: "فيديو قصير للشغل بعد ما خلص (MP4 أو MOV أو WebM).",
     },
     addPhoto: "إضافة صورة",
+    addVideo: "إضافة فيديو",
+    play: "تشغيل {kind}",
     replace: "استبدال",
     upload: "رفع",
     uploading: "جارٍ الرفع…",
@@ -1484,6 +1503,9 @@ export const ar: Messages = {
       type: "يمكن رفع صور JPEG أو PNG أو WebP فقط.",
       limit: "الحد الأقصى {max} صورة من هذا النوع للزيارة.",
       read: "تعذّرت قراءة هذه الصورة. جرّب صورة أخرى.",
+      videoTooLarge: "الفيديو كبير جدًا. صوّر فيديو أقصر (بحد أقصى {mb} ميجابايت).",
+      videoType: "يمكن رفع فيديوهات MP4 أو MOV (QuickTime) أو WebM فقط.",
+      videoLimit: "الحد الأقصى {max} فيديوهات للزيارة.",
     },
   },
   delivery: {
@@ -2248,4 +2270,5 @@ export const ar: Messages = {
       rejectNote: "اكتب سبب رفض الجرد",
     },
   },
+  ...erpAr,
 };

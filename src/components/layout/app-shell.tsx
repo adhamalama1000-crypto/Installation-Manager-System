@@ -3,37 +3,7 @@
 import { Suspense, useEffect, useId, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import {
-  BarChart3,
-  Boxes,
-  CalendarDays,
-  ClipboardList,
-  History,
-  LayoutDashboard,
-  LogOut,
-  Menu,
-  MessageCircle,
-  MessageSquareWarning,
-  HeartHandshake,
-  Radar,
-  Truck,
-  Receipt,
-  CalendarCheck2,
-  Plane,
-  Wallet,
-  Plus,
-  Settings,
-  UserCircle,
-  Users,
-  Contact,
-  X,
-  Package,
-  Warehouse,
-  ArrowLeftRight,
-  ScrollText,
-  ClipboardCheck,
-  Layers,
-} from "lucide-react";
+import { ArrowLeftRight, BarChart3, Boxes, CalendarCheck2, CalendarDays, Camera, ClipboardCheck, ClipboardList, Contact, Factory, Gavel, HeartHandshake, History, Layers, LayoutDashboard, LogOut, Menu, MessageCircle, MessageSquareWarning, Package, Plane, Plus, Radar, Receipt, ScrollText, Settings, ShieldCheck, ShoppingCart, TrendingUp, Truck, UserCheck, UserCircle, Users, Wallet, Warehouse, X } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
 import type { T } from "@/i18n/translator";
@@ -59,12 +29,19 @@ function navFor(user: ShellUser, t: T) {
     { href: "/day-plan", label: t("nav.dayPlan"), icon: MessageCircle, show: has("appointments.manage") },
     { href: "/complaints", label: t("nav.complaints"), icon: MessageSquareWarning, show: has("complaints.view") },
     { href: "/after-sales", label: t("nav.afterSales"), icon: HeartHandshake, show: has("appointments.manage") || has("quality.grade") },
+    { href: "/evidence", label: t("erpNav.evidence"), icon: ShieldCheck, show: has("evidence.review") },
     { href: "/board", label: t("nav.board"), icon: Radar, show: has("board.view") },
     { href: "/route", label: t("nav.route"), icon: Truck, show: has("route.view") },
     { href: "/expenses", label: t("nav.expenses"), icon: Receipt, show: has("expenses.record") || has("expenses.pay") },
+    { href: "/attendance/clock", label: t("erpNav.clock"), icon: Camera, show: has("checkins.record") || has("car.checkin") },
+    { href: "/attendance/daily", label: t("erpNav.attendanceToday"), icon: UserCheck, show: has("attendance.view") || has("attendance.manage") },
     { href: "/attendance", label: has("attendance.view") ? t("nav.attendance") : t("nav.myAttendance"), icon: CalendarCheck2, show: has("attendance.view") || has("checkins.record") || has("car.checkin") },
     { href: "/leaves", label: tech ? t("nav.myLeave") : t("nav.leave"), icon: Plane, show: has("leaves.manage") || has("leaves.request") },
     { href: "/inventory", label: tech ? t("nav.myStock") : t("nav.inventory"), icon: Boxes, show: has("stock.view") },
+    { href: "/sales", label: t("erpNav.sales"), icon: ShoppingCart, show: has("sales.view") || has("sales.manage") },
+    { href: "/analytics", label: t("erpNav.analytics"), icon: TrendingUp, show: has("analytics.view") },
+    { href: "/penalties", label: t("erpNav.penalties"), icon: Gavel, show: has("penalties.view") },
+    { href: "/penalties/mine", label: t("erpNav.myPenalties"), icon: Gavel, show: has("penalties.own") && !has("penalties.view") },
     { href: "/finance", label: t("nav.finance"), icon: Wallet, show: has("finance.view") },
     { href: "/reports", label: t("nav.reports"), icon: BarChart3, show: has("reports.view") },
     { href: "/users", label: t("nav.users"), icon: Users, show: has("users.manage") },
@@ -77,6 +54,7 @@ function navFor(user: ShellUser, t: T) {
     { href: "/stocktakes", label: t("nav.stocktakes"), icon: ClipboardCheck, show: has("inventory.count") || has("inventory.approve"), group: "inventory" },
     { href: "/products", label: t("nav.products"), icon: Package, show: has("products.view"), group: "inventory" },
     { href: "/warehouses", label: t("nav.warehouses"), icon: Warehouse, show: has("warehouses.view"), group: "inventory" },
+    { href: "/suppliers", label: t("erpNav.suppliers"), icon: Factory, show: has("suppliers.view"), group: "inventory" },
   ];
   return items.filter((i) => i.show);
 }
@@ -84,6 +62,8 @@ function navFor(user: ShellUser, t: T) {
 function isActive(pathname: string, href: string) {
   if (href === "/") return pathname === "/";
   if (href === "/stock") return pathname === "/stock";
+  if (href === "/attendance") return pathname === "/attendance";
+  if (href === "/penalties") return pathname.startsWith("/penalties") && !pathname.startsWith("/penalties/mine");
   if (href === "/appointments") return pathname === "/appointments" || (pathname.startsWith("/appointments/") && pathname !== "/appointments/new");
   return pathname === href || pathname.startsWith(`${href}/`);
 }

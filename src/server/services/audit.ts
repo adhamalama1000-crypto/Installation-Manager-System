@@ -7,7 +7,7 @@ import { messageData } from "./notifications";
 const english = createT("en");
 
 export type AuditInput = {
-  entityType: "APPOINTMENT" | "USER" | "STATUS" | "SETTINGS" | "CUSTOMER" | "LEAVE" | "CASH" | "STOCK" | "COMPLAINT" | "EXPENSE" | "PRODUCT" | "WAREHOUSE" | "INVENTORY" | "STOCKTAKE";
+  entityType: "APPOINTMENT" | "USER" | "STATUS" | "SETTINGS" | "CUSTOMER" | "LEAVE" | "CASH" | "STOCK" | "COMPLAINT" | "EXPENSE" | "PRODUCT" | "WAREHOUSE" | "INVENTORY" | "STOCKTAKE" | "SUPPLIER" | "SALE" | "ATTENDANCE" | "EVIDENCE" | "PENALTY" | "FINANCE";
   entityId: string;
   action: string;
   /** Encoded message (i18n `msg`): stored in English plus its key and params for other languages. */

@@ -6,7 +6,9 @@ test.use({ viewport: { width: 390, height: 844 } });
 test("main pages fit a phone screen without horizontal scrolling", async ({ page }) => {
   await login(page, "admin@example.com");
   for (const path of ["/", "/calendar", "/appointments", "/appointments/new", "/customers", "/reports", "/finance", "/leaves", "/inventory", "/day-plan", "/users", "/settings", "/audit", "/profile",
-      "/products", "/products/new", "/products/setup", "/warehouses", "/stock", "/stock/documents", "/stock/documents/new?type=TRANSFER", "/stock/movements", "/stocktakes"]) {
+      "/products", "/products/new", "/products/setup", "/warehouses", "/stock", "/stock/documents", "/stock/documents/new?type=TRANSFER", "/stock/movements", "/stocktakes",
+      "/suppliers", "/sales", "/sales/new", "/analytics", "/attendance/daily", "/attendance/clock", "/evidence", "/evidence?status=APPROVED",
+      "/penalties", "/penalties?status=", "/penalties/rules", "/penalties/mine"]) {
     await page.goto(path);
     await page.waitForLoadState("networkidle");
     const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);

@@ -33,6 +33,11 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   workEnd: "19:00",
   revisitFee: 0,
   inspectionOnlyWeekdays: [],
+  // Geofences as they were before they became settings; the selfie rule is switched on by an Admin.
+  companyRadiusM: 400,
+  customerRadiusM: 300,
+  maxAccuracyM: 150,
+  attendanceSelfieRequired: false,
 };
 
 /** Stored settings JSON (or null when never saved) merged over the defaults. */

@@ -4,6 +4,7 @@
  * zero / two / few / many.
  */
 import type { Widen } from "../types";
+import { erpEn } from "./erp.en";
 
 const messages = {
   app: {
@@ -206,6 +207,11 @@ const messages = {
       WAREHOUSE: "Warehouse",
       INVENTORY: "Stock document",
       STOCKTAKE: "Stocktake",
+      SUPPLIER: "Supplier",
+      SALE: "Sale",
+      ATTENDANCE: "Attendance",
+      EVIDENCE: "Work evidence",
+      PENALTY: "Violation",
     },
     complaintStatus: { NEW: "New", ASSIGNED: "Assigned", RESOLVED: "Resolved", CLOSED: "Closed" },
     specialty: { LOCK: "Locks", SMART_HOME: "Smart home", BOTH: "Both" },
@@ -254,6 +260,15 @@ const messages = {
     inventory: {
       view: { label: "Stock balances & documents", description: "Stock on hand, stock documents and the stock ledger (read-only)." },
       reports: { label: "Stock value & costs", description: "Purchase and average costs, stock value and inventory exports." },
+    },
+    suppliers: {
+      view: { label: "Suppliers", description: "The supplier list and each supplier's receipts (read-only)." },
+    },
+    sales: {
+      view: { label: "Sales invoices", description: "Confirmed and draft sales invoices (read-only)." },
+    },
+    analytics: {
+      view: { label: "Sales analytics", description: "Best and slow sellers, trends, turnover and stock value." },
     },
   },
   money: {
@@ -1448,15 +1463,19 @@ const messages = {
       SIGNATURE: "Customer signature",
       PAYMENT_PROOF: "Transfer proof",
       DEPOSIT_PROOF: "Deposit proof",
+      VIDEO: "Videos",
     },
     hint: {
-      BEFORE_PHOTO: "The door or site before the work, added by Sales.",
+      BEFORE_PHOTO: "The door or site before the work, added by Sales (and by the technician on site when this visit needs before photos).",
       AFTER_PHOTO: "The finished work, added by the technician.",
       SIGNATURE: "The customer signs on the screen to accept the work.",
       PAYMENT_PROOF: "A screenshot of InstaPay, wallet or bank transfer paid at the visit.",
       DEPOSIT_PROOF: "A screenshot of the deposit transfer.",
+      VIDEO: "A short video of the finished work (MP4, MOV or WebM).",
     },
     addPhoto: "Add photo",
+    addVideo: "Add video",
+    play: "Play {kind}",
     replace: "Replace",
     upload: "Upload",
     uploading: "Uploading…",
@@ -1482,6 +1501,9 @@ const messages = {
       type: "Only JPEG, PNG or WebP images can be uploaded.",
       limit: "A visit can have at most {max} photos of this kind.",
       read: "This image could not be read. Try another photo.",
+      videoTooLarge: "The video is too large. Record a shorter one (at most {mb} MB).",
+      videoType: "Only MP4, MOV (QuickTime) or WebM videos can be uploaded.",
+      videoLimit: "A visit can have at most {max} videos.",
     },
   },
   delivery: {
@@ -2246,6 +2268,7 @@ const messages = {
       rejectNote: "Say why the count is rejected",
     },
   },
+  ...erpEn,
 };
 
 export type Messages = Widen<typeof messages>;

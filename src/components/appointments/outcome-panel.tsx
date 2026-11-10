@@ -7,7 +7,7 @@ import { CheckCircle2, ClipboardCheck, PlayCircle, RotateCcw, XCircle } from "lu
 import type { PaymentMethod, StatusKind } from "@prisma/client";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
-import { Field, Input, Select, Textarea } from "@/components/ui/field";
+import { Checkbox, Field, Input, Select, Textarea } from "@/components/ui/field";
 import { Alert } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import type { MessageKey } from "@/i18n/translator";
@@ -33,6 +33,7 @@ export function OutcomePanel({
   payment,
   myStock,
   withLocation = false,
+  confirmation = false,
 }: {
   id: string;
   version: number;
@@ -43,6 +44,8 @@ export function OutcomePanel({
   myStock: { serial: string; model: string }[];
   /** The assigned technician: the phone's location goes with the outcome as the START / DONE check-in. */
   withLocation?: boolean;
+  /** The visit's evidence rule asks for the customer's confirmation of the work. */
+  confirmation?: boolean;
 }) {
   const t = useT();
   const router = useRouter();
@@ -53,12 +56,22 @@ export function OutcomePanel({
   const [collected, setCollected] = useState(recorded === null ? "" : String(recorded));
   const [method, setMethod] = useState<PaymentMethod>(payment?.collectedMethod ?? "CASH");
   const [serials, setSerials] = useState("");
+  const [customerConfirmed, setCustomerConfirmed] = useState(false);
+  const [customerName, setCustomerName] = useState("");
   const typed = parseSerials(serials);
   const addSerial = (s: string) => setSerials((v) => (parseSerials(v).includes(s) ? v : `${v.trim() ? `${v.trim()}\n` : ""}${s}`));
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [busy, setBusy] = useState<string | null>(null);
 
-  async function send(body: { outcome: VisitOutcome; report?: string; collectedAmount?: string | null; collectedMethod?: PaymentMethod | null; serials?: string }) {
+  async function send(body: {
+    outcome: VisitOutcome;
+    report?: string;
+    collectedAmount?: string | null;
+    collectedMethod?: PaymentMethod | null;
+    serials?: string;
+    customerConfirmed?: boolean;
+    customerName?: string;
+  }) {
     const check = outcomeSchema.safeParse({ ...body, version });
     if (!check.success) {
       setErrors(fieldErrorsFromZod(check.error));
@@ -121,6 +134,15 @@ export function OutcomePanel({
             <Field label={t("outcome.serials")} error={errors.serials} hint={t("outcome.serialsHint")}>
               {(p) => <Textarea {...p} rows={2} dir="ltr" className="font-mono" value={serials} onChange={(e) => setSerials(e.target.value)} />}
             </Field>
+            {confirmation && (
+              <div className="space-y-2 rounded-lg border border-line p-3">
+                <Checkbox label={t("evidence.customerConfirmed")} checked={customerConfirmed} onChange={(e) => setCustomerConfirmed(e.target.checked)} />
+                <p className="text-xs text-fg-muted">{t("evidence.confirmHint")}</p>
+                <Field label={t("evidence.customerName")} error={errors.customerName}>
+                  {(p) => <Input {...p} value={customerName} onChange={(e) => setCustomerName(e.target.value)} maxLength={120} dir="auto" />}
+                </Field>
+              </div>
+            )}
             {myStock.length > 0 && (
               <div className="flex flex-wrap gap-1.5" aria-label={t("outcome.yourItems")}>
                 {myStock.map((i) => (
@@ -173,6 +195,7 @@ export function OutcomePanel({
               outcome,
               report: text,
               ...(outcome === "COMPLETED" && typed.length ? { serials } : {}),
+              ...(outcome === "COMPLETED" && confirmation ? { customerConfirmed, customerName } : {}),
               ...(payment && !untouched ? { collectedAmount: collected, collectedMethod: Number(collected.replace(/[,\s]/g, "")) ? method : null } : {}),
             });
           }}

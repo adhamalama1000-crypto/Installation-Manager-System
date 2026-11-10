@@ -59,5 +59,8 @@ test("a technician checks in at the company and through a visit with the phone's
   await expect(card.getByText(new RegExp(`Arrived at ${customer}`))).toBeVisible();
   await adminPage.goto(`/appointments/${appointment.id}`);
   await expect(adminPage.getByRole("heading", { name: "Field log" })).toBeVisible();
+  // Finish the visit, so a later run today is not shown this one as the technician's current visit.
+  const finished = await admin.post(`/api/appointments/${appointment.id}/outcome`, { data: { outcome: "COMPLETED", report: "E2E field test finished" } });
+  expect(finished.ok()).toBeTruthy();
   await admin.dispose();
 });

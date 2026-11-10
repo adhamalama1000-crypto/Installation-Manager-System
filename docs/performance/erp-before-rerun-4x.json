@@ -1,0 +1,107 @@
+{
+  "base": "http://localhost:3100",
+  "at": "2026-11-05T10:31:42.557Z",
+  "runs": 9,
+  "rounds": 7,
+  "browser": {
+    "throttle": 4,
+    "loginMs": 1168,
+    "fullLoadStock": 292,
+    "steps": [
+      {
+        "name": "Dashboard → Stock on hand",
+        "medianMs": 214,
+        "maxMs": 294,
+        "samples": [
+          162,
+          294,
+          195,
+          214,
+          235,
+          184
+        ]
+      },
+      {
+        "name": "Stock → Products",
+        "medianMs": 126,
+        "maxMs": 142,
+        "samples": [
+          98,
+          109,
+          130,
+          142,
+          126,
+          115
+        ]
+      },
+      {
+        "name": "Products → product detail",
+        "medianMs": 96,
+        "maxMs": 136,
+        "samples": [
+          96,
+          79,
+          116,
+          89,
+          95,
+          136
+        ]
+      },
+      {
+        "name": "Product → Stock documents",
+        "medianMs": 129,
+        "maxMs": 153,
+        "samples": [
+          129,
+          124,
+          153,
+          129,
+          96,
+          127
+        ]
+      },
+      {
+        "name": "Documents → Stock ledger",
+        "medianMs": 158,
+        "maxMs": 186,
+        "samples": [
+          158,
+          161,
+          113,
+          126,
+          186,
+          115
+        ]
+      },
+      {
+        "name": "Ledger → Warehouses",
+        "medianMs": 162,
+        "maxMs": 181,
+        "samples": [
+          162,
+          181,
+          179,
+          112,
+          146,
+          131
+        ]
+      },
+      {
+        "name": "Warehouses → Dashboard",
+        "medianMs": 251,
+        "maxMs": 351,
+        "samples": [
+          327,
+          180,
+          351,
+          251,
+          235,
+          220
+        ]
+      }
+    ],
+    "allMedianMs": 142,
+    "allP95Ms": 294,
+    "prefetchPerNav": 0
+  }
+}

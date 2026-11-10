@@ -3,7 +3,8 @@
 import { useState } from "react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/field";
+import { Field } from "@/components/ui/field";
+import { PasswordInput } from "@/components/ui/password-input";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
 
@@ -40,13 +41,13 @@ export function ChangePasswordForm() {
   return (
     <form onSubmit={submit} className="max-w-md space-y-4" noValidate>
       <Field label={t("profile.currentPassword")} error={errors.currentPassword}>
-        {(p) => <Input {...p} type="password" autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />}
+        {(p) => <PasswordInput {...p} autoComplete="current-password" value={current} onChange={(e) => setCurrent(e.target.value)} />}
       </Field>
       <Field label={t("auth.newPassword")} error={errors.newPassword} hint={t("auth.passwordRule")}>
-        {(p) => <Input {...p} type="password" autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />}
+        {(p) => <PasswordInput {...p} autoComplete="new-password" value={next} onChange={(e) => setNext(e.target.value)} />}
       </Field>
       <Field label={t("profile.confirmNew")} error={errors.confirm}>
-        {(p) => <Input {...p} type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />}
+        {(p) => <PasswordInput {...p} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />}
       </Field>
       <Button type="submit" loading={saving}>
         {t("profile.changePassword")}

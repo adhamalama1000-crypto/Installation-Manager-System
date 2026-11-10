@@ -3,7 +3,8 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
-import { Field, Input } from "@/components/ui/field";
+import { Field } from "@/components/ui/field";
+import { PasswordInput } from "@/components/ui/password-input";
 import { Alert } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
@@ -55,10 +56,10 @@ export function SetPasswordForm({ token }: { token: string }) {
       <form onSubmit={submit} className="mt-8 space-y-5" noValidate>
         {errors._form && <Alert tone="danger">{t.msg(errors._form)}</Alert>}
         <Field label={t("auth.newPassword")} error={errors.password} required>
-          {(p) => <Input {...p} type="password" autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />}
+          {(p) => <PasswordInput {...p} autoComplete="new-password" value={password} onChange={(e) => setPassword(e.target.value)} />}
         </Field>
         <Field label={t("auth.confirmPassword")} error={errors.confirm} required>
-          {(p) => <Input {...p} type="password" autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />}
+          {(p) => <PasswordInput {...p} autoComplete="new-password" value={confirm} onChange={(e) => setConfirm(e.target.value)} />}
         </Field>
         <Button type="submit" size="lg" className="w-full" loading={loading}>
           {t("auth.savePassword")}

@@ -69,7 +69,12 @@ export default async function StockDocumentPage({ params }: { params: Promise<{ 
               ...(d.to ? [{ label: d.type === "ADJUSTMENT" ? t("stock.fields.warehouse") : t("stock.fields.toWarehouse"), value: wh(d.to) }] : []),
               { label: t("stock.fields.documentDate"), value: formatKey(d.documentDate, { day: "numeric", month: "long", year: "numeric" }, L) },
               { label: t("stock.fields.reference"), value: d.reference && <span dir="auto">{d.reference}</span> },
+              ...(d.supplier
+                ? [{ label: t("suppliers.pick"), value: <Link href={`/suppliers/${d.supplier.id}`} className="text-brand-text hover:underline"><bdi className="font-mono">{d.supplier.code}</bdi> <span dir="auto">{t.locale === "ar" && d.supplier.nameAr ? d.supplier.nameAr : d.supplier.name}</span></Link> }]
+                : []),
               ...(d.counterparty ? [{ label: d.type === "RECEIPT" || d.returnKind === "SUPPLIER" ? t("stock.fields.supplier") : t("stock.fields.customer"), value: <span dir="auto">{d.counterparty}</span> }] : []),
+              ...(d.customer ? [{ label: t("docLinks.customer"), value: <Link href={`/customers/${d.customer.id}`} className="text-brand-text hover:underline" dir="auto">{d.customer.name}</Link> }] : []),
+              ...(d.appointment ? [{ label: t("docLinks.visit"), value: <Link href={`/appointments/${d.appointment.id}`} className="font-mono text-brand-text hover:underline">{d.appointment.code}</Link> }] : []),
               ...(d.stocktake
                 ? [
                     {
