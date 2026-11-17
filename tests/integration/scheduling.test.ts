@@ -7,7 +7,7 @@ import {
   getAppointment,
   updateAppointment,
 } from "@/server/services/appointments";
-import { SchedulingConflictError, ValidationError } from "@/server/errors";
+import { ForbiddenError, SchedulingConflictError, ValidationError } from "@/server/errors";
 import { appointmentPayload, asCurrent, makeUser, prisma, resetDb, seedStatuses } from "../helpers";
 
 let statuses: Awaited<ReturnType<typeof seedStatuses>>;
@@ -219,10 +219,18 @@ describe("original Sales creator", () => {
     expect(byAdmin.createdBy.id).toBe(sales.id);
   });
 
-  it("only lets an Admin book on behalf of a Sales employee", async () => {
+  it("only lets people who work on everyone's bookings (Admin, installation manager) book on behalf of a Sales employee", async () => {
     const a = await createAppointment(asCurrent(admin), appointmentPayload({ salesUserId: sales2.id }));
     expect(a.createdBy.id).toBe(sales2.id);
-    await expect(createAppointment(asCurrent(sales), appointmentPayload({ salesUserId: sales2.id }))).rejects.toThrow(/Admin/);
+    const im = await makeUser("INSTALLATION_MANAGER");
+    const b = await createAppointment(asCurrent(im), appointmentPayload({ salesUserId: sales2.id, startTime: "15:00" }));
+    expect(b.createdBy.id).toBe(sales2.id);
+    await expect(createAppointment(asCurrent(sales), appointmentPayload({ salesUserId: sales2.id }))).rejects.toBeInstanceOf(ForbiddenError);
+    // An individual grant gives a Sales employee the same right.
+    await prisma.user.update({ where: { id: sales.id }, data: { permissionGrants: ["appointments.manageAll"] } });
+    const sGranted = await prisma.user.findUniqueOrThrow({ where: { id: sales.id } });
+    const c = await createAppointment(asCurrent(sGranted), appointmentPayload({ salesUserId: sales2.id, startTime: "17:00" }));
+    expect(c.createdBy.id).toBe(sales2.id);
   });
 
   it("keeps historical references to deactivated technicians", async () => {

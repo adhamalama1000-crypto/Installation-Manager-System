@@ -44,6 +44,16 @@ read-only check boxes in the user form; the matrix can add other read-only right
 A page someone may not open redirects to *Access denied*; an API call returns 401 (not signed in),
 403 (no right) or 404 (a record outside their scope).
 
+- **Custom roles** (*Users → Roles and permissions*): an Admin creates a named role from a
+  built-in role, ticks its permissions and record scopes in the same matrix, and gives it to people
+  of that base role from their permission screen (*Role*). The custom role replaces the base role's
+  defaults; individual changes still apply on top; editing the role changes everyone who has it on
+  their next click. A role cannot be deactivated while people have it and is never deleted. The
+  full matrix and the default templates are in [ROLE_PERMISSION_MATRIX.md](../ROLE_PERMISSION_MATRIX.md).
+- **Installation manager** role: every booking and technician schedule, assignments, booking for a
+  Sales employee, leave, complaints, quality and work review; no money, stock movements, users or
+  settings.
+
 ## 3. Available features
 
 - One registry of every permission, grouped by **module** and **action kind**, shared by the server

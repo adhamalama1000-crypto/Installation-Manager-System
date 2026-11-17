@@ -29,6 +29,8 @@ enum Role {
   DRIVER
   /// Runs the warehouses: catalogue, stock documents, stocktakes and their approval.
   WAREHOUSE_MANAGER
+  /// Head of installations: every booking, technician schedule, assignment and working hours.
+  INSTALLATION_MANAGER
 }
 
 /// Where a serial-numbered item is (Aura: في المخزن / عهدة / اتركب / مرتجع / عطلان).
@@ -188,36 +190,41 @@ enum StatusKind {
 }
 
 model User {
-  id                String               @id @default(cuid())
-  name              String
+  id                 String               @id @default(cuid())
+  name               String
   /// Stored lower-cased; used as the login identifier.
-  email             String               @unique
-  phone             String?
-  role              Role
-  isActive          Boolean              @default(true)
+  email              String               @unique
+  phone              String?
+  role               Role
+  isActive           Boolean              @default(true)
   /// bcrypt hash. Null until the user sets a password through an invitation link.
-  passwordHash      String?
+  passwordHash       String?
   /// Calendar colour (hex, e.g. #E55823). Used for Sales employees; kept if the role changes so
   /// historical appointments keep their colour.
-  color             String?
+  color              String?
   /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
-  viewerPermissions String[]             @default([])
+  viewerPermissions  String[]             @default([])
   /// Individual permissions added to the role's defaults (Admin, permission screen).
-  permissionGrants  String[]             @default([])
+  permissionGrants   String[]             @default([])
   /// Individual permissions removed from the role's defaults.
-  permissionDenies  String[]             @default([])
+  permissionDenies   String[]             @default([])
   /// Data scope per module that differs from the role default: { "appointments": "TEAM", ... }.
-  dataScopes        Json?
+  dataScopes         Json?
   /// The team the person belongs to ("team records" scope).
-  teamId            String?
-  team              Team?                @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
-  createdAt         DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt         DateTime             @updatedAt @db.Timestamptz(3)
-  passwordChangedAt DateTime?            @db.Timestamptz(3)
+  teamId             String?
+  team               Team?                @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  /// A custom role (Admin-defined permission set on top of the base role); null = the role's defaults.
+  accessRoleId       String?
+  accessRole         AccessRole?          @relation("AccessRoleMembers", fields: [accessRoleId], references: [id], onDelete: Restrict)
+  accessRolesCreated AccessRole[]         @relation("AccessRoleCreator")
+  accessRolesUpdated AccessRole[]         @relation("AccessRoleUpdater")
+  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
+  passwordChangedAt  DateTime?            @db.Timestamptz(3)
   /// Interface language chosen by the user ("ar" or "en"); null = not chosen yet (Arabic).
-  locale            String?
+  locale             String?
   /// Technicians: what they install, used to suggest the right person when booking.
-  specialty         TechnicianSpecialty?
+  specialty          TechnicianSpecialty?
 
   sessions              Session[]
   passwordTokens        PasswordToken[]         @relation("TokenUser")
@@ -291,6 +298,7 @@ model User {
 
   @@index([role, isActive])
   @@index([teamId])
+  @@index([accessRoleId])
   @@map("users")
 }
 
@@ -1818,4 +1826,33 @@ model Team {
   updatedAt DateTime @updatedAt @db.Timestamptz(3)
 
   @@map("teams")
+}
+
+/// A custom role defined by an Admin: a named set of permissions and data scopes for people of one
+/// base role. Editing it changes the access of everyone who has it on their next request. Roles are
+/// deactivated, never deleted (people keep it but it gives nothing beyond the base role's defaults
+/// while inactive).
+model AccessRole {
+  id          String   @id @default(cuid())
+  name        String
+  nameAr      String?
+  description String?
+  /// The built-in role whose behaviour (record scoping, Viewer limits) applies. Never ADMIN.
+  baseRole    Role
+  /// The permissions this role gives (instead of the base role's defaults).
+  permissions String[] @default([])
+  /// Data scopes per module (null = the base role's defaults).
+  dataScopes  Json?
+  isActive    Boolean  @default(true)
+  version     Int      @default(1)
+  createdById String
+  createdBy   User     @relation("AccessRoleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById String?
+  updatedBy   User?    @relation("AccessRoleUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  createdAt   DateTime @default(now()) @db.Timestamptz(3)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+  members     User[]   @relation("AccessRoleMembers")
+
+  @@index([baseRole, isActive])
+  @@map("access_roles")
 }

@@ -1,3 +1,5 @@
+import { ShieldCheck } from "lucide-react";
+import { ButtonLink } from "@/components/ui/button";
 import { TeamsManager } from "@/components/users/teams-manager";
 import { UsersManager } from "@/components/users/users-manager";
 import { PageHeader } from "@/components/ui/misc";
@@ -16,7 +18,15 @@ export default async function UsersPage() {
   const [users, teams] = await Promise.all([listUsers(user), listTeams(user)]);
   return (
     <>
-      <PageHeader title={t("nav.users")} description={t("users.text")} />
+      <PageHeader
+        title={t("nav.users")}
+        description={t("users.text")}
+        actions={
+          <ButtonLink href="/users/roles" variant="outline">
+            <ShieldCheck className="h-4 w-4" /> {t("accessRoles.title")}
+          </ButtonLink>
+        }
+      />
       <UsersManager users={users} currentUserId={user.id} />
       <TeamsManager teams={teams} />
     </>

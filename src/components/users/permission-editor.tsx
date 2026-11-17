@@ -3,18 +3,22 @@
 import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { toast } from "sonner";
-import { Copy, LayoutTemplate, RotateCcw, Save } from "lucide-react";
+import { Copy, LayoutTemplate, RotateCcw, Save, ShieldCheck } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Card, CardHeader } from "@/components/ui/card";
 import { Field, Input, Select } from "@/components/ui/field";
 import { Alert, Badge } from "@/components/ui/misc";
 import { useT } from "@/i18n/client";
 import { api, ApiError } from "@/lib/api-client";
-import { ACTION_KINDS, MODULES, levelOf, levelsOf, permissionsForLevel, type ActionKind, type DataScope, type Level, type ModuleAction, type ModuleDef } from "@/lib/permission-registry";
+import { MODULES, type DataScope, type ModuleAction } from "@/lib/permission-registry";
 import { cn } from "@/lib/utils";
+import { PermissionMatrix } from "./permission-matrix";
 
 export type AccessProps = {
-  user: { id: string; name: string; role: string; isActive: boolean; teamId: string | null };
+  user: { id: string; name: string; role: string; isActive: boolean; teamId: string | null; accessRoleId: string | null };
+  accessRole: { id: string; name: string; nameAr: string | null } | null;
+  /** Active custom roles of this person's base role. */
+  accessRoles: { id: string; name: string; nameAr: string | null }[];
   isSelf: boolean;
   isAdmin: boolean;
   roleDefaults: string[];
@@ -28,9 +32,6 @@ export type AccessProps = {
   people: { id: string; name: string; role: string; isActive: boolean }[];
   teams: { id: string; name: string; nameAr: string | null; isActive: boolean }[];
 };
-
-/** The matrix columns: the standard actions; named special actions go to "Other". */
-const COLUMNS = ACTION_KINDS.filter((k) => k !== "special");
 
 /**
  * Per-person permissions by module: a level (no access … full access, or custom), a checkbox per
@@ -47,13 +48,13 @@ export function PermissionEditor(props: AccessProps) {
   const [reason, setReason] = useState("");
   const [template, setTemplate] = useState(props.templates[0]?.id ?? "");
   const [copyFrom, setCopyFrom] = useState(props.people[0]?.id ?? "");
+  const [accessRoleId, setAccessRoleId] = useState(props.user.accessRoleId ?? "");
   const [busy, setBusy] = useState<string | null>(null);
   const assignable = useMemo(() => new Set(props.assignable), [props.assignable]);
   const defaults = useMemo(() => new Set(props.roleDefaults), [props.roleDefaults]);
   const initial = useMemo(() => new Set(props.effective), [props.effective]);
 
   const label = (x: ModuleAction) => (x.label ? t.dyn(`permRegistry.special.${x.label}`) : t.dyn(`permRegistry.actions.${x.kind}`));
-  const canToggle = (p: string) => !locked && (assignable.has(p) || perms.has(p));
 
   const changes = useMemo(() => {
     let n = 0;
@@ -62,28 +63,6 @@ export function PermissionEditor(props: AccessProps) {
     if ((teamId || null) !== props.user.teamId) n++;
     return n;
   }, [perms, initial, scopes, props.scopes, teamId, props.user.teamId]);
-
-  function toggle(p: string, on: boolean) {
-    setPerms((s) => {
-      const n = new Set(s);
-      if (on) n.add(p);
-      else n.delete(p);
-      return n;
-    });
-  }
-
-  function setLevel(m: ModuleDef, level: Level) {
-    if (level === "custom") return;
-    const want = new Set(permissionsForLevel(m, level));
-    setPerms((s) => {
-      const n = new Set(s);
-      for (const x of m.actions) {
-        if (want.has(x.permission) && (assignable.has(x.permission) || n.has(x.permission))) n.add(x.permission);
-        else if (!want.has(x.permission)) n.delete(x.permission);
-      }
-      return n;
-    });
-  }
 
   async function send(body: Record<string, unknown>, key: string, confirmText?: string) {
     if (confirmText && !window.confirm(confirmText)) return;
@@ -102,12 +81,40 @@ export function PermissionEditor(props: AccessProps) {
 
   const people = props.people.filter((p) => p.isActive);
   const teamName = (x: { name: string; nameAr: string | null }) => (t.locale === "ar" && x.nameAr ? x.nameAr : x.name);
+  const roleLabel = t.dyn(`enums.role.${props.user.role}`, undefined, props.user.role);
 
   return (
     <div className="space-y-6">
       {props.isAdmin && <Alert tone="info">{t("access.adminNote")}</Alert>}
       {props.isSelf && !props.isAdmin && <Alert tone="warning">{t("access.selfNote")}</Alert>}
       {props.user.role === "VIEWER" && <Alert tone="info">{t("access.viewerNote")}</Alert>}
+
+      {!locked && (
+        <Card>
+          <div className="flex flex-col gap-3 p-5 md:flex-row md:items-end">
+            <Field label={t("accessRoles.assignLabel")} hint={t("accessRoles.assignHint")} className="min-w-0 flex-1">
+              {(p) => (
+                <Select {...p} value={accessRoleId} onChange={(e) => setAccessRoleId(e.target.value)}>
+                  <option value="">{t("accessRoles.builtInOption", { role: roleLabel })}</option>
+                  {props.accessRoles.map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {teamName(r)}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+            <Button
+              variant="outline"
+              disabled={(accessRoleId || null) === props.user.accessRoleId}
+              loading={busy === "role"}
+              onClick={() => void send({ mode: "role", accessRoleId: accessRoleId || null }, "role", t("accessRoles.assignConfirm"))}
+            >
+              <ShieldCheck className="h-4 w-4" /> {t("accessRoles.assign")}
+            </Button>
+          </div>
+        </Card>
+      )}
 
       {!locked && (
         <Card>
@@ -166,123 +173,18 @@ export function PermissionEditor(props: AccessProps) {
       )}
 
       <Card className="overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="w-full min-w-[980px] text-sm" aria-label={t("access.title", { name: props.user.name })}>
-            <thead className="bg-surface-muted/60 text-xs text-fg-muted">
-              <tr>
-                <th className="px-3 py-2 text-start font-medium">{t("access.module")}</th>
-                <th className="px-3 py-2 text-start font-medium">{t("access.level")}</th>
-                {COLUMNS.map((k) => (
-                  <th key={k} className="px-2 py-2 text-center font-medium">
-                    {t.dyn(`permRegistry.actions.${k}`)}
-                  </th>
-                ))}
-                <th className="px-3 py-2 text-start font-medium">{t("permRegistry.actions.special")}</th>
-                <th className="px-3 py-2 text-start font-medium">{t("access.scope")}</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-line">
-              {MODULES.map((m) => {
-                const level = levelOf(m, perms);
-                const changed = m.actions.some((x) => perms.has(x.permission) !== defaults.has(x.permission)) || (m.scopes?.length ? scopes[m.id] !== props.defaultScopes[m.id] : false);
-                const rowLocked = locked || !!m.adminOnly;
-                const byKind = (k: ActionKind) => m.actions.filter((x) => x.kind === k);
-                return (
-                  <tr key={m.id} className="align-top" data-module={m.id}>
-                    <th scope="row" className="px-3 py-2.5 text-start font-medium text-fg">
-                      <span className="flex items-center gap-2">
-                        {t.dyn(`permRegistry.modules.${m.id}`)}
-                        {changed && !props.isAdmin && (
-                          <span className="h-2 w-2 shrink-0 rounded-full bg-brand" title={t("access.changedHint")} aria-label={t("access.changed")} />
-                        )}
-                      </span>
-                      {m.adminOnly && <span className="text-xs font-normal text-fg-subtle">{t("access.adminOnlyNote")}</span>}
-                    </th>
-                    <td className="px-3 py-2">
-                      <Select
-                        aria-label={`${t("access.level")}: ${t.dyn(`permRegistry.modules.${m.id}`)}`}
-                        value={level}
-                        disabled={rowLocked}
-                        onChange={(e) => setLevel(m, e.target.value as Level)}
-                        className="h-9 min-w-[10rem] text-xs"
-                      >
-                        {levelsOf(m).map((l) => (
-                          <option key={l} value={l}>
-                            {t.dyn(`permRegistry.levels.${l}`)}
-                          </option>
-                        ))}
-                        {level === "custom" && <option value="custom">{t("permRegistry.levels.custom")}</option>}
-                      </Select>
-                    </td>
-                    {COLUMNS.map((k) => (
-                      <td key={k} className="px-2 py-2 text-center">
-                        {byKind(k).length === 0 ? (
-                          <span className="text-fg-subtle" aria-hidden>
-                            {"—"}
-                          </span>
-                        ) : (
-                          <div className="flex flex-col items-center gap-1">
-                            {byKind(k).map((x) => (
-                              <label key={x.permission} className="flex items-center gap-1 text-[11px] text-fg-muted" title={x.permission}>
-                                <input
-                                  type="checkbox"
-                                  className="h-4 w-4 accent-[var(--brand-strong)]"
-                                  checked={perms.has(x.permission)}
-                                  disabled={rowLocked || !canToggle(x.permission)}
-                                  onChange={(e) => toggle(x.permission, e.target.checked)}
-                                  aria-label={`${t.dyn(`permRegistry.modules.${m.id}`)}: ${label(x)}`}
-                                />
-                                {x.label && <span className="max-w-[7rem] text-start leading-tight">{label(x)}</span>}
-                              </label>
-                            ))}
-                          </div>
-                        )}
-                      </td>
-                    ))}
-                    <td className="px-3 py-2">
-                      <div className="flex flex-col gap-1">
-                        {byKind("special").map((x) => (
-                          <label key={x.permission} className="flex items-center gap-1.5 text-xs text-fg-muted" title={x.permission}>
-                            <input
-                              type="checkbox"
-                              className="h-4 w-4 accent-[var(--brand-strong)]"
-                              checked={perms.has(x.permission)}
-                              disabled={rowLocked || !canToggle(x.permission)}
-                              onChange={(e) => toggle(x.permission, e.target.checked)}
-                              aria-label={`${t.dyn(`permRegistry.modules.${m.id}`)}: ${label(x)}`}
-                            />
-                            {label(x)}
-                          </label>
-                        ))}
-                      </div>
-                    </td>
-                    <td className="px-3 py-2">
-                      {m.scopes?.length ? (
-                        <Select
-                          aria-label={`${t("access.scope")}: ${t.dyn(`permRegistry.modules.${m.id}`)}`}
-                          value={scopes[m.id] ?? "ALL"}
-                          disabled={locked}
-                          onChange={(e) => setScopes((s) => ({ ...s, [m.id]: e.target.value }))}
-                          className="h-9 min-w-[9rem] text-xs"
-                        >
-                          {m.scopes.map((sc) => (
-                            <option key={sc} value={sc} title={t.dyn(`permRegistry.scopeHints.${sc}`)}>
-                              {t.dyn(`permRegistry.scopes.${sc}`)}
-                            </option>
-                          ))}
-                        </Select>
-                      ) : (
-                        <span className="text-fg-subtle" aria-hidden>
-                          {"—"}
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+        <PermissionMatrix
+          ariaLabel={t("access.title", { name: props.user.name })}
+          perms={perms}
+          setPerms={setPerms}
+          scopes={scopes}
+          setScopes={setScopes}
+          assignable={assignable}
+          defaults={defaults}
+          defaultScopes={props.defaultScopes}
+          locked={locked}
+          showChanged={!props.isAdmin}
+        />
         {!locked && (
           <div className="flex flex-col gap-3 border-t border-line p-4 md:flex-row md:items-end">
             <Field label={t("access.reason")} className="min-w-0 flex-1">

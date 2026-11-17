@@ -19,6 +19,8 @@ export const PERMISSIONS = [
   "appointments.assign",
   /** Export the appointment list (CSV). */
   "appointments.export",
+  /** Book on behalf of a Sales employee and edit or cancel anyone's bookings, whatever the "Sales can edit each other's bookings" setting says. */
+  "appointments.manageAll",
   /** Customer directory pages. */
   "customers.view",
   /** Customer phone numbers. */
@@ -168,6 +170,12 @@ export type PermissionSubject = {
   permissionGrants?: string[] | null;
   /** Individual permissions removed from the role's. */
   permissionDenies?: string[] | null;
+  /**
+   * The permissions of the person's custom role (an Admin-defined set for people of this base
+   * role). When given, it replaces the base role's defaults; individual grants and denials still
+   * apply on top. null / undefined: the base role's defaults.
+   */
+  rolePermissions?: string[] | null;
 };
 
 const ALL = new Set<string>(PERMISSIONS);
@@ -185,8 +193,21 @@ const IMPLIED: [Permission, Permission[]][] = [
   ["products.view", ["products.export"]],
 ];
 
-/** What a role has before any individual change (the template the permission screen starts from). */
-export function roleDefaults(user: Pick<PermissionSubject, "role" | "viewerPermissions">, settings: PermissionSettings): Set<Permission> {
+/**
+ * What a person has before any individual change (the template the permission screen starts
+ * from): their custom role's permissions when they have one, otherwise the base role's defaults.
+ * A custom role never gives Admin-only permissions, and a Viewer-based one only view and export.
+ */
+export function roleDefaults(user: Pick<PermissionSubject, "role" | "viewerPermissions" | "rolePermissions">, settings: PermissionSettings): Set<Permission> {
+  if (user.role !== "ADMIN" && Array.isArray(user.rolePermissions)) {
+    const out = new Set<Permission>();
+    for (const p of user.rolePermissions) {
+      if (!ALL.has(p) || (ADMIN_ONLY_PERMISSIONS as string[]).includes(p)) continue;
+      if (user.role === "VIEWER" && !viewerMayHold(p)) continue;
+      out.add(p as Permission);
+    }
+    return out;
+  }
   const base = roleBase(user, settings);
   for (const [from, to] of IMPLIED) if (base.has(from)) for (const p of to) base.add(p);
   return base;
@@ -210,7 +231,7 @@ export function permissionsFor(user: PermissionSubject, settings: PermissionSett
 }
 
 /** The individual changes that turn a role's defaults into the wanted set (what is stored). */
-export function overridesFor(user: Pick<PermissionSubject, "role" | "viewerPermissions">, settings: PermissionSettings, wanted: Iterable<string>): { grants: Permission[]; denies: Permission[] } {
+export function overridesFor(user: Pick<PermissionSubject, "role" | "viewerPermissions" | "rolePermissions">, settings: PermissionSettings, wanted: Iterable<string>): { grants: Permission[]; denies: Permission[] } {
   const base = roleDefaults(user, settings);
   const want = new Set([...wanted].filter((p) => ALL.has(p)));
   return {
@@ -261,6 +282,17 @@ function roleBase(user: Pick<PermissionSubject, "role" | "viewerPermissions">, s
         "products.view", "warehouses.view", "inventory.view", "inventory.receive", "inventory.issue", "inventory.transfer", "inventory.count",
         "suppliers.view", "penalties.own",
       ]);
+    case "INSTALLATION_MANAGER":
+      // Head of installations: every booking and technician schedule, assignments, leave,
+      // complaints, quality, work review, the live board and the car route. No money, no stock
+      // movements, no users or settings.
+      return new Set<Permission>([
+        "appointments.view", "appointments.manage", "appointments.create", "appointments.cancel", "appointments.assign", "appointments.export", "appointments.manageAll",
+        "customers.view", "customers.contact", "location.view", "notes.internal", "history.view", "visits.report",
+        "leaves.manage", "complaints.view", "complaints.manage", "quality.grade", "evidence.review",
+        "board.view", "attendance.view", "attendance.manage", "route.view", "route.manage",
+        "reports.view", "reports.export", "stock.view", "products.view", "warehouses.view", "inventory.view", "penalties.own",
+      ]);
     case "WAREHOUSE_MANAGER":
       return new Set<Permission>([
         "appointments.view", "stock.view", "stock.manage",
@@ -294,4 +326,10 @@ export function isVehicleScoped(role: Role): boolean {
 /** Purchase and average costs, stock value: hidden from people who only move stock. */
 export function canSeeCosts(perms: Set<Permission>): boolean {
   return perms.has("inventory.reports") || perms.has("products.manage") || perms.has("inventory.approve");
+}
+
+/** Data scopes configured on the custom role, overridden module by module by the person's own. */
+export function mergeScopes(roleScopes: unknown, userScopes: unknown): Record<string, unknown> {
+  const obj = (v: unknown) => (v && typeof v === "object" && !Array.isArray(v) ? (v as Record<string, unknown>) : {});
+  return { ...obj(roleScopes), ...obj(userScopes) };
 }
