@@ -3,6 +3,7 @@
  * authoritative check). Pure: no database access.
  */
 import { z } from "zod";
+import { specificationsSchema } from "./stocktake-schedule";
 import type { AdjustDirection, InventoryMovementType, StockDocStatus, StockDocType, StockReturnKind, StocktakeStatus, WarehouseKind } from "@prisma/client";
 import { intlLocale, type Locale } from "@/i18n/config";
 import { msg } from "@/i18n/translator";
@@ -17,7 +18,7 @@ export const STOCK_DOC_STATUSES: StockDocStatus[] = ["DRAFT", "POSTED", "CANCELL
 export const RETURN_KINDS: StockReturnKind[] = ["CUSTOMER", "SUPPLIER"];
 export const ADJUST_DIRECTIONS: AdjustDirection[] = ["INCREASE", "DECREASE"];
 export const WAREHOUSE_KINDS: WarehouseKind[] = ["WAREHOUSE", "VEHICLE"];
-export const STOCKTAKE_STATUSES: StocktakeStatus[] = ["COUNTING", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"];
+export const STOCKTAKE_STATUSES: StocktakeStatus[] = ["PLANNED", "COUNTING", "SUBMITTED", "APPROVED", "REJECTED", "CANCELLED"];
 export const MOVEMENT_TYPES: InventoryMovementType[] = [
   "OPENING_BALANCE",
   "GOODS_RECEIPT",
@@ -241,6 +242,8 @@ export const productSchema = z
     trackSerials: boolField(false),
     serialMode: z.preprocess((v) => (v === "" || v === null ? undefined : v), z.enum(SERIAL_MODES, { error: msg("variants.errors.serialMode") }).optional()),
     isActive: boolField(true),
+    /** Technical specifications (key / value pairs). Left out: unchanged. */
+    specifications: specificationsSchema,
     version: versionField,
   })
   .transform(({ serialMode, trackSerials, ...rest }) => {
@@ -371,6 +374,8 @@ export const stocktakeCountSchema = z.object({
         countedQuantity: z.preprocess((v) => (v === "" || v === undefined ? null : v), countField.nullable()),
         countedSerials: serialList,
         reason: optionalText(300),
+        /** Of the counted quantity, how much is damaged (recorded separately). */
+        damagedQuantity: z.preprocess((v) => (v === "" || v === undefined ? null : v), countField.nullable()).optional(),
       }),
     )
     .min(1)

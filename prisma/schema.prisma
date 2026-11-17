@@ -190,41 +190,51 @@ enum StatusKind {
 }
 
 model User {
-  id                 String               @id @default(cuid())
-  name               String
+  id                           String               @id @default(cuid())
+  name                         String
   /// Stored lower-cased; used as the login identifier.
-  email              String               @unique
-  phone              String?
-  role               Role
-  isActive           Boolean              @default(true)
+  email                        String               @unique
+  phone                        String?
+  role                         Role
+  isActive                     Boolean              @default(true)
   /// bcrypt hash. Null until the user sets a password through an invitation link.
-  passwordHash       String?
+  passwordHash                 String?
   /// Calendar colour (hex, e.g. #E55823). Used for Sales employees; kept if the role changes so
   /// historical appointments keep their colour.
-  color              String?
+  color                        String?
   /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
-  viewerPermissions  String[]             @default([])
+  viewerPermissions            String[]             @default([])
   /// Individual permissions added to the role's defaults (Admin, permission screen).
-  permissionGrants   String[]             @default([])
+  permissionGrants             String[]             @default([])
   /// Individual permissions removed from the role's defaults.
-  permissionDenies   String[]             @default([])
+  permissionDenies             String[]             @default([])
   /// Data scope per module that differs from the role default: { "appointments": "TEAM", ... }.
-  dataScopes         Json?
+  dataScopes                   Json?
   /// The team the person belongs to ("team records" scope).
-  teamId             String?
-  team               Team?                @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  teamId                       String?
+  team                         Team?                @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
   /// A custom role (Admin-defined permission set on top of the base role); null = the role's defaults.
-  accessRoleId       String?
-  accessRole         AccessRole?          @relation("AccessRoleMembers", fields: [accessRoleId], references: [id], onDelete: Restrict)
-  accessRolesCreated AccessRole[]         @relation("AccessRoleCreator")
-  accessRolesUpdated AccessRole[]         @relation("AccessRoleUpdater")
-  createdAt          DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt          DateTime             @updatedAt @db.Timestamptz(3)
-  passwordChangedAt  DateTime?            @db.Timestamptz(3)
+  accessRoleId                 String?
+  accessRole                   AccessRole?          @relation("AccessRoleMembers", fields: [accessRoleId], references: [id], onDelete: Restrict)
+  accessRolesCreated           AccessRole[]         @relation("AccessRoleCreator")
+  accessRolesUpdated           AccessRole[]         @relation("AccessRoleUpdater")
+  productsLocked               Product[]            @relation("ProductLocker")
+  productsArchived             Product[]            @relation("ProductArchiver")
+  stocktakesSupervised         Stocktake[]          @relation("StocktakeSupervisor")
+  stocktakesStarted            Stocktake[]          @relation("StocktakeStarter")
+  stocktakeSchedulesSupervised StocktakeSchedule[]  @relation("StocktakeScheduleSupervisor")
+  stocktakeSchedulesCreated    StocktakeSchedule[]  @relation("StocktakeScheduleCreator")
+  stocktakeSchedulesUpdated    StocktakeSchedule[]  @relation("StocktakeScheduleUpdater")
+  stocktakeCounts              StocktakeCount[]     @relation("StocktakeCountEntry")
+  stocktakePhotos              StocktakePhoto[]     @relation("StocktakePhotoUploader")
+  stocktakePhotosDeleted       StocktakePhoto[]     @relation("StocktakePhotoDeleter")
+  createdAt                    DateTime             @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime             @updatedAt @db.Timestamptz(3)
+  passwordChangedAt            DateTime?            @db.Timestamptz(3)
   /// Interface language chosen by the user ("ar" or "en"); null = not chosen yet (Arabic).
-  locale             String?
+  locale                       String?
   /// Technicians: what they install, used to suggest the right person when booking.
-  specialty          TechnicianSpecialty?
+  specialty                    TechnicianSpecialty?
 
   sessions              Session[]
   passwordTokens        PasswordToken[]         @relation("TokenUser")
@@ -1016,7 +1026,32 @@ enum InventoryMovementType {
   REVERSAL
 }
 
+/// Kind of stocktake, for planning and reports.
+enum StocktakeKind {
+  DAILY
+  MONTHLY
+  ANNUAL
+  CUSTOM
+}
+
+/// How often a stocktake schedule repeats.
+enum StocktakeRecurrence {
+  NONE
+  DAILY
+  WEEKLY
+  MONTHLY
+  YEARLY
+}
+
+enum StocktakeScheduleStatus {
+  ACTIVE
+  PAUSED
+  ENDED
+}
+
 enum StocktakeStatus {
+  /// Scheduled, not started: no snapshot yet and the warehouse is not frozen.
+  PLANNED
   COUNTING
   SUBMITTED
   APPROVED
@@ -1129,6 +1164,18 @@ model Product {
   movements       InventoryMovement[]
   serials         ProductSerial[]
   stocktakeLines  StocktakeLine[]
+  /// Technical specifications: [{ "key": "Voltage", "keyAr": "...", "value": "220 V" }], at most 30.
+  specifications  Json?
+  /// Locked: the item's information cannot change until someone with products.unlock unlocks it.
+  /// Stock can still move. Enforced by a database trigger as well as by the services.
+  lockedAt        DateTime?           @db.Timestamptz(3)
+  lockedById      String?
+  lockedBy        User?               @relation("ProductLocker", fields: [lockedById], references: [id], onDelete: Restrict)
+  lockReason      String?
+  /// Archived: retired (inactive), hidden from lists and pickers and read-only; history is kept.
+  archivedAt      DateTime?           @db.Timestamptz(3)
+  archivedById    String?
+  archivedBy      User?               @relation("ProductArchiver", fields: [archivedById], references: [id], onDelete: Restrict)
   images          ProductImage[]
 
   salesLines SalesInvoiceLine[]
@@ -1146,31 +1193,32 @@ model Product {
 
 /// A place that holds stock: a warehouse building or a technician's vehicle.
 model Warehouse {
-  id            String              @id @default(cuid())
+  id                 String              @id @default(cuid())
   /// Upper-case, unique, e.g. MAIN, VAN-KARIM.
-  code          String              @unique
-  nameEn        String
-  nameAr        String
-  kind          WarehouseKind       @default(WAREHOUSE)
+  code               String              @unique
+  nameEn             String
+  nameAr             String
+  kind               WarehouseKind       @default(WAREHOUSE)
   /// The technician whose vehicle this is (kind VEHICLE only); their stock custody.
-  technicianId  String?             @unique
-  technician    User?               @relation("VehicleTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
-  address       String?
+  technicianId       String?             @unique
+  technician         User?               @relation("VehicleTechnician", fields: [technicianId], references: [id], onDelete: Restrict)
+  address            String?
   /// Negative-stock policy for this warehouse; off by default.
-  allowNegative Boolean             @default(false)
-  isActive      Boolean             @default(true)
-  version       Int                 @default(1)
-  createdById   String
-  createdBy     User                @relation("WarehouseCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt     DateTime            @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime            @updatedAt @db.Timestamptz(3)
-  bins          WarehouseBin[]
-  balances      StockBalance[]
-  documentsFrom StockDocument[]     @relation("DocFromWarehouse")
-  documentsTo   StockDocument[]     @relation("DocToWarehouse")
-  movements     InventoryMovement[] @relation("MovementWarehouse")
-  serials       ProductSerial[]
-  stocktakes    Stocktake[]
+  allowNegative      Boolean             @default(false)
+  isActive           Boolean             @default(true)
+  version            Int                 @default(1)
+  createdById        String
+  createdBy          User                @relation("WarehouseCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt          DateTime            @default(now()) @db.Timestamptz(3)
+  updatedAt          DateTime            @updatedAt @db.Timestamptz(3)
+  bins               WarehouseBin[]
+  balances           StockBalance[]
+  documentsFrom      StockDocument[]     @relation("DocFromWarehouse")
+  documentsTo        StockDocument[]     @relation("DocToWarehouse")
+  movements          InventoryMovement[] @relation("MovementWarehouse")
+  serials            ProductSerial[]
+  stocktakes         Stocktake[]
+  stocktakeSchedules StocktakeSchedule[]
 
   salesInvoices SalesInvoice[]
 
@@ -1386,56 +1434,94 @@ model ProductSerial {
 /// A physical count of one warehouse: snapshot, counts, submission, approval (which posts an
 /// adjustment document) or rejection.
 model Stocktake {
-  id            String          @id @default(cuid())
+  id             String             @id @default(cuid())
   /// e.g. STK-2026-000001.
-  number        String          @unique
-  warehouseId   String
-  warehouse     Warehouse       @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
-  status        StocktakeStatus @default(COUNTING)
-  note          String?
-  /// When the system quantities were taken. The warehouse is frozen until the stocktake closes.
-  snapshotAt    DateTime        @db.Timestamptz(3)
-  createdById   String
-  createdBy     User            @relation("StocktakeCreator", fields: [createdById], references: [id], onDelete: Restrict)
-  createdAt     DateTime        @default(now()) @db.Timestamptz(3)
-  updatedAt     DateTime        @updatedAt @db.Timestamptz(3)
-  submittedById String?
-  submittedBy   User?           @relation("StocktakeSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
-  submittedAt   DateTime?       @db.Timestamptz(3)
-  decidedById   String?
-  decidedBy     User?           @relation("StocktakeDecider", fields: [decidedById], references: [id], onDelete: Restrict)
-  decidedAt     DateTime?       @db.Timestamptz(3)
-  decisionNote  String?
-  version       Int             @default(1)
-  lines         StocktakeLine[]
-  adjustment    StockDocument?
+  number         String             @unique
+  warehouseId    String
+  warehouse      Warehouse          @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  status         StocktakeStatus    @default(COUNTING)
+  note           String?
+  /// When the system quantities were taken (at the start). The warehouse is frozen until the
+  /// stocktake closes. Null while PLANNED.
+  snapshotAt     DateTime?          @db.Timestamptz(3)
+  /// Planning (scheduled sessions; ad-hoc stocktakes leave these empty).
+  name           String?
+  kind           StocktakeKind?
+  scheduleId     String?
+  schedule       StocktakeSchedule? @relation(fields: [scheduleId], references: [id], onDelete: Restrict)
+  /// The schedule occurrence this session is for (unique per schedule: no duplicates).
+  occurrenceDate DateTime?          @db.Date
+  plannedStart   DateTime?          @db.Timestamptz(3)
+  plannedEnd     DateTime?          @db.Timestamptz(3)
+  /// Who may count (empty: anyone with inventory.count in this warehouse).
+  assigneeIds    String[]           @default([])
+  /// Approves this session (with inventory.approve); an Admin may also approve.
+  supervisorId   String?
+  supervisor     User?              @relation("StocktakeSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  /// What is counted (empty: the whole warehouse). Subcategories are included.
+  categoryIds    String[]           @default([])
+  productIds     String[]           @default([])
+  mandatory      Boolean            @default(false)
+  instructions   String?
+  startedAt      DateTime?          @db.Timestamptz(3)
+  startedById    String?
+  startedBy      User?              @relation("StocktakeStarter", fields: [startedById], references: [id], onDelete: Restrict)
+  /// Original planned start when the session was postponed, and why.
+  postponedFrom  DateTime?          @db.Timestamptz(3)
+  postponeReason String?
+  /// 0 for the first count; +1 each time the count is sent back for a recount.
+  round          Int                @default(0)
+  counts         StocktakeCount[]
+  photos         StocktakePhoto[]
+  createdById    String
+  createdBy      User               @relation("StocktakeCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  createdAt      DateTime           @default(now()) @db.Timestamptz(3)
+  updatedAt      DateTime           @updatedAt @db.Timestamptz(3)
+  submittedById  String?
+  submittedBy    User?              @relation("StocktakeSubmitter", fields: [submittedById], references: [id], onDelete: Restrict)
+  submittedAt    DateTime?          @db.Timestamptz(3)
+  decidedById    String?
+  decidedBy      User?              @relation("StocktakeDecider", fields: [decidedById], references: [id], onDelete: Restrict)
+  decidedAt      DateTime?          @db.Timestamptz(3)
+  decisionNote   String?
+  version        Int                @default(1)
+  lines          StocktakeLine[]
+  adjustment     StockDocument?
 
+  @@unique([scheduleId, occurrenceDate])
   @@index([warehouseId, status])
   @@index([status, createdAt])
+  @@index([status, plannedStart])
   @@map("stocktakes")
 }
 
 model StocktakeLine {
-  id              String        @id @default(cuid())
-  stocktakeId     String
-  stocktake       Stocktake     @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
-  productId       String
-  product         Product       @relation(fields: [productId], references: [id], onDelete: Restrict)
-  binId           String?
-  bin             WarehouseBin? @relation(fields: [binId], references: [id], onDelete: Restrict)
+  id               String           @id @default(cuid())
+  stocktakeId      String
+  stocktake        Stocktake        @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
+  productId        String
+  product          Product          @relation(fields: [productId], references: [id], onDelete: Restrict)
+  binId            String?
+  bin              WarehouseBin?    @relation(fields: [binId], references: [id], onDelete: Restrict)
   /// binId, or "" (see StockBalance.binKey).
-  binKey          String        @default("")
+  binKey           String           @default("")
   /// Quantity on the system when the stocktake started.
-  systemQuantity  Decimal       @db.Decimal(14, 3)
-  systemSerials   String[]      @default([])
-  countedQuantity Decimal?      @db.Decimal(14, 3)
-  countedSerials  String[]      @default([])
+  systemQuantity   Decimal          @db.Decimal(14, 3)
+  systemSerials    String[]         @default([])
+  countedQuantity  Decimal?         @db.Decimal(14, 3)
+  countedSerials   String[]         @default([])
   /// Explanation of a difference (required to submit when counted <> system).
-  reason          String?
-  countedById     String?
-  countedBy       User?         @relation("StocktakeCounter", fields: [countedById], references: [id], onDelete: Restrict)
-  countedAt       DateTime?     @db.Timestamptz(3)
-  createdAt       DateTime      @default(now()) @db.Timestamptz(3)
+  reason           String?
+  /// Of the counted quantity, how much is damaged (recorded separately; no stock effect by itself).
+  damagedQuantity  Decimal?         @db.Decimal(14, 3)
+  /// The approver asked for this line to be counted again.
+  recountRequested Boolean          @default(false)
+  counts           StocktakeCount[]
+  photos           StocktakePhoto[]
+  countedById      String?
+  countedBy        User?            @relation("StocktakeCounter", fields: [countedById], references: [id], onDelete: Restrict)
+  countedAt        DateTime?        @db.Timestamptz(3)
+  createdAt        DateTime         @default(now()) @db.Timestamptz(3)
 
   @@unique([stocktakeId, productId, binKey])
   @@map("stocktake_lines")
@@ -1855,4 +1941,85 @@ model AccessRole {
 
   @@index([baseRole, isActive])
   @@map("access_roles")
+}
+
+/// A stocktake schedule: a recurring or one-time plan that creates PLANNED stocktake sessions.
+model StocktakeSchedule {
+  id              String                  @id @default(cuid())
+  name            String
+  nameAr          String?
+  warehouseId     String
+  warehouse       Warehouse               @relation(fields: [warehouseId], references: [id], onDelete: Restrict)
+  kind            StocktakeKind
+  recurrence      StocktakeRecurrence     @default(NONE)
+  /// Every N days / weeks / months / years.
+  interval        Int                     @default(1)
+  /// First occurrence (company calendar day) and, optionally, the last day it may occur.
+  startDate       DateTime                @db.Date
+  endDate         DateTime?               @db.Date
+  /// Start time of each session (HH:mm, company timezone) and how long it may take.
+  startTime       String
+  durationMinutes Int
+  assigneeIds     String[]                @default([])
+  supervisorId    String?
+  supervisor      User?                   @relation("StocktakeScheduleSupervisor", fields: [supervisorId], references: [id], onDelete: Restrict)
+  categoryIds     String[]                @default([])
+  productIds      String[]                @default([])
+  mandatory       Boolean                 @default(false)
+  instructions    String?
+  status          StocktakeScheduleStatus @default(ACTIVE)
+  version         Int                     @default(1)
+  createdById     String
+  createdBy       User                    @relation("StocktakeScheduleCreator", fields: [createdById], references: [id], onDelete: Restrict)
+  updatedById     String?
+  updatedBy       User?                   @relation("StocktakeScheduleUpdater", fields: [updatedById], references: [id], onDelete: Restrict)
+  createdAt       DateTime                @default(now()) @db.Timestamptz(3)
+  updatedAt       DateTime                @updatedAt @db.Timestamptz(3)
+  sessions        Stocktake[]
+
+  @@index([status, warehouseId])
+  @@map("stocktake_schedules")
+}
+
+/// Every count and recount of a stocktake line, as entered (append-only: never changed or deleted).
+model StocktakeCount {
+  id              String        @id @default(cuid())
+  stocktakeId     String
+  stocktake       Stocktake     @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
+  lineId          String
+  line            StocktakeLine @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  /// The stocktake's round when this count was entered (0 = first count).
+  round           Int
+  countedQuantity Decimal?      @db.Decimal(14, 3)
+  countedSerials  String[]      @default([])
+  damagedQuantity Decimal?      @db.Decimal(14, 3)
+  reason          String?
+  countedById     String
+  countedBy       User          @relation("StocktakeCountEntry", fields: [countedById], references: [id], onDelete: Restrict)
+  countedAt       DateTime      @default(now()) @db.Timestamptz(3)
+
+  @@index([stocktakeId, lineId, countedAt])
+  @@map("stocktake_counts")
+}
+
+/// A photo supporting a stocktake (optionally of one line). Removing it only marks the row.
+model StocktakePhoto {
+  id           String         @id @default(cuid())
+  stocktakeId  String
+  stocktake    Stocktake      @relation(fields: [stocktakeId], references: [id], onDelete: Restrict)
+  lineId       String?
+  line         StocktakeLine? @relation(fields: [lineId], references: [id], onDelete: Restrict)
+  contentType  String
+  byteSize     Int
+  sha256       String
+  storageKey   String         @unique
+  uploadedById String
+  uploadedBy   User           @relation("StocktakePhotoUploader", fields: [uploadedById], references: [id], onDelete: Restrict)
+  createdAt    DateTime       @default(now()) @db.Timestamptz(3)
+  deletedAt    DateTime?      @db.Timestamptz(3)
+  deletedById  String?
+  deletedBy    User?          @relation("StocktakePhotoDeleter", fields: [deletedById], references: [id], onDelete: Restrict)
+
+  @@index([stocktakeId])
+  @@map("stocktake_photos")
 }

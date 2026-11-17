@@ -86,6 +86,12 @@ export const PERMISSIONS = [
   "products.manage",
   /** Export the product catalogue (Excel). */
   "products.export",
+  /** Lock a product so its information cannot change (stock can still move). */
+  "products.lock",
+  /** Unlock a locked product. */
+  "products.unlock",
+  /** Archive a retired product (hidden, read-only, history kept) and bring it back. */
+  "products.archive",
   /** Warehouses, technicians' vehicles and bins (read). */
   "warehouses.view",
   /** Create and edit warehouses, vehicles and bins, including the negative-stock policy. */
@@ -102,6 +108,8 @@ export const PERMISSIONS = [
   "inventory.count",
   /** Approve stocktakes, post adjustments and opening balances, cancel posted documents. */
   "inventory.approve",
+  /** Plan stocktakes: schedules (daily, monthly, annual, custom), and edit, postpone or cancel planned sessions. */
+  "stocktakes.schedule",
   /** Stock valuation, costs and inventory exports. */
   "inventory.reports",
   // ERP upgrade.
@@ -296,8 +304,8 @@ function roleBase(user: Pick<PermissionSubject, "role" | "viewerPermissions">, s
     case "WAREHOUSE_MANAGER":
       return new Set<Permission>([
         "appointments.view", "stock.view", "stock.manage",
-        "products.view", "products.manage", "warehouses.view", "warehouses.manage",
-        "inventory.view", "inventory.receive", "inventory.issue", "inventory.transfer", "inventory.count", "inventory.approve", "inventory.reports",
+        "products.view", "products.manage", "products.lock", "products.unlock", "products.archive", "warehouses.view", "warehouses.manage",
+        "inventory.view", "inventory.receive", "inventory.issue", "inventory.transfer", "inventory.count", "inventory.approve", "inventory.reports", "stocktakes.schedule",
         "suppliers.view", "suppliers.manage", "sales.view", "analytics.view", "penalties.own",
       ]);
     case "VIEWER": {

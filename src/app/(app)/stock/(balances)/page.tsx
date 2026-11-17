@@ -61,7 +61,7 @@ export default async function StockPage({ searchParams }: { searchParams: Promis
         }
       />
       <Card className="mb-4 p-4">
-        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_12rem_12rem_auto]">
+        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1fr)_12rem_12rem_12rem_auto]">
           <input name="q" defaultValue={sp.q} placeholder={t("stock.search")} aria-label={t("stock.search")} className={control} />
           {!own && (
             <select name="view" defaultValue={view} aria-label={t("stock.view")} className={control}>

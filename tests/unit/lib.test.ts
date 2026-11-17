@@ -130,8 +130,12 @@ describe("permissions", () => {
     ]);
     expect([...permissionsFor({ role: "WAREHOUSE_MANAGER" }, settings)].sort()).toEqual([
       "analytics.view", "appointments.export", "appointments.view", "inventory.approve", "inventory.count", "inventory.issue", "inventory.receive", "inventory.reports", "inventory.transfer", "inventory.view",
-      "penalties.own", "products.export", "products.manage", "products.view", "sales.view", "stock.manage", "stock.view", "suppliers.manage", "suppliers.view", "warehouses.manage", "warehouses.view",
+      "penalties.own", "products.archive", "products.export", "products.lock", "products.manage", "products.unlock", "products.view", "sales.view", "stock.manage", "stock.view",
+      "stocktakes.schedule", "suppliers.manage", "suppliers.view", "warehouses.manage", "warehouses.view",
     ]);
+    // Store keepers neither lock items nor plan stocktakes by default.
+    const store = permissionsFor({ role: "STORE" }, settings);
+    expect(["products.lock", "products.unlock", "products.archive", "stocktakes.schedule", "inventory.approve"].some((p) => store.has(p as never))).toBe(false);
     expect(sales.has("products.view") && !sales.has("inventory.view")).toBe(true);
     expect([...permissionsFor({ role: "DRIVER" }, settings)].sort()).toEqual(["appointments.export", "appointments.view", "car.checkin", "customers.contact", "expenses.record", "location.view", "penalties.own", "route.view"]);
   });

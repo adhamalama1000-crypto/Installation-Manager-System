@@ -5,6 +5,7 @@ import { ButtonLink } from "@/components/ui/button";
 import { Card, CardBody, CardHeader } from "@/components/ui/card";
 import { Alert, BackArrow, Badge, DefinitionList, PageHeader } from "@/components/ui/misc";
 import { ProductForm } from "@/components/erp/product-form";
+import { ItemStateActions } from "@/components/erp/item-state";
 import { ProductImages } from "@/components/erp/product-images";
 import { EditVariantButton, VariantsPanel } from "@/components/erp/variants-panel";
 import { Ean13 } from "@/components/erp/barcode";
@@ -68,7 +69,9 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
             {p.colorHex && <span className="inline-block h-5 w-5 rounded border border-line-strong" style={{ backgroundColor: p.colorHex }} aria-hidden />}
             <bdi className="font-mono">{p.sku}</bdi>
             <span>{nameOf(p, t)}</span>
-            {!p.isActive && <Badge>{t("common.inactive")}</Badge>}
+            {!p.isActive && !p.archived && <Badge>{t("common.inactive")}</Badge>}
+            {p.locked && <Badge className="border-warning/40 bg-warning-soft text-fg">{t("itemLock.lockedBadge")}</Badge>}
+            {p.archived && <Badge className="bg-surface-muted">{t("itemLock.archivedBadge")}</Badge>}
             {p.hasVariants && <Badge>{t("variants.count", { count: p.variantCount })}</Badge>}
             {p.low && <Badge className="border-warning/40 bg-warning-soft text-fg">{t("catalog.lowStock")}</Badge>}
           </span>
@@ -82,6 +85,15 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               </Link>
             )}
             {manage && isVariant && p.parent && <EditVariantButton productId={p.parent.id} variant={variantRow} showCosts={costs} />}
+            {!isVariant && (
+              <ItemStateActions
+                id={p.id}
+                sku={p.sku}
+                locked={!!p.locked}
+                archived={!!p.archived}
+                can={{ lock: hasPermission(user, "products.lock"), unlock: hasPermission(user, "products.unlock"), archive: hasPermission(user, "products.archive") }}
+              />
+            )}
             {manage && !isVariant && (
               <ButtonLink href={`/products/new?copy=${p.id}`} variant="outline" size="sm">
                 <Copy className="h-4 w-4" /> {t("forms.duplicate")}
@@ -123,8 +135,17 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
                   value: `${t(`serialModes.${p.serialMode}`)}${p.serialMode !== "NONE" ? ` · ${t("catalog.serialsInStock", { count: p.serialsInStock })}` : ""}`,
                 },
                 { label: t("catalog.products.description"), value: p.description && <span dir="auto">{p.description}</span>, full: true },
+                ...p.specifications.map((s) => ({ label: t.locale === "ar" && s.keyAr ? s.keyAr : s.key, value: <span dir="auto">{s.value}</span> })),
               ]}
             />
+            {(p.locked || p.archived) && (
+              <Alert tone="info" className="mt-4">
+                {p.locked && t("itemLock.lockedBy", { name: p.locked.by?.name ?? "—", date: p.locked.at.slice(0, 10) })}
+                {p.locked?.reason && <span dir="auto"> · {p.locked.reason}</span>}
+                {p.archived && t("itemLock.archivedBy", { name: p.archived.by?.name ?? "—", date: p.archived.at.slice(0, 10) })}
+                <span className="mt-1 block text-xs text-fg-muted">{t("itemLock.explain")}</span>
+              </Alert>
+            )}
           </CardBody>
         </Card>
         {inventory && (
@@ -174,7 +195,7 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
         </div>
       )}
       <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-        {manage && options && !isVariant && (
+        {manage && options && !isVariant && !p.locked && !p.archived && (
           <ProductForm
             options={options}
             timezone={user.settings.timezone}
@@ -200,10 +221,11 @@ export default async function ProductPage({ params }: { params: Promise<{ id: st
               isActive: p.isActive,
               hasMovements: p.hasMovements,
               hasVariants: p.hasVariants,
+              specifications: p.specifications,
             }}
           />
         )}
-        {(manage || p.images.length > 0) && <ProductImages productId={p.id} productName={nameOf(p, t)} images={p.images} manage={manage} />}
+        {(manage || p.images.length > 0) && <ProductImages productId={p.id} productName={nameOf(p, t)} images={p.images} manage={manage && !p.locked && !p.archived} />}
       </div>
     </>
   );

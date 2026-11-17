@@ -202,6 +202,12 @@ export function GeneralSettings({ initial }: { initial: SettingsValues }) {
             checked={v.serialRequired}
             onChange={(e) => upd({ serialRequired: e.target.checked })}
           />
+          <Checkbox
+            label={t("settings.stocktakeIndependentApproval")}
+            description={t("settings.stocktakeIndependentApprovalText")}
+            checked={v.stocktakeIndependentApproval}
+            onChange={(e) => upd({ stocktakeIndependentApproval: e.target.checked })}
+          />
         </div>
       </fieldset>
       <div className="flex justify-end">

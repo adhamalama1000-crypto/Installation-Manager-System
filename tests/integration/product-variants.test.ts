@@ -231,7 +231,8 @@ describe("optional serial numbers", () => {
     await expect(submitStocktake(m, st.id, {})).rejects.toThrow(/list the serial numbers/i);
     await saveCounts(m, st.id, { lines: [{ lineId: line.id, countedQuantity: 1, countedSerials: ["C1"], reason: "Two broken, one lost" }] });
     await submitStocktake(m, st.id, {});
-    await approveStocktake(m, st.id, {});
+    // Someone who did not count approves (separation of duties is on by default).
+    await approveStocktake(as(await makeUser("WAREHOUSE_MANAGER", { name: "Approver" })), st.id, {});
     expect(await qty(cam.id)).toBe(1);
     const serials = await prisma.productSerial.findMany({ where: { productId: cam.id }, orderBy: { serial: "asc" } });
     expect(serials.map((s) => [s.serial, s.warehouseId])).toEqual([["C1", main], ["C2", null]]);

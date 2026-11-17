@@ -46,6 +46,9 @@ export const accessAr: Widen<typeof accessEn> = {
     },
     special: {
       manageAllBookings: "الحجز لحد تاني وتعديل حجوزات أي حد",
+      lockItems: "قفل الأصناف",
+      unlockItems: "فتح قفل الأصناف",
+      scheduleStocktakes: "تخطيط الجرد",
       viewLocation: "رؤية العناوين والخرائط",
       viewInternalNotes: "رؤية الملاحظات الداخلية",
       viewHistory: "رؤية سجل التغييرات",

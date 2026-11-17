@@ -75,3 +75,7 @@ Whole-warehouse counts only (no cycle counts of a few bins or products); no blin
 
 Cycle counts by bin or category; blind counts (system quantity hidden); count sheets on phones with
 barcode scanning.
+
+## Planned stocktakes, recounts and separation of duties
+
+Schedules (daily, monthly, annual, custom), planned sessions, damaged / missing / excess quantities, the count history, recounts, photos, separation of duties and the stocktake dashboard are specified in [WAREHOUSE_STOCKTAKING_SPECIFICATION.md](../WAREHOUSE_STOCKTAKING_SPECIFICATION.md).

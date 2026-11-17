@@ -203,7 +203,7 @@ async function plan(db: Tx | typeof prisma, user: CurrentUser, parsed: Parsed, o
     skusInFile.size
       ? db.product.findMany({
           where: { sku: { in: [...skusInFile] } },
-          select: { id: true, sku: true, barcode: true, parentId: true, hasVariants: true, unitId: true, trackSerials: true, serialsOptional: true, purchaseCost: true, parent: { select: { sku: true } } },
+          select: { id: true, sku: true, barcode: true, parentId: true, hasVariants: true, unitId: true, trackSerials: true, serialsOptional: true, purchaseCost: true, lockedAt: true, archivedAt: true, parent: { select: { sku: true } } },
         })
       : [],
     barcodesInFile.size ? db.product.findMany({ where: { barcode: { in: [...barcodesInFile] } }, select: { id: true, barcode: true } }) : [],
@@ -262,6 +262,11 @@ async function plan(db: Tx | typeof prisma, user: CurrentUser, parsed: Parsed, o
     const errors: RowMessage[] = [];
     const sku = (normalizeCode(v.sku ?? "") as string) || null;
     const ex = sku ? existingBy.get(sku) : undefined;
+    // A locked or archived item is not changed by an import (unlock or bring it back first).
+    if (ex?.lockedAt || ex?.archivedAt) {
+      results.push({ sheet: "products", row: r.row, sku, name: sku, action: "error", messages: [{ field: "sku", message: msg(ex.archivedAt ? "itemLock.errors.archived" : "itemLock.errors.locked", { sku: ex.sku }) }] });
+      continue;
+    }
     const name = v.name_en || v.name_ar || null;
     if (ex && !opts.update) {
       results.push({ sheet: "products", row: r.row, sku, name, action: "skip", messages: [{ field: "sku", message: msg("productImport.errors.exists") }] });
@@ -384,6 +389,11 @@ async function plan(db: Tx | typeof prisma, user: CurrentUser, parsed: Parsed, o
     const sku = (normalizeCode(v.sku ?? "") as string) || predicted.get(r.row) || null;
     const parentSku = normalizeCode(v.parent_sku) as string;
     const ex = sku ? existingBy.get(sku) : undefined;
+    // A locked or archived item is not changed by an import (unlock or bring it back first).
+    if (ex?.lockedAt || ex?.archivedAt) {
+      results.push({ sheet: "products", row: r.row, sku, name: sku, action: "error", messages: [{ field: "sku", message: msg(ex.archivedAt ? "itemLock.errors.archived" : "itemLock.errors.locked", { sku: ex.sku }) }] });
+      continue;
+    }
     const name = v.variant_en || v.variant_ar || null;
     if (ex && !opts.update) {
       results.push({ sheet: "products", row: r.row, sku, name, action: "skip", messages: [{ field: "sku", message: msg("productImport.errors.exists") }] });

@@ -40,7 +40,7 @@ export default async function StockDocumentsPage({ searchParams }: { searchParam
     <>
       <PageHeader title={t("stock.docs.title")} description={t("stock.docs.text")} actions={<NewDocumentMenu t={t} types={preparableTypes(user)} />} />
       <Card className="mb-4 p-4">
-        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_11rem_10rem_11rem_9.5rem_9.5rem_auto]">
+        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1fr)_11rem_10rem_11rem_9.5rem_9.5rem_auto]">
           <input name="q" defaultValue={sp.q} placeholder={t("stock.docs.search")} aria-label={t("stock.docs.search")} className={control} />
           <select name="type" defaultValue={sp.type ?? ""} aria-label={t("common.type")} className={control}>
             <option value="">{t("stock.docs.allTypes")}</option>

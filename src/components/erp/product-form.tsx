@@ -43,6 +43,7 @@ export type ProductInitial = {
   isActive: boolean;
   hasMovements: boolean;
   hasVariants?: boolean;
+  specifications?: { key: string; keyAr?: string | null; value: string }[];
 };
 /** A record to start a new product from ("Duplicate"): everything but the codes. */
 export type ProductCopy = Omit<ProductInitial, "id" | "version" | "sku" | "barcode" | "hasMovements">;
@@ -66,6 +67,7 @@ type Values = {
   warrantyMonths: string;
   serialMode: SerialMode;
   isActive: boolean;
+  specifications: { key: string; keyAr: string; value: string }[];
 };
 
 function valuesOf(options: CatalogOptions, src?: ProductCopy | ProductInitial | null, codes?: { sku: string; barcode: string | null } | null): Values {
@@ -86,6 +88,7 @@ function valuesOf(options: CatalogOptions, src?: ProductCopy | ProductInitial | 
     warrantyMonths: str(src?.warrantyMonths ?? 0),
     serialMode: src?.serialMode ?? (src?.trackSerials ? "REQUIRED" : "NONE"),
     isActive: src?.isActive ?? true,
+    specifications: (src?.specifications ?? []).map((s) => ({ key: s.key, keyAr: s.keyAr ?? "", value: s.value })),
   };
 }
 
@@ -157,6 +160,8 @@ export function ProductForm({ options, initial, copyFrom, timezone }: { options:
       warrantyMonths: v.warrantyMonths,
       serialMode: v.serialMode,
       isActive: v.isActive,
+      // Empty rows are left out; an empty list clears the specifications.
+      specifications: v.specifications.filter((s) => s.key.trim() || s.value.trim()),
       ...(initial ? { version: initial.version } : {}),
     };
     const r = await run(
@@ -293,6 +298,32 @@ export function ProductForm({ options, initial, copyFrom, timezone }: { options:
         <Field label={t("catalog.products.description")} error={errors.description} className="sm:col-span-2">
           {(p) => <Textarea {...p} value={v.description} onChange={set("description")} rows={3} maxLength={2000} dir="auto" />}
         </Field>
+        <fieldset className="sm:col-span-2">
+          <legend className="mb-1 text-sm font-medium text-fg">{t("specs.title")}</legend>
+          {v.specifications.map((s, i) => {
+            const setSpec = (patch: Partial<Values["specifications"][number]>) => setV((x) => ({ ...x, specifications: x.specifications.map((y, j) => (j === i ? { ...y, ...patch } : y)) }));
+            return (
+              <div key={i} className="mb-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_1fr_1.5fr_auto]">
+                <Input value={s.key} onChange={(e) => setSpec({ key: e.target.value })} placeholder={t("specs.key")} aria-label={`${t("specs.key")} ${i + 1}`} maxLength={80} dir="auto" />
+                <Input value={s.keyAr} onChange={(e) => setSpec({ keyAr: e.target.value })} placeholder={t("specs.keyAr")} aria-label={`${t("specs.keyAr")} ${i + 1}`} maxLength={80} dir="rtl" />
+                <Input value={s.value} onChange={(e) => setSpec({ value: e.target.value })} placeholder={t("specs.value")} aria-label={`${t("specs.value")} ${i + 1}`} maxLength={300} dir="auto" />
+                <Button type="button" variant="ghost" size="sm" onClick={() => setV((x) => ({ ...x, specifications: x.specifications.filter((_, j) => j !== i) }))}>
+                  {t("specs.remove")}
+                </Button>
+              </div>
+            );
+          })}
+          {v.specifications.length < 30 && (
+            <Button type="button" variant="outline" size="sm" onClick={() => setV((x) => ({ ...x, specifications: [...x.specifications, { key: "", keyAr: "", value: "" }] }))}>
+              {t("specs.add")}
+            </Button>
+          )}
+          {Object.entries(errors).filter(([k]) => k.startsWith("specifications")).slice(0, 1).map(([k, m]) => (
+            <p key={k} className="mt-1 text-xs font-medium text-danger" role="alert">
+              {t.msg(m)}
+            </p>
+          ))}
+        </fieldset>
         <div className="space-y-1 sm:col-span-2">
           {!v.barcode && !initial?.barcode && (
             <Checkbox label={t("codes.generateBarcode")} description={t("codes.generateBarcodeHint")} checked={v.generateBarcode} onChange={(e) => setV((s) => ({ ...s, generateBarcode: e.target.checked }))} />

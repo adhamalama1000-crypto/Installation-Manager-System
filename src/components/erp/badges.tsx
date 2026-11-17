@@ -7,6 +7,7 @@ const DOC: Record<StockDocStatus, string> = {
   CANCELLED: "border-line bg-surface-muted text-fg-muted",
 };
 const TAKE: Record<StocktakeStatus, string> = {
+  PLANNED: "border-line bg-surface text-fg-muted",
   COUNTING: "border-info/30 bg-info-soft text-fg",
   SUBMITTED: "border-warning/40 bg-warning-soft text-fg",
   APPROVED: "border-success/30 bg-success-soft text-fg",

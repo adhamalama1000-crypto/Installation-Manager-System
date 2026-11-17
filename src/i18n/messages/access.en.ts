@@ -47,6 +47,9 @@ export const accessEn = {
     special: {
       viewLocation: "See addresses and maps",
       manageAllBookings: "Book for others, edit anyone's bookings",
+      lockItems: "Lock items",
+      unlockItems: "Unlock items",
+      scheduleStocktakes: "Plan stocktakes",
       viewInternalNotes: "See internal notes",
       viewHistory: "See change history",
       viewContact: "See phone numbers",

@@ -1,4 +1,5 @@
 import "server-only";
+import { assertEditable } from "./inventory-catalog";
 import { msg } from "@/i18n/translator";
 import { attachVariantSchema, serialModeOf, variantsBulkSchema, variantSchema, type VariantInput } from "@/lib/inventory";
 import { prisma, type Tx } from "../db";
@@ -25,7 +26,10 @@ import { nextInternalBarcode, nextVariantCode } from "./product-codes";
 async function lockParent(tx: Tx, parentId: string) {
   const found = await tx.$queryRaw<{ id: string }[]>`SELECT "id" FROM "products" WHERE "id" = ${parentId} FOR UPDATE`;
   if (!found.length) throw new NotFoundError();
-  return tx.product.findUniqueOrThrow({ where: { id: parentId } });
+  const parent = await tx.product.findUniqueOrThrow({ where: { id: parentId } });
+  // A locked or archived product cannot get, change or lose variants.
+  assertEditable(parent);
+  return parent;
 }
 
 const fold = (s: string) => s.trim().toLowerCase();

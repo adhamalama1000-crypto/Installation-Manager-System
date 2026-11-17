@@ -72,11 +72,19 @@ type Line = {
   countedQuantity: number | null;
   countedSerials: string[];
   reason: string | null;
+  damagedQuantity?: number | null;
+  recountRequested?: boolean;
+  history?: { round: number; countedQuantity: number | null; damagedQuantity: number | null; reason: string | null; countedAt: string; countedBy: { id: string; name: string } }[];
   countedBy: { name: string } | null;
 };
-type Draft = { counted: string; serials: string; reason: string };
+type Draft = { counted: string; serials: string; reason: string; damaged: string };
 
-const draftOf = (l: Line): Draft => ({ counted: l.countedQuantity === null ? "" : String(l.countedQuantity), serials: l.countedSerials.join("\n"), reason: l.reason ?? "" });
+const draftOf = (l: Line): Draft => ({
+  counted: l.countedQuantity === null ? "" : String(l.countedQuantity),
+  serials: l.countedSerials.join("\n"),
+  reason: l.reason ?? "",
+  damaged: l.damagedQuantity === null || l.damagedQuantity === undefined ? "" : String(l.damagedQuantity),
+});
 
 /** The count sheet: system quantity, what was counted, the difference and its explanation. */
 export function StocktakeSheet({
@@ -86,13 +94,16 @@ export function StocktakeSheet({
   bins,
   lines,
   can,
+  decisionBlocked,
 }: {
   id: string;
   number: string;
   warehouseId: string;
   bins: { id: string; code: string }[];
   lines: Line[];
-  can: { count: boolean; submit: boolean; decide: boolean; cancel: boolean };
+  can: { count: boolean; submit: boolean; decide: boolean; cancel: boolean; recount?: boolean };
+  /** Why this reader may not decide (separation of duties, supervisor); null when they may. */
+  decisionBlocked?: string | null;
 }) {
   const t = useT();
   const L = t.locale;
@@ -112,7 +123,7 @@ export function StocktakeSheet({
   const dirty = lines.filter((l) => {
     const a = drafts[l.id];
     const b = draftOf(l);
-    return a && (a.counted !== b.counted || a.serials !== b.serials || a.reason !== b.reason);
+    return a && (a.counted !== b.counted || a.serials !== b.serials || a.reason !== b.reason || a.damaged !== b.damaged);
   });
   const visible = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -131,9 +142,10 @@ export function StocktakeSheet({
     const body = {
       lines: dirty.map((l) => {
         const d = drafts[l.id]!;
+        const damagedQuantity = d.damaged.trim() === "" ? null : d.damaged;
         return l.product.trackSerials
-          ? { lineId: l.id, countedQuantity: d.serials.trim() ? parseSerials(d.serials).length : d.counted === "0" ? 0 : null, countedSerials: d.serials, reason: d.reason }
-          : { lineId: l.id, countedQuantity: d.counted, countedSerials: l.product.serialsOptional ? d.serials : [], reason: d.reason };
+          ? { lineId: l.id, countedQuantity: d.serials.trim() ? parseSerials(d.serials).length : d.counted === "0" ? 0 : null, countedSerials: d.serials, reason: d.reason, damagedQuantity }
+          : { lineId: l.id, countedQuantity: d.counted, countedSerials: l.product.serialsOptional ? d.serials : [], reason: d.reason, damagedQuantity };
       }),
     };
     const r = await run(() => api(`/api/stocktakes/${id}/counts`, { method: "POST", body }), () => t("stocktakes.countsSaved"));
@@ -174,6 +186,7 @@ export function StocktakeSheet({
                   <th className={thEnd}>{t("stocktakes.system")}</th>
                   <th className={th}>{t("stocktakes.counted")}</th>
                   <th className={thEnd}>{t("stocktakes.difference")}</th>
+                  <th className={th}>{t("stocktakePlan.damaged")}</th>
                   <th className={th}>{t("stocktakes.explain")}</th>
                 </tr>
               </thead>
@@ -199,6 +212,20 @@ export function StocktakeSheet({
                           </span>
                         )}
                         {l.countedBy && <span className="mt-0.5 block text-xs text-fg-subtle">{t("stocktakes.countedBy", { name: l.countedBy.name })}</span>}
+                        {l.recountRequested && <span className="mt-1 inline-block rounded-full border border-warning/40 bg-warning-soft px-2 py-0.5 text-xs font-medium text-fg">{t("stocktakePlan.recountBadge")}</span>}
+                        {l.history && l.history.length > 0 && (
+                          <details className="mt-1 text-xs text-fg-muted">
+                            <summary className="cursor-pointer">{t("stocktakePlan.history")}</summary>
+                            <ul className="mt-1 space-y-0.5">
+                              {l.history.map((h, i) => (
+                                <li key={i}>
+                                  {t("stocktakePlan.historyEntry", { round: h.round, qty: h.countedQuantity === null ? "—" : formatQuantity(h.countedQuantity, L), name: h.countedBy.name, when: new Date(h.countedAt).toLocaleString(L === "ar" ? "ar-EG-u-nu-latn" : "en-GB") })}
+                                  {h.damagedQuantity ? ` · ${t("stocktakePlan.damaged")}: ${formatQuantity(h.damagedQuantity, L)}` : ""}
+                                </li>
+                              ))}
+                            </ul>
+                          </details>
+                        )}
                       </td>
                       <td className="px-4 py-2.5 font-mono text-fg-muted">{l.bin ?? "—"}</td>
                       <td className="px-4 py-2.5 text-end tabular-nums">
@@ -264,6 +291,29 @@ export function StocktakeSheet({
                       </td>
                       <td className={cn("px-4 py-2.5 text-end font-medium tabular-nums", diff !== null && diff > 0 && "text-success", diff !== null && diff < 0 && "text-danger")}>
                         {diff === null ? "—" : diff > 0 ? `+${formatQuantity(diff, L)}` : formatQuantity(diff, L)}
+                        {diff !== null && diff !== 0 && <span className="block text-xs font-normal text-fg-muted">{diff < 0 ? t("stocktakePlan.missing") : t("stocktakePlan.excess")}</span>}
+                      </td>
+                      <td className="px-4 py-2.5">
+                        {can.count ? (
+                          <>
+                            <Input
+                              value={d.damaged}
+                              onChange={(e) => set({ damaged: e.target.value })}
+                              inputMode={l.product.unit.allowsFraction ? "decimal" : "numeric"}
+                              aria-label={`${t("stocktakePlan.damaged")} ${l.product.sku}`}
+                              aria-invalid={errFor(l.id, "damagedQuantity") ? true : undefined}
+                              className="h-9 w-20"
+                              dir="ltr"
+                            />
+                            {errFor(l.id, "damagedQuantity") && (
+                              <p className="mt-1 text-xs font-medium text-danger" role="alert">
+                                {t.msg(errFor(l.id, "damagedQuantity"))}
+                              </p>
+                            )}
+                          </>
+                        ) : (
+                          <span className="tabular-nums">{l.damagedQuantity ? formatQuantity(l.damagedQuantity, L) : "—"}</span>
+                        )}
                       </td>
                       <td className="px-4 py-2.5">
                         {can.count ? (
@@ -371,7 +421,21 @@ export function StocktakeSheet({
               onConfirm={async () => (await saveCounts()) && act("submit", {}, t("stocktakes.submitted"))}
             />
           )}
-          {can.decide && (
+          {decisionBlocked && <Alert tone="warning" className="w-full">{t.msg(decisionBlocked)}</Alert>}
+          {can.recount && !decisionBlocked && (
+            <ConfirmButton
+              variant="outline"
+              label={t("stocktakePlan.recount")}
+              title={t("stocktakePlan.recountTitle", { number })}
+              text={t("stocktakePlan.recountText")}
+              confirmLabel={t("stocktakePlan.recount")}
+              reason={{ label: t("stocktakePlan.recountNote"), required: true }}
+              busy={busy}
+              error={errors.note}
+              onConfirm={(note) => act("recount", { note, lineIds: lines.filter((l) => l.countedQuantity !== null && Math.abs(l.countedQuantity - l.systemQuantity) > 1e-9).map((l) => l.id) }, t("stocktakePlan.recountDone"))}
+            />
+          )}
+          {can.decide && !decisionBlocked && (
             <>
               <ConfirmButton
                 variant="danger"

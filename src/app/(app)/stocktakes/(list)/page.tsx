@@ -1,7 +1,8 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { redirect } from "next/navigation";
-import { ClipboardCheck } from "lucide-react";
+import { CalendarClock, ClipboardCheck, LayoutDashboard } from "lucide-react";
+import { ButtonLink } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
 import { EmptyState, PageHeader } from "@/components/ui/misc";
 import { Pagination } from "@/components/ui/pagination";
@@ -14,21 +15,24 @@ import { STOCKTAKE_STATUSES } from "@/lib/inventory";
 import { hasPermission } from "@/server/access";
 import { requireUser } from "@/server/auth/session";
 import { frozenWarehouseIds, listStocktakes } from "@/server/services/stocktakes";
+import { planSessions } from "@/server/services/stocktake-schedules";
 import { warehouseOptions } from "@/server/services/inventory-warehouses";
 
 export async function generateMetadata(): Promise<Metadata> {
   return { title: (await getT())("stocktakes.title") };
 }
 
-type SP = { status?: string; warehouseId?: string; page?: string };
+type SP = { status?: string; warehouseId?: string; page?: string; overdue?: string };
 
 export default async function StocktakesPage({ searchParams }: { searchParams: Promise<SP> }) {
   const [user, t] = await Promise.all([requireUser(), getT()]);
   if (!hasPermission(user, "inventory.count") && !hasPermission(user, "inventory.approve")) redirect("/access-denied");
   const sp = await searchParams;
   const canStart = hasPermission(user, "inventory.count");
+  // Keeps the planned sessions of the schedules up to date (idempotent).
+  await planSessions(user.settings.timezone);
   const [result, warehouses, open] = await Promise.all([
-    listStocktakes(user, { status: sp.status, warehouseId: sp.warehouseId, page: Number(sp.page) || 1 }),
+    listStocktakes(user, { status: sp.status, warehouseId: sp.warehouseId, page: Number(sp.page) || 1, overdue: sp.overdue === "1" }),
     warehouseOptions(user),
     frozenWarehouseIds(user),
   ]);
@@ -42,10 +46,23 @@ export default async function StocktakesPage({ searchParams }: { searchParams: P
   };
   return (
     <>
-      <PageHeader title={t("stocktakes.title")} description={t("stocktakes.text")} />
+      <PageHeader
+        title={t("stocktakes.title")}
+        description={t("stocktakes.text")}
+        actions={
+          <>
+            <ButtonLink href="/stocktakes/dashboard" variant="outline">
+              <LayoutDashboard className="h-4 w-4" /> {t("stocktakePlan.dashboard")}
+            </ButtonLink>
+            <ButtonLink href="/stocktakes/schedules" variant="outline">
+              <CalendarClock className="h-4 w-4" /> {t("stocktakePlan.schedules")}
+            </ButtonLink>
+          </>
+        }
+      />
       {canStart && warehouses.length > 0 && <NewStocktake warehouses={warehouses.map((w) => ({ id: w.id, code: w.code, nameEn: w.nameEn, nameAr: w.nameAr, frozen: open.has(w.id) }))} />}
       <Card className="mb-4 p-4">
-        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-[12rem_12rem_auto]">
+        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-[12rem_12rem_auto_auto]">
           <select name="status" defaultValue={sp.status ?? ""} aria-label={t("common.status")} className={control}>
             <option value="">{t("stocktakes.allStatuses")}</option>
             {STOCKTAKE_STATUSES.map((s) => (
@@ -62,6 +79,10 @@ export default async function StocktakesPage({ searchParams }: { searchParams: P
               </option>
             ))}
           </select>
+          <label className="flex items-center gap-2 text-sm text-fg-muted">
+            <input type="checkbox" name="overdue" value="1" defaultChecked={sp.overdue === "1"} className="h-4 w-4 accent-[var(--brand-strong)]" />
+            {t("stocktakePlan.overdue")}
+          </label>
           <button type="submit" className={submitBtn}>
             {t("common.search")}
           </button>
@@ -89,15 +110,24 @@ export default async function StocktakesPage({ searchParams }: { searchParams: P
                       <Link prefetch={false} href={`/stocktakes/${s.id}`} className="font-mono font-semibold text-brand-text hover:underline">
                         <bdi>{s.number}</bdi>
                       </Link>
+                      {s.name && (
+                        <span className="block text-xs text-fg-muted" dir="auto">
+                          {s.name}
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-2.5">
                       <bdi className="font-mono">{s.warehouse.code}</bdi> <span className="text-fg-muted">{nameOf(s.warehouse, t)}</span>
                     </td>
                     <td className="px-4 py-2.5">
-                      <StocktakeBadge status={s.status} label={t.dyn(`enums.stocktakeStatus.${s.status}`)} />
+                      <span className="flex flex-wrap items-center gap-1">
+                        <StocktakeBadge status={s.status} label={t.dyn(`enums.stocktakeStatus.${s.status}`)} />
+                        {s.overdue && <span className="rounded-full border border-danger/40 bg-danger-soft px-2 py-0.5 text-xs font-medium text-fg">{t("stocktakePlan.overdueBadge")}</span>}
+                        {s.mandatory && <span className="rounded-full border border-line px-2 py-0.5 text-xs text-fg-muted">{t("stocktakePlan.mandatoryBadge")}</span>}
+                      </span>
                     </td>
                     <td className="whitespace-nowrap px-4 py-2.5 text-fg-muted">
-                      {dateTime(s.createdAt, tz, L)} · {s.createdBy.name}
+                      {s.plannedStart ? t("stocktakePlan.plannedFor", { when: dateTime(s.plannedStart, tz, L) }) : `${dateTime(s.createdAt, tz, L)} · ${s.createdBy.name}`}
                     </td>
                     <td className="px-4 py-2.5 text-end tabular-nums">{s.lineCount}</td>
                   </tr>

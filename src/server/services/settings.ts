@@ -25,6 +25,8 @@ export const DEFAULT_SETTINGS: SettingsValues = {
   // Off by default so existing workflows keep working; an Admin turns them on in Settings.
   requireDeliveryProof: false,
   serialRequired: false,
+  // Separation of duties for stocktakes is on unless an Admin turns it off.
+  stocktakeIndependentApproval: true,
   // Aura's working day (10:00 with 15 minutes' grace, until 19:00); no company location or fee until set.
   companyLatitude: null,
   companyLongitude: null,

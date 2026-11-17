@@ -88,6 +88,9 @@ change it, or change one person's permissions, without code changes.
 | products | `products.view` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | products | `products.manage` | ✓ |  |  |  |  | ✓ |  |  |  |
 | products | `products.export` | ✓ | ✓ |  | ✓ | ✓ | ✓ | ✓ |  |  |
+| products | `products.lock` | ✓ |  |  |  |  | ✓ |  |  |  |
+| products | `products.unlock` | ✓ |  |  |  |  | ✓ |  |  |  |
+| products | `products.archive` | ✓ |  |  |  |  | ✓ |  |  |  |
 | warehouses | `warehouses.view` | ✓ |  |  | ✓ | ✓ | ✓ | ✓ |  |  |
 | warehouses | `warehouses.manage` | ✓ |  |  |  |  | ✓ |  |  |  |
 | inventory | `inventory.view` | ✓ |  | ✓ | ✓ | ✓ | ✓ | ✓ |  |  |
@@ -97,6 +100,7 @@ change it, or change one person's permissions, without code changes.
 | inventory | `inventory.count` | ✓ |  |  |  | ✓ | ✓ |  |  |  |
 | inventory | `inventory.approve` | ✓ |  |  |  |  | ✓ |  |  |  |
 | inventory | `inventory.reports` | ✓ |  |  | ✓ |  | ✓ |  |  |  |
+| inventory | `stocktakes.schedule` | ✓ |  |  |  |  | ✓ |  |  |  |
 | suppliers | `suppliers.view` | ✓ |  |  | ✓ | ✓ | ✓ |  |  |  |
 | suppliers | `suppliers.manage` | ✓ |  |  |  |  | ✓ |  |  |  |
 | sales | `sales.view` | ✓ | ✓ |  | ✓ |  | ✓ |  |  |  |
@@ -127,7 +131,6 @@ change it, or change one person's permissions, without code changes.
 | inventory | ALL | ALL | ASSIGNED | ALL | ALL | ALL | ALL | ALL | ALL |
 | sales | ALL | ALL | ALL | ALL | ALL | ALL | ALL | ALL | ALL |
 | penalties | ALL | OWN | OWN | ALL | OWN | OWN | OWN | OWN | OWN |
-
 
 ## 5. Decisions taken, and questions for the owner
 
