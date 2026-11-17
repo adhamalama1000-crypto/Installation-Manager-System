@@ -4,6 +4,7 @@
  */
 import type { Messages } from "./en";
 import { accessAr } from "./access.ar";
+import { schedulingAr } from "./scheduling.ar";
 import { erpAr } from "./erp.ar";
 
 export const ar: Messages = {
@@ -139,6 +140,7 @@ export const ar: Messages = {
       COMPLETION: "تكملة",
       PROGRAMMING: "برمجة",
       MAINTENANCE: "صيانة",
+      REMOVAL: "فك",
     },
     confirmation: {
       PENDING: "في انتظار تأكيد العميل",
@@ -366,6 +368,8 @@ export const ar: Messages = {
     dashboard: "لوحة التحكم",
     calendar: "التقويم",
     mySchedule: "جدولي",
+    companySchedule: "جدول الشركة",
+    workingHours: "مواعيد الشغل",
     appointments: "المواعيد",
     myAppointments: "مواعيدي",
     customers: "العملاء",
@@ -583,7 +587,7 @@ export const ar: Messages = {
     customerGone: "العميل المختار لم يعد موجودًا.",
     locationMismatch: "العنوان المختار لا يخص هذا العميل.",
     closedDay: "يوم {day} إجازة. اختر تاريخًا آخر.",
-    closedDayAdmin: "يوم {day} إجازة. علّم على \"الحجز في يوم إجازة\" للحجز رغم ذلك.",
+    closedDayAdmin: "يوم {day} إجازة. للحجز رغم ذلك، اكتب سبب تجاوز المواعيد.",
     closedDate: "هذا التاريخ يوم إجازة.",
     invalidStatus: "اختر حالة صحيحة.",
     noDefaultStatus: "لا توجد حالة افتراضية نشطة.",
@@ -596,7 +600,10 @@ export const ar: Messages = {
     assignedOnly: "الفنيون المعيّنون فقط يمكنهم تسجيل نتيجة هذه الزيارة.",
     notReportable: "حالة هذا الموعد \"{status}\"، فلا يمكن تسجيل نتيجة.",
     noOutcomeStatus: "لا توجد حالة \"{kind}\" نشطة. يمكن للمدير إضافتها من الإعدادات.",
-    pastDate: "التاريخ ده فات. اختار النهارده أو بعده (الأدمن بس يقدر يحجز في تاريخ فات).",
+    pastDate: "التاريخ ده فات. اختار النهارده أو بعده (مدير المواعيد بس يقدر يحجز في تاريخ فات).",
+    outsideHours: "{technician} بيشتغل من {start} لـ {end} يوم {day}.",
+    technicianDayOff: "يوم {day} إجازة {technician}.",
+    overrideReason: "اكتب سبب تجاوز المواعيد (بيتسجل في سجل التغييرات).",
   },
   audit: {
     unitCreated: "إضافة الوحدة {code}",
@@ -624,6 +631,9 @@ export const ar: Messages = {
     stocktakeCancelled: "إلغاء الجرد {number} للمخزن {code}",
     appointmentCreated: "إنشاء {code} للعميل {customer} يوم {when}",
     appointmentUpdated: "تعديل بيانات {code}",
+    workHoursUpdated: "تغيير مواعيد شغل {name}",
+    rescheduleRequested: "طلب تغيير ميعاد {code}",
+    rescheduleResolved: "الرد على طلب تغيير ميعاد {code}",
     appointmentRescheduled: "تغيير ميعاد {code} من {from} إلى {to}",
     techniciansChanged: "تغيير فنيي {code}: {names}",
     techniciansRemoved: "تغيير فنيي {code}: لا أحد",
@@ -1078,6 +1088,11 @@ export const ar: Messages = {
     timesIn: "الأوقات بتوقيت {tz}",
     closedDay: "يوم {day} إجازة",
     bookClosedDay: "الحجز في يوم إجازة رغم ذلك",
+    overrideHint: "تقدر تحجز رغم ذلك بسبب.",
+    overrideReason: "سبب تجاوز المواعيد",
+    overrideReasonHint: "مطلوب لتاريخ فات أو يوم إجازة، أو إجازة الفني أو خارج مواعيد شغله، أو حجز مؤقت لحد تاني. بيتسجل في سجل التغييرات.",
+    dayOff: "يوم إجازته",
+    outsideHours: "خارج مواعيد الشغل",
     chooseAnotherDate: "اختر تاريخًا آخر.",
     startTime: "وقت البدء",
     duration: "المدة المتوقعة",
@@ -2285,4 +2300,5 @@ export const ar: Messages = {
   },
   ...erpAr,
   ...accessAr,
+  ...schedulingAr,
 };

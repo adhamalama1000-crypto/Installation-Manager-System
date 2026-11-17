@@ -42,7 +42,7 @@ export function money(n: number | null | undefined, locale: Locale): string {
 
 export const PRODUCT_CATEGORIES: ProductCategory[] = ["SMART_LOCK", "SMART_HOME", "CCTV", "INTERCOM", "OTHER"];
 
-export const VISIT_TYPES: VisitType[] = ["INSTALLATION", "INSPECTION", "COMPLETION", "PROGRAMMING", "MAINTENANCE"];
+export const VISIT_TYPES: VisitType[] = ["INSTALLATION", "INSPECTION", "COMPLETION", "PROGRAMMING", "MAINTENANCE", "REMOVAL"];
 
 export const CONFIRMATIONS: CustomerConfirmation[] = ["PENDING", "CONFIRMED", "RESCHEDULE_REQUESTED", "UNREACHABLE"];
 

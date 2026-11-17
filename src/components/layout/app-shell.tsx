@@ -3,7 +3,7 @@
 import { Suspense, useEffect, useId, useState } from "react";
 import Link, { useLinkStatus } from "next/link";
 import { usePathname } from "next/navigation";
-import { ArrowLeftRight, BarChart3, Boxes, CalendarCheck2, CalendarDays, Camera, ClipboardCheck, ClipboardList, Contact, Factory, Gavel, HeartHandshake, History, Layers, LayoutDashboard, LogOut, Menu, MessageCircle, MessageSquareWarning, Package, Plane, Plus, Radar, Receipt, ScrollText, Settings, ShieldCheck, ShoppingCart, TrendingUp, Truck, UserCheck, UserCircle, Users, Wallet, Warehouse, X } from "lucide-react";
+import { ArrowLeftRight, BarChart3, Boxes, CalendarCheck2, CalendarDays, CalendarRange, Camera, ClipboardCheck, ClipboardList, Clock, Contact, Factory, Gavel, HeartHandshake, History, Layers, LayoutDashboard, LogOut, Menu, MessageCircle, MessageSquareWarning, Package, Plane, Plus, Radar, Receipt, ScrollText, Settings, ShieldCheck, ShoppingCart, TrendingUp, Truck, UserCheck, UserCircle, Users, Wallet, Warehouse, X } from "lucide-react";
 import type { Role } from "@prisma/client";
 import { useT } from "@/i18n/client";
 import type { T } from "@/i18n/translator";
@@ -24,6 +24,8 @@ function navFor(user: ShellUser, t: T) {
   const items: { href: string; label: string; icon: typeof LayoutDashboard; show: boolean; group?: "inventory" }[] = [
     { href: "/", label: t("nav.dashboard"), icon: LayoutDashboard, show: has("appointments.view") },
     { href: "/calendar", label: tech ? t("nav.mySchedule") : t("nav.calendar"), icon: CalendarDays, show: has("appointments.view") },
+    { href: "/schedule", label: t("nav.companySchedule"), icon: CalendarRange, show: has("schedule.global") },
+    { href: "/schedule/hours", label: t("nav.workingHours"), icon: Clock, show: has("schedule.manage") && !has("schedule.global") },
     { href: "/appointments", label: tech ? t("nav.myAppointments") : t("nav.appointments"), icon: ClipboardList, show: has("appointments.view") },
     { href: "/customers", label: t("nav.customers"), icon: Contact, show: has("customers.view") },
     { href: "/day-plan", label: t("nav.dayPlan"), icon: MessageCircle, show: has("appointments.manage") },

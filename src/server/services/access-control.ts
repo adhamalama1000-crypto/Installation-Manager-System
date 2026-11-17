@@ -310,3 +310,12 @@ export async function saveTeam(actor: CurrentUser, id: string | null, raw: unkno
 
 /** Module ids, for validation of stored scopes elsewhere. */
 export const SCOPED = MODULES.filter((m) => m.scopes?.length).map((m) => m.id);
+
+/**
+ * Active people who hold a permission (role defaults, custom role and individual changes), for
+ * notifications such as "a technician asked to reschedule". Admins always hold every permission.
+ */
+export async function activeHoldersOf(db: Tx | typeof prisma, permission: Permission, settings: { salesCanViewReports: boolean; technicianCanSeeContacts: boolean }): Promise<string[]> {
+  const people = await db.user.findMany({ where: { isActive: true }, include: { accessRole: true } });
+  return people.filter((u) => permissionsFor({ ...subjectOf(u), isActive: true }, settings).has(permission)).map((u) => u.id);
+}

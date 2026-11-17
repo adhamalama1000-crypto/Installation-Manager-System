@@ -35,6 +35,8 @@ import { documentsForAppointment } from "@/server/services/inventory-documents";
 import { docTypeLabel, nameOf } from "@/components/erp/labels";
 import { formatQuantity } from "@/lib/inventory";
 import { loadOr404 } from "./load";
+import { RescheduleRequestPanel } from "@/components/schedule/reschedule";
+import { visitRescheduleRequests } from "@/server/services/reschedule-requests";
 
 export async function generateMetadata({ params }: { params: Promise<{ id: string }> }) {
   void params;
@@ -51,7 +53,7 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
   const L = t.locale;
   const tz = user.settings.timezone;
   const canHistory = user.permissions.includes("history.view");
-  const [a, history, allStatuses, myStock, files, feedback, complaints, checkIns, stockDocs, evidence] = await Promise.all([
+  const [a, history, allStatuses, myStock, files, feedback, complaints, checkIns, stockDocs, evidence, reschedules] = await Promise.all([
     loadOr404(() => getAppointment(user, id)),
     canHistory ? loadOr404(() => getAppointmentHistory(user, id)) : Promise.resolve(null),
     user.permissions.includes("appointments.manage") ? listStatuses(L) : Promise.resolve([]),
@@ -63,6 +65,8 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
     visitCheckIns(user, id),
     documentsForAppointment(user, id),
     loadOr404(() => evidenceStatus(user, id)),
+    // Shown after getAppointment confirmed the reader may see this visit (it 404s otherwise).
+    visitRescheduleRequests(id),
   ]);
   const today = todayKey(tz);
   const statuses = a.canManage ? allStatuses : [];
@@ -246,6 +250,14 @@ export default async function AppointmentPage({ params }: { params: Promise<{ id
           />
 
           <EvidenceCard id={a.id} evidence={evidence} tz={tz} />
+
+          <RescheduleRequestPanel
+            appointmentId={a.id}
+            requests={reschedules}
+            canRequest={user.permissions.includes("visits.report") && a.technicians.some((x) => x.id === user.id) && a.status.blocksSchedule && a.status.kind !== "COMPLETED"}
+            canResolve={a.canManage}
+            tz={tz}
+          />
 
           {reportable ? (
             <OutcomePanel

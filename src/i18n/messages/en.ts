@@ -5,6 +5,7 @@
  */
 import type { Widen } from "../types";
 import { accessEn } from "./access.en";
+import { schedulingEn } from "./scheduling.en";
 import { erpEn } from "./erp.en";
 
 const messages = {
@@ -140,6 +141,7 @@ const messages = {
       COMPLETION: "Completion",
       PROGRAMMING: "Programming",
       MAINTENANCE: "Maintenance",
+      REMOVAL: "Removal",
     },
     confirmation: {
       PENDING: "Awaiting confirmation",
@@ -367,6 +369,8 @@ const messages = {
     dashboard: "Dashboard",
     calendar: "Calendar",
     mySchedule: "My schedule",
+    companySchedule: "Company schedule",
+    workingHours: "Working hours",
     appointments: "Appointments",
     myAppointments: "My appointments",
     customers: "Customers",
@@ -580,7 +584,7 @@ const messages = {
     customerGone: "The selected customer no longer exists.",
     locationMismatch: "The selected location does not belong to this customer.",
     closedDay: "{day} is a closed day. Choose another date.",
-    closedDayAdmin: "{day} is a closed day. Tick \"Book on a closed day\" to book it anyway.",
+    closedDayAdmin: "{day} is a closed day. To book it anyway, give the reason for overriding the schedule.",
     closedDate: "This date is a closed day.",
     invalidStatus: "Choose a valid status.",
     noDefaultStatus: "No active default status is configured.",
@@ -593,7 +597,10 @@ const messages = {
     assignedOnly: "Only the assigned technicians can record the outcome of this visit.",
     notReportable: "This appointment is \"{status}\", so no outcome can be recorded.",
     noOutcomeStatus: "No active \"{kind}\" status is set up. An Admin can add one in Settings.",
-    pastDate: "This date has passed. Choose today or later (only an Admin can book a past date).",
+    pastDate: "This date has passed. Choose today or later (only a scheduling manager can book a past date).",
+    outsideHours: "{technician} works {start}–{end} on {day}.",
+    technicianDayOff: "{day} is {technician}'s day off.",
+    overrideReason: "Give the reason for overriding the schedule (recorded in the audit log).",
   },
   audit: {
     unitCreated: "Added unit {code}",
@@ -621,6 +628,9 @@ const messages = {
     stocktakeCancelled: "Cancelled stocktake {number} of {code}",
     appointmentCreated: "Created {code} for {customer} on {when}",
     appointmentUpdated: "Updated details of {code}",
+    workHoursUpdated: "Changed the working hours of {name}",
+    rescheduleRequested: "Asked to reschedule {code}",
+    rescheduleResolved: "Answered the reschedule request for {code}",
     appointmentRescheduled: "Rescheduled {code} from {from} to {to}",
     techniciansChanged: "Changed technicians of {code}: {names}",
     techniciansRemoved: "Changed technicians of {code}: none",
@@ -1076,6 +1086,11 @@ const messages = {
     timesIn: "Times are in {tz}",
     closedDay: "{day} is a closed day",
     bookClosedDay: "Book on a closed day anyway",
+    overrideHint: "You may book it anyway with a reason.",
+    overrideReason: "Reason for overriding the schedule",
+    overrideReasonHint: "Needed for a past or closed day, a technician's day off or hours, or someone else's hold. Recorded in the audit log.",
+    dayOff: "Day off",
+    outsideHours: "Outside working hours",
     chooseAnotherDate: "Choose another date.",
     startTime: "Start time",
     duration: "Expected duration",
@@ -2283,6 +2298,7 @@ const messages = {
   },
   ...erpEn,
   ...accessEn,
+  ...schedulingEn,
 };
 
 export type Messages = Widen<typeof messages>;

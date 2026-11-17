@@ -1,7 +1,7 @@
 import { availabilitySchema, fieldErrorsFromZod } from "@/lib/validation";
 import { computeEnd, zonedToUtc } from "@/lib/time";
 import { prisma } from "@/server/db";
-import { assertCanAny } from "@/server/access";
+import { assertCanAny, hasPermission } from "@/server/access";
 import { ValidationError } from "@/server/errors";
 import { apiRoute, readJson } from "@/server/http";
 import { technicianAvailability } from "@/server/services/scheduling";
@@ -37,6 +37,8 @@ export const POST = apiRoute(async ({ req, user }) => {
   return {
     startsAt: startsAt.toISOString(),
     endsAt: endsAt.toISOString(),
-    technicians: technicians.map((t) => ({ ...t, ...suggestions[t.id], available: t.available && !suggestions[t.id]?.heldBy })),
+    // Someone else's hold is a soft rule: people who may override still see the technician as free.
+    canOverride: hasPermission(user, "appointments.override"),
+    technicians: technicians.map((t) => ({ ...t, ...suggestions[t.id], available: t.available && (!suggestions[t.id]?.heldBy || hasPermission(user, "appointments.override")) })),
   };
 });

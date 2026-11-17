@@ -73,6 +73,14 @@ enum VisitType {
   COMPLETION
   PROGRAMMING
   MAINTENANCE
+  /// Removal / dismantling of an installed system.
+  REMOVAL
+}
+
+enum RescheduleRequestStatus {
+  OPEN
+  DONE
+  DECLINED
 }
 
 /// Whether the customer has confirmed the booked time.
@@ -190,47 +198,51 @@ enum StatusKind {
 }
 
 model User {
-  id                           String               @id @default(cuid())
+  id                           String                @id @default(cuid())
   name                         String
   /// Stored lower-cased; used as the login identifier.
-  email                        String               @unique
+  email                        String                @unique
   phone                        String?
   role                         Role
-  isActive                     Boolean              @default(true)
+  isActive                     Boolean               @default(true)
   /// bcrypt hash. Null until the user sets a password through an invitation link.
   passwordHash                 String?
   /// Calendar colour (hex, e.g. #E55823). Used for Sales employees; kept if the role changes so
   /// historical appointments keep their colour.
   color                        String?
   /// Fine-grained permissions that only apply to the VIEWER role (see src/lib/permissions.ts).
-  viewerPermissions            String[]             @default([])
+  viewerPermissions            String[]              @default([])
   /// Individual permissions added to the role's defaults (Admin, permission screen).
-  permissionGrants             String[]             @default([])
+  permissionGrants             String[]              @default([])
   /// Individual permissions removed from the role's defaults.
-  permissionDenies             String[]             @default([])
+  permissionDenies             String[]              @default([])
   /// Data scope per module that differs from the role default: { "appointments": "TEAM", ... }.
   dataScopes                   Json?
   /// The team the person belongs to ("team records" scope).
   teamId                       String?
-  team                         Team?                @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
+  team                         Team?                 @relation("TeamMembers", fields: [teamId], references: [id], onDelete: SetNull)
   /// A custom role (Admin-defined permission set on top of the base role); null = the role's defaults.
   accessRoleId                 String?
-  accessRole                   AccessRole?          @relation("AccessRoleMembers", fields: [accessRoleId], references: [id], onDelete: Restrict)
-  accessRolesCreated           AccessRole[]         @relation("AccessRoleCreator")
-  accessRolesUpdated           AccessRole[]         @relation("AccessRoleUpdater")
-  productsLocked               Product[]            @relation("ProductLocker")
-  productsArchived             Product[]            @relation("ProductArchiver")
-  stocktakesSupervised         Stocktake[]          @relation("StocktakeSupervisor")
-  stocktakesStarted            Stocktake[]          @relation("StocktakeStarter")
-  stocktakeSchedulesSupervised StocktakeSchedule[]  @relation("StocktakeScheduleSupervisor")
-  stocktakeSchedulesCreated    StocktakeSchedule[]  @relation("StocktakeScheduleCreator")
-  stocktakeSchedulesUpdated    StocktakeSchedule[]  @relation("StocktakeScheduleUpdater")
-  stocktakeCounts              StocktakeCount[]     @relation("StocktakeCountEntry")
-  stocktakePhotos              StocktakePhoto[]     @relation("StocktakePhotoUploader")
-  stocktakePhotosDeleted       StocktakePhoto[]     @relation("StocktakePhotoDeleter")
-  createdAt                    DateTime             @default(now()) @db.Timestamptz(3)
-  updatedAt                    DateTime             @updatedAt @db.Timestamptz(3)
-  passwordChangedAt            DateTime?            @db.Timestamptz(3)
+  accessRole                   AccessRole?           @relation("AccessRoleMembers", fields: [accessRoleId], references: [id], onDelete: Restrict)
+  accessRolesCreated           AccessRole[]          @relation("AccessRoleCreator")
+  accessRolesUpdated           AccessRole[]          @relation("AccessRoleUpdater")
+  productsLocked               Product[]             @relation("ProductLocker")
+  productsArchived             Product[]             @relation("ProductArchiver")
+  stocktakesSupervised         Stocktake[]           @relation("StocktakeSupervisor")
+  stocktakesStarted            Stocktake[]           @relation("StocktakeStarter")
+  stocktakeSchedulesSupervised StocktakeSchedule[]   @relation("StocktakeScheduleSupervisor")
+  stocktakeSchedulesCreated    StocktakeSchedule[]   @relation("StocktakeScheduleCreator")
+  stocktakeSchedulesUpdated    StocktakeSchedule[]   @relation("StocktakeScheduleUpdater")
+  stocktakeCounts              StocktakeCount[]      @relation("StocktakeCountEntry")
+  stocktakePhotos              StocktakePhoto[]      @relation("StocktakePhotoUploader")
+  stocktakePhotosDeleted       StocktakePhoto[]      @relation("StocktakePhotoDeleter")
+  workHours                    TechnicianWorkHours[] @relation("TechnicianWorkHours")
+  workHoursSet                 TechnicianWorkHours[] @relation("TechnicianWorkHoursSetter")
+  rescheduleRequested          RescheduleRequest[]   @relation("RescheduleRequester")
+  rescheduleResolved           RescheduleRequest[]   @relation("RescheduleResolver")
+  createdAt                    DateTime              @default(now()) @db.Timestamptz(3)
+  updatedAt                    DateTime              @updatedAt @db.Timestamptz(3)
+  passwordChangedAt            DateTime?             @db.Timestamptz(3)
   /// Interface language chosen by the user ("ar" or "en"); null = not chosen yet (Arabic).
   locale                       String?
   /// Technicians: what they install, used to suggest the right person when booking.
@@ -550,7 +562,8 @@ model Appointment {
 
   salesInvoices SalesInvoice[]
 
-  clockIns CheckIn[] @relation("CheckInRelatedVisit")
+  clockIns           CheckIn[]           @relation("CheckInRelatedVisit")
+  rescheduleRequests RescheduleRequest[]
 
   @@index([startsAt])
   @@index([endsAt])
@@ -2022,4 +2035,50 @@ model StocktakePhoto {
 
   @@index([stocktakeId])
   @@map("stocktake_photos")
+}
+
+/**
+ * A technician's working hours on one weekday (0 = Sunday), set by the installation manager.
+ * A technician with no rows has no working-hours restriction (only the company's closed days,
+ * leave and other bookings apply). isOff = not working that weekday.
+ */
+model TechnicianWorkHours {
+  id          String   @id @default(cuid())
+  userId      String
+  user        User     @relation("TechnicianWorkHours", fields: [userId], references: [id], onDelete: Restrict)
+  weekday     Int
+  isOff       Boolean  @default(false)
+  /// HH:mm in the company timezone (null when off).
+  startTime   String?
+  endTime     String?
+  updatedById String
+  updatedBy   User     @relation("TechnicianWorkHoursSetter", fields: [updatedById], references: [id], onDelete: Restrict)
+  updatedAt   DateTime @updatedAt @db.Timestamptz(3)
+
+  @@unique([userId, weekday])
+  @@map("technician_work_hours")
+}
+
+/**
+ * A technician's request to move an assigned visit, handled by whoever manages the booking.
+ */
+model RescheduleRequest {
+  id             String                  @id @default(cuid())
+  appointmentId  String
+  appointment    Appointment             @relation(fields: [appointmentId], references: [id], onDelete: Restrict)
+  requestedById  String
+  requestedBy    User                    @relation("RescheduleRequester", fields: [requestedById], references: [id], onDelete: Restrict)
+  reason         String
+  /// The time the technician suggests (optional).
+  proposedStart  DateTime?               @db.Timestamptz(3)
+  status         RescheduleRequestStatus @default(OPEN)
+  resolvedById   String?
+  resolvedBy     User?                   @relation("RescheduleResolver", fields: [resolvedById], references: [id], onDelete: Restrict)
+  resolvedAt     DateTime?               @db.Timestamptz(3)
+  resolutionNote String?
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@index([appointmentId, status])
+  @@index([status, createdAt])
+  @@map("reschedule_requests")
 }

@@ -22,7 +22,8 @@ test("a technician checks in at the company and through a visit with the phone's
       startTime: `0${5 + (Date.now() % 3)}:${String((Date.now() % 4) * 15).padStart(2, "0")}`,
       durationMinutes: 15,
       technicianIds: [hany.id],
-      allowClosedDay: true,
+      // Today may be a closed day in Settings: the Admin books it as an override with a reason.
+      overrideReason: "e2e: today may be a closed day",
     },
   });
   expect(created.status()).toBe(201);

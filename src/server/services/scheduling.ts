@@ -4,6 +4,7 @@ import { appointmentCode } from "@/lib/constants";
 import { dateKey } from "@/lib/time";
 import type { Db, Tx } from "../db";
 import type { ConflictDetail } from "../errors";
+import { workingHoursViolations } from "./work-hours";
 
 /**
  * Serialises all booking transactions that touch the same technician. Locks are taken in a
@@ -90,6 +91,8 @@ export type TechnicianAvailability = {
   conflicts: ConflictDetail[];
   /** Approved leave covering the slot; the technician cannot be booked then. */
   leave: Omit<LeaveOnDay, "userId" | "name"> | null;
+  /** The slot is on their day off or outside their working hours (an override with a reason). */
+  offHours: "dayOff" | "outsideHours" | null;
 };
 
 /** Availability of every active technician for a proposed time slot (used by the booking form). */
@@ -103,9 +106,10 @@ export async function technicianAvailability(
     orderBy: { name: "asc" },
   });
   const ids = technicians.map((t) => t.id);
-  const [conflicts, leave] = await Promise.all([
+  const [conflicts, leave, hours] = await Promise.all([
     findTechnicianConflicts(db, { ...q, technicianIds: ids }),
     q.timezone ? approvedLeaveDuring(db, ids, q.startsAt, q.endsAt, q.timezone) : Promise.resolve([]),
+    q.timezone ? workingHoursViolations(db, ids, q.startsAt, q.endsAt, q.timezone) : Promise.resolve([]),
   ]);
   return technicians.map((t) => {
     const own = conflicts.filter((c) => c.technicianId === t.id);
@@ -116,6 +120,7 @@ export async function technicianAvailability(
       available: own.length === 0 && !away,
       conflicts: own,
       leave: away ? { type: away.type, startDate: away.startDate, endDate: away.endDate } : null,
+      offHours: hours.find((h) => h.technicianId === t.id)?.rule ?? null,
     };
   });
 }

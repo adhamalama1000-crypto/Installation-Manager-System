@@ -59,7 +59,7 @@ beforeEach(async () => {
 const payload = (o: Record<string, unknown> = {}) => appointmentPayload({ date: tomorrow, startTime: "10:00", durationMinutes: 60, ...o });
 
 describe("booking rules", () => {
-  it("lets only an Admin book a date that has passed, and leaves old bookings editable", async () => {
+  it("lets only a scheduling manager (appointments.override) book a date that has passed, and leaves old bookings editable", async () => {
     await expect(createAppointment(asCurrent(sales), payload({ date: yesterday }))).rejects.toThrow(ValidationError);
     const old = await createAppointment(asCurrent(admin), payload({ date: yesterday, salesUserId: sales.id }));
     // Editing an old booking without moving it is fine; moving another one into the past is not.
@@ -86,7 +86,7 @@ describe("booking rules", () => {
 });
 
 describe("slot holds", () => {
-  it("holds technicians for 10 minutes against other Sales, releases them on booking, and lets an Admin book over them", async () => {
+  it("holds technicians for 10 minutes against other Sales, releases them on booking, and lets an override (with a reason) book over them", async () => {
     const hold = await holdSlot(asCurrent(sales), { date: tomorrow, startTime: "10:00", durationMinutes: 60, technicianIds: [lockTech.id] });
     expect(hold).toMatchObject({ ok: true, technicianIds: [lockTech.id] });
     const minutes = (Date.parse(hold.ok ? hold.until! : "") - Date.now()) / 60_000;
@@ -107,7 +107,11 @@ describe("slot holds", () => {
     expect(await prisma.slotHold.count()).toBe(0);
 
     await holdSlot(asCurrent(sales), { date: tomorrow, startTime: "18:00", durationMinutes: 60, technicianIds: [smartTech.id] });
-    expect((await createAppointment(asCurrent(admin), payload({ startTime: "18:00", technicianIds: [smartTech.id] }))).id).toBeTruthy();
+    // Booking over someone else's hold is an override: the reason is required and audited.
+    await expect(createAppointment(asCurrent(admin), payload({ startTime: "18:00", technicianIds: [smartTech.id] }))).rejects.toThrow(/being held by Sara Sales/);
+    const over = await createAppointment(asCurrent(admin), payload({ startTime: "18:00", technicianIds: [smartTech.id], overrideReason: "VIP customer" }));
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { entityId: over.id, action: "APPOINTMENT_CREATED" } });
+    expect(audit.changes).toMatchObject({ overrides: { rules: ["heldByOther"], reason: "VIP customer" } });
     await releaseHolds(asCurrent(sales));
     expect(await prisma.slotHold.count()).toBe(0);
   });

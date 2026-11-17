@@ -46,6 +46,9 @@ export const accessAr: Widen<typeof accessEn> = {
     },
     special: {
       manageAllBookings: "الحجز لحد تاني وتعديل حجوزات أي حد",
+      companySchedule: "عرض جدول الشركة",
+      workingHours: "تحديد مواعيد شغل الفنيين",
+      overrideRules: "تجاوز قواعد المواعيد (بسبب)",
       lockItems: "قفل الأصناف",
       unlockItems: "فتح قفل الأصناف",
       scheduleStocktakes: "تخطيط الجرد",

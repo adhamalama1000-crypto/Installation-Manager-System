@@ -111,7 +111,12 @@ describe("permissions", () => {
     // ERP upgrade: technicians also see their own violations and deductions (penalties.own).
     // Permissions upgrade: exporting the appointment list is its own permission, given to everyone
     // who could already export it (everyone who sees appointments).
-    expect([...tech].sort()).toEqual(["appointments.export", "appointments.view", "checkins.record", "complaints.view", "customers.contact", "expenses.record", "inventory.view", "leaves.request", "location.view", "penalties.own", "stock.view", "visits.report"]);
+    // Installation scheduling: technicians read the company schedule (other people's customers hidden).
+    expect([...tech].sort()).toEqual(["appointments.export", "appointments.view", "checkins.record", "complaints.view", "customers.contact", "expenses.record", "inventory.view", "leaves.request", "location.view", "penalties.own", "schedule.global", "stock.view", "visits.report"]);
+    expect(tech.has("schedule.manage") || tech.has("appointments.override")).toBe(false);
+    const manager = permissionsFor({ role: "INSTALLATION_MANAGER" }, settings);
+    expect(["schedule.global", "schedule.manage", "appointments.override", "appointments.manageAll"].every((p) => manager.has(p as never))).toBe(true);
+    expect(sales.has("schedule.global") && !sales.has("appointments.override") && !sales.has("schedule.manage")).toBe(true);
     // Complaints: Sales open and close them, technicians see their own; only the head (Admin) assigns and grades.
     expect(sales.has("complaints.view")).toBe(true);
     expect(sales.has("complaints.manage") || sales.has("quality.grade")).toBe(false);

@@ -150,8 +150,13 @@ export const appointmentInputSchema = z
     customerConfirmation: z.enum(CONFIRMATIONS as [string, ...string[]]).optional(),
     /** Create only: the earlier appointment this visit follows up. */
     followUpOfId: idField.optional().nullable(),
-    /** Admin only: book on a weekday configured as closed. */
+    /** Kept for older clients; a closed day is now booked with overrideReason. */
     allowClosedDay: z.boolean().optional(),
+    /**
+     * Why a soft rule is overridden (outside a technician's working hours, a closed day, someone
+     * else's hold). Only people with appointments.override may override; recorded in the audit log.
+     */
+    overrideReason: z.preprocess((v) => (typeof v === "string" ? v.trim() || null : (v ?? null)), z.string().max(500, maxChars(500)).nullable()).optional(),
     categoryOther: optionalText(120),
     brand: optionalText(120),
     model: optionalText(120),

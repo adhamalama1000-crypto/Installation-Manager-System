@@ -47,6 +47,9 @@ export const accessEn = {
     special: {
       viewLocation: "See addresses and maps",
       manageAllBookings: "Book for others, edit anyone's bookings",
+      companySchedule: "See the company schedule",
+      workingHours: "Set technicians' working hours",
+      overrideRules: "Override scheduling rules (with a reason)",
       lockItems: "Lock items",
       unlockItems: "Unlock items",
       scheduleStocktakes: "Plan stocktakes",
