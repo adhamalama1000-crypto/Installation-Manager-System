@@ -1,0 +1,266 @@
+{
+  "title": {
+    "en": "OR VIP ERP",
+    "ar": "OR VIP ERP"
+  },
+  "step.requirements": {
+    "en": "Checking system requirements",
+    "ar": "فحص متطلبات النظام"
+  },
+  "step.docker": {
+    "en": "Starting Docker",
+    "ar": "تشغيل Docker"
+  },
+  "step.database": {
+    "en": "Starting PostgreSQL",
+    "ar": "تشغيل قاعدة البيانات PostgreSQL"
+  },
+  "step.dependencies": {
+    "en": "Checking dependencies",
+    "ar": "فحص مكونات البرنامج"
+  },
+  "step.migrations": {
+    "en": "Preparing database",
+    "ar": "تجهيز قاعدة البيانات"
+  },
+  "step.server": {
+    "en": "Starting application server",
+    "ar": "تشغيل خادم النظام"
+  },
+  "step.running": {
+    "en": "Application running",
+    "ar": "النظام يعمل"
+  },
+  "status.starting": {
+    "en": "Starting OR VIP...",
+    "ar": "جاري تشغيل OR VIP..."
+  },
+  "status.waitingDocker": {
+    "en": "Waiting for Docker Desktop to be ready (this can take a minute after Windows starts)...",
+    "ar": "في انتظار جاهزية Docker Desktop (قد يستغرق دقيقة بعد تشغيل ويندوز)..."
+  },
+  "status.waitingDatabase": {
+    "en": "Waiting for the database to answer...",
+    "ar": "في انتظار استجابة قاعدة البيانات..."
+  },
+  "status.installingDependencies": {
+    "en": "Installing program components (first time or after an update, a few minutes)...",
+    "ar": "تثبيت مكونات البرنامج (أول مرة أو بعد تحديث، دقائق قليلة)..."
+  },
+  "status.backup": {
+    "en": "Backing up the database before applying updates...",
+    "ar": "أخذ نسخة احتياطية من قاعدة البيانات قبل تطبيق التحديثات..."
+  },
+  "status.migrating": {
+    "en": "Applying database updates...",
+    "ar": "تطبيق تحديثات قاعدة البيانات..."
+  },
+  "status.building": {
+    "en": "Preparing the application (first time or after an update, a few minutes)...",
+    "ar": "تجهيز النظام (أول مرة أو بعد تحديث، دقائق قليلة)..."
+  },
+  "status.waitingServer": {
+    "en": "Waiting for the application to answer...",
+    "ar": "في انتظار استجابة النظام..."
+  },
+  "status.running": {
+    "en": "OR VIP is running at {url}. You can close this window; OR VIP keeps running.",
+    "ar": "نظام OR VIP يعمل على {url}. يمكنك إغلاق هذه النافذة وسيظل النظام يعمل."
+  },
+  "status.alreadyRunning": {
+    "en": "OR VIP is already running.",
+    "ar": "نظام OR VIP يعمل بالفعل."
+  },
+  "status.stopping": {
+    "en": "Stopping the OR VIP application server...",
+    "ar": "جاري إيقاف خادم نظام OR VIP..."
+  },
+  "status.stopped": {
+    "en": "The OR VIP application server is stopped. Your data is kept.",
+    "ar": "تم إيقاف خادم نظام OR VIP. بياناتك محفوظة."
+  },
+  "status.notRunning": {
+    "en": "The OR VIP application server is not running.",
+    "ar": "خادم نظام OR VIP غير مشغّل."
+  },
+  "status.anotherLauncher": {
+    "en": "OR VIP is already being started in another window. Please wait for it.",
+    "ar": "يتم تشغيل OR VIP بالفعل من نافذة أخرى. برجاء الانتظار."
+  },
+  "button.open": {
+    "en": "Open OR VIP",
+    "ar": "فتح النظام"
+  },
+  "button.restart": {
+    "en": "Restart",
+    "ar": "إعادة تشغيل"
+  },
+  "button.stop": {
+    "en": "Stop",
+    "ar": "إيقاف"
+  },
+  "button.logs": {
+    "en": "Logs",
+    "ar": "السجلات"
+  },
+  "button.retry": {
+    "en": "Try again",
+    "ar": "إعادة المحاولة"
+  },
+  "button.close": {
+    "en": "Close",
+    "ar": "إغلاق"
+  },
+  "error.title": {
+    "en": "OR VIP could not start",
+    "ar": "تعذّر تشغيل OR VIP"
+  },
+  "error.seeLogs": {
+    "en": "Details are in the log file: {path}",
+    "ar": "التفاصيل في ملف السجل: {path}"
+  },
+  "error.windowsVersion": {
+    "en": "This Windows version ({version}) is too old. Docker Desktop needs Windows 10 version 2004 (build 19041) or newer, or Windows 11.",
+    "ar": "إصدار ويندوز ({version}) قديم. يحتاج Docker Desktop إلى ويندوز 10 إصدار 2004 (19041) أو أحدث، أو ويندوز 11."
+  },
+  "error.nodeMissing": {
+    "en": "Node.js is not installed. Install Node.js LTS (version 20.9 or newer) from https://nodejs.org, then open OR VIP again.",
+    "ar": "برنامج Node.js غير مثبت. ثبّت Node.js LTS (إصدار 20.9 أو أحدث) من https://nodejs.org ثم افتح OR VIP مرة أخرى."
+  },
+  "error.nodeOld": {
+    "en": "Node.js {version} is too old. Install Node.js LTS (20.9 or newer) from https://nodejs.org.",
+    "ar": "إصدار Node.js {version} قديم. ثبّت Node.js LTS (20.9 أو أحدث) من https://nodejs.org."
+  },
+  "error.npmMissing": {
+    "en": "npm was not found. Reinstall Node.js LTS from https://nodejs.org (npm is included).",
+    "ar": "لم يتم العثور على npm. أعد تثبيت Node.js LTS من https://nodejs.org (يتضمن npm)."
+  },
+  "error.projectMissing": {
+    "en": "The OR VIP program folder is incomplete or was moved: {path}. Run 'Setup OR VIP' again from the program folder.",
+    "ar": "مجلد برنامج OR VIP غير مكتمل أو تم نقله: {path}. شغّل 'Setup OR VIP' مرة أخرى من مجلد البرنامج."
+  },
+  "error.envMissing": {
+    "en": "The configuration file (.env) is missing. Run 'Setup OR VIP' once to create it.",
+    "ar": "ملف الإعدادات (.env) غير موجود. شغّل 'Setup OR VIP' مرة واحدة لإنشائه."
+  },
+  "error.envInvalid": {
+    "en": "The configuration file (.env) is not valid: {detail}. Run 'Setup OR VIP' to fix it.",
+    "ar": "ملف الإعدادات (.env) غير صحيح: {detail}. شغّل 'Setup OR VIP' لإصلاحه."
+  },
+  "error.dockerMissing": {
+    "en": "Docker Desktop is not installed. Install it from https://www.docker.com/products/docker-desktop/ (restart Windows if asked), then open OR VIP again.",
+    "ar": "برنامج Docker Desktop غير مثبت. ثبّته من https://www.docker.com/products/docker-desktop/ (وأعد تشغيل ويندوز إذا طُلب منك) ثم افتح OR VIP مرة أخرى."
+  },
+  "error.dockerTimeout": {
+    "en": "Docker Desktop did not become ready within {seconds} seconds. Open Docker Desktop, wait until it says 'Engine running', then try again.",
+    "ar": "لم يصبح Docker Desktop جاهزًا خلال {seconds} ثانية. افتح Docker Desktop وانتظر حتى تظهر 'Engine running' ثم حاول مرة أخرى."
+  },
+  "error.dockerWindowsContainers": {
+    "en": "Docker Desktop is using Windows containers. Right-click the Docker icon near the clock and choose 'Switch to Linux containers', then try again.",
+    "ar": "يستخدم Docker Desktop حاويات ويندوز. اضغط بالزر الأيمن على أيقونة Docker بجوار الساعة واختر 'Switch to Linux containers' ثم حاول مرة أخرى."
+  },
+  "error.composeMissing": {
+    "en": "Docker Compose v2 was not found. Update Docker Desktop to the latest version.",
+    "ar": "لم يتم العثور على Docker Compose v2. حدّث Docker Desktop لآخر إصدار."
+  },
+  "error.databaseStart": {
+    "en": "The database container could not start: {detail}",
+    "ar": "تعذّر تشغيل حاوية قاعدة البيانات: {detail}"
+  },
+  "error.databasePortBusy": {
+    "en": "Port {port} is already used by another program, so the OR VIP database cannot start. Close the other database program, or change IMS_DB_PORT and DATABASE_URL together.",
+    "ar": "المنفذ {port} مستخدم من برنامج آخر، لذلك لا يمكن تشغيل قاعدة بيانات OR VIP. أغلق برنامج قاعدة البيانات الآخر أو غيّر IMS_DB_PORT و DATABASE_URL معًا."
+  },
+  "error.databasePortMismatch": {
+    "en": "DATABASE_URL uses port {urlPort} but the OR VIP database is published on port {dockerPort}. Make them the same in .env.",
+    "ar": "يستخدم DATABASE_URL المنفذ {urlPort} بينما قاعدة بيانات OR VIP على المنفذ {dockerPort}. اجعلهما متطابقين في ملف .env."
+  },
+  "error.databaseTimeout": {
+    "en": "The database did not answer within {seconds} seconds at {target}.",
+    "ar": "لم تستجب قاعدة البيانات خلال {seconds} ثانية على {target}."
+  },
+  "error.databaseAuth": {
+    "en": "The database refused the user name or password in .env. Check DATABASE_URL (the password is not shown here for security).",
+    "ar": "رفضت قاعدة البيانات اسم المستخدم أو كلمة المرور الموجودة في .env. راجع DATABASE_URL (كلمة المرور لا تظهر هنا للأمان)."
+  },
+  "error.databaseMissing": {
+    "en": "The database named in DATABASE_URL does not exist on the server.",
+    "ar": "قاعدة البيانات المذكورة في DATABASE_URL غير موجودة على الخادم."
+  },
+  "error.dependencies": {
+    "en": "Installing program components failed. Check the internet connection and try again.",
+    "ar": "فشل تثبيت مكونات البرنامج. تحقق من الاتصال بالإنترنت وحاول مرة أخرى."
+  },
+  "error.dependenciesInUse": {
+    "en": "Program components need updating, but another program is using the OR VIP folder (for example a manually started server). Close it and try again.",
+    "ar": "مكونات البرنامج تحتاج تحديثًا لكن برنامجًا آخر يستخدم مجلد OR VIP (مثل خادم تم تشغيله يدويًا). أغلقه وحاول مرة أخرى."
+  },
+  "error.migrationFailed": {
+    "en": "Updating the database failed. Nothing was deleted. Send the log file to support.",
+    "ar": "فشل تحديث قاعدة البيانات. لم يتم حذف أي بيانات. أرسل ملف السجل للدعم الفني."
+  },
+  "error.migrationNeedsAttention": {
+    "en": "The database needs a manual check by support before updates can be applied (a previous update did not finish, or the database differs from the expected structure). Nothing was changed.",
+    "ar": "قاعدة البيانات تحتاج فحصًا يدويًا من الدعم الفني قبل تطبيق التحديثات (تحديث سابق لم يكتمل أو بنية مختلفة). لم يتم تغيير أي شيء."
+  },
+  "error.backupFailed": {
+    "en": "The safety backup before the database update failed, so the update was not applied.",
+    "ar": "فشلت النسخة الاحتياطية قبل تحديث قاعدة البيانات، لذلك لم يتم تطبيق التحديث."
+  },
+  "error.buildFailed": {
+    "en": "Preparing the application failed.",
+    "ar": "فشل تجهيز النظام."
+  },
+  "error.portBusy": {
+    "en": "Port {port} is already used by another program ({process}). Close that program, or change the OR VIP port, then try again.",
+    "ar": "المنفذ {port} مستخدم من برنامج آخر ({process}). أغلق هذا البرنامج أو غيّر منفذ OR VIP ثم حاول مرة أخرى."
+  },
+  "error.serverExited": {
+    "en": "The application server stopped while starting.",
+    "ar": "توقف خادم النظام أثناء التشغيل."
+  },
+  "error.serverTimeout": {
+    "en": "The application did not answer within {seconds} seconds.",
+    "ar": "لم يستجب النظام خلال {seconds} ثانية."
+  },
+  "error.serverDatabase": {
+    "en": "The application started but cannot reach the database.",
+    "ar": "تم تشغيل النظام لكنه لا يستطيع الوصول لقاعدة البيانات."
+  },
+  "error.unexpected": {
+    "en": "An unexpected error occurred: {detail}",
+    "ar": "حدث خطأ غير متوقع: {detail}"
+  },
+  "error.notStartedByLauncher": {
+    "en": "OR VIP is running but was not started by this launcher (for example from a command window), so it is left running. Close it where it was started.",
+    "ar": "نظام OR VIP يعمل لكن لم يتم تشغيله من هذا المشغّل (مثلًا من نافذة أوامر)، لذلك سيظل يعمل. أغلقه من المكان الذي تم تشغيله منه."
+  },
+  "error.stopFailed": {
+    "en": "The application server did not stop within {seconds} seconds.",
+    "ar": "لم يتوقف خادم النظام خلال {seconds} ثانية."
+  },
+  "button.start": {
+    "en": "Start",
+    "ar": "تشغيل"
+  },
+  "status.closeWhileBusy": {
+    "en": "Please wait until this step finishes.",
+    "ar": "برجاء الانتظار حتى تنتهي هذه الخطوة."
+  },
+  "status.warning": {
+    "en": "Note: {detail}",
+    "ar": "ملاحظة: {detail}"
+  },
+  "status.skippedExternal": {
+    "en": "Using your own PostgreSQL server (Docker not needed).",
+    "ar": "يتم استخدام خادم PostgreSQL الخاص بك (Docker غير مطلوب)."
+  },
+  "setup.title": {
+    "en": "OR VIP ERP - first-time setup",
+    "ar": "إعداد نظام OR VIP لأول مرة"
+  },
+  "setup.ready": {
+    "en": "OR VIP is ready. From now on, double-click the \"OR VIP\" icon on the desktop to start it.",
+    "ar": "نظام OR VIP جاهز. من الآن اضغط مرتين على أيقونة \"OR VIP\" على سطح المكتب لتشغيله."
+  }
+}

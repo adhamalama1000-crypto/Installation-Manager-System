@@ -63,6 +63,10 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 - **Arabic first, with English**: the app opens in Arabic, right to left, and every page, form, validation message, notification, audit entry, CSV export and WhatsApp text can be switched to English (sidebar, sign-in page or profile). The choice is kept in a cookie and on the user's account.
 - **Responsive UI** (phone, tablet, desktop) with light, dark and system themes, accessible focus states, empty/error states and toast feedback.
 
+## Windows desktop launcher (one click)
+
+On a Windows 10/11 office PC, run `scripts\windows\Setup OR VIP.cmd` once. It installs what is missing, prepares the database (never deleting data) and puts an **OR VIP** icon on the desktop; from then on, double-clicking the icon starts Docker Desktop, the database and the application and opens OR VIP in the browser. See [docs/OR_VIP_WINDOWS_LAUNCHER.md](docs/OR_VIP_WINDOWS_LAUNCHER.md).
+
 ## Quick start (local development)
 
 **Prerequisites:** Node.js 20.9+ (22 recommended, see `.nvmrc`) and PostgreSQL 14+ with the standard `contrib` extensions (`btree_gist` and `pg_trgm`; included in the official Docker image, most distributions and managed providers).

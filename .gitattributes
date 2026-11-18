@@ -1,0 +1,6 @@
+# Windows launcher: Windows line endings for the scripts double-clicked or run by Windows tools.
+scripts/windows/*.cmd text eol=crlf
+scripts/windows/*.ps1 text eol=crlf
+scripts/windows/*.psm1 text eol=crlf
+scripts/windows/tests/*.ps1 text eol=crlf
+scripts/windows/assets/*.ico binary

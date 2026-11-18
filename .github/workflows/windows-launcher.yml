@@ -1,0 +1,108 @@
+name: Windows launcher
+
+# Tests the OR VIP Windows desktop launcher on a real Windows machine: script syntax under Windows
+# PowerShell 5.1, unit tests, and the full start / stop / restart / failure scenarios against a
+# real PostgreSQL server. Docker Desktop cannot run on GitHub's hosted Windows machines, so the
+# scenarios use the launcher's "external database" mode; the Docker steps are covered by the
+# manual checklist in docs/OR_VIP_WINDOWS_LAUNCHER.md.
+
+on:
+  pull_request:
+    paths:
+      - "scripts/windows/**"
+      - "src/app/api/health/**"
+      - ".github/workflows/windows-launcher.yml"
+  push:
+    branches: [main]
+    paths:
+      - "scripts/windows/**"
+      - "src/app/api/health/**"
+      - ".github/workflows/windows-launcher.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: windows-launcher-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  launcher:
+    name: Windows launcher (PowerShell 5.1)
+    runs-on: windows-latest
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+
+      - name: Script syntax (Windows PowerShell 5.1)
+        shell: powershell
+        run: |
+          $PSVersionTable.PSVersion
+          $bad = 0
+          Get-ChildItem scripts\windows -Recurse -Include *.ps1, *.psm1 | ForEach-Object {
+            $tokens = $null; $errors = $null
+            [System.Management.Automation.Language.Parser]::ParseFile($_.FullName, [ref]$tokens, [ref]$errors) | Out-Null
+            foreach ($e in $errors) { Write-Host "::error file=$($_.FullName),line=$($e.Extent.StartLineNumber)::$($e.Message)"; $bad++ }
+            $nonAscii = Select-String -LiteralPath $_.FullName -Pattern '[^\x00-\x7F]'
+            foreach ($n in $nonAscii) { Write-Host "$($_.Name):$($n.LineNumber): non-ASCII character"; Write-Host "::error file=$($_.FullName),line=$($n.LineNumber)::non-ASCII character (Windows PowerShell 5.1 would misread it; put text in messages.json)"; $bad++ }
+          }
+          if ($bad) { exit 1 }
+
+      - name: Static analysis (PSScriptAnalyzer, errors only)
+        shell: powershell
+        run: |
+          if (-not (Get-Module -ListAvailable PSScriptAnalyzer)) { Install-Module PSScriptAnalyzer -Scope CurrentUser -Force }
+          $findings = Invoke-ScriptAnalyzer -Path scripts\windows -Recurse -Severity Error
+          $findings | Format-Table -AutoSize
+          if ($findings) { exit 1 }
+
+      - name: Unit tests (Pester 5)
+        shell: powershell
+        run: |
+          Install-Module Pester -MinimumVersion 5.5.0 -Scope CurrentUser -Force -SkipPublisherCheck
+          Import-Module Pester -MinimumVersion 5.5.0
+          $r = Invoke-Pester -Path scripts\windows\tests\OrVip.Tests.ps1 -Output Detailed -PassThru
+          if ($r.FailedCount -gt 0) { exit 1 }
+
+      - name: Start PostgreSQL
+        shell: powershell
+        run: |
+          $svc = Get-Service -Name 'postgresql*' -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-not $svc) {
+            choco install postgresql16 --no-progress -y --params '/Password:root'
+            $svc = Get-Service -Name 'postgresql*' | Select-Object -First 1
+          }
+          Set-Service -Name $svc.Name -StartupType Manual
+          Start-Service -Name $svc.Name
+          $psql = Get-ChildItem 'C:\Program Files\PostgreSQL\*\bin\psql.exe' | Sort-Object FullName -Descending | Select-Object -First 1
+          $env:PGPASSWORD = 'root'
+          & $psql.FullName -U postgres -h localhost -c "CREATE ROLE ims LOGIN PASSWORD 'ims_ci_password';"
+          & $psql.FullName -U postgres -h localhost -c "CREATE DATABASE installation_manager OWNER ims;"
+          if ($LASTEXITCODE -ne 0) { exit 1 }
+          "ORVIP_TEST_PG_SERVICE=$($svc.Name)" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Launcher scenarios (first launch, stop, restart, failures)
+        shell: powershell
+        env:
+          ORVIP_TEST_DATABASE_URL: postgresql://ims:ims_ci_password@localhost:5432/installation_manager?schema=public
+        run: |
+          & .\scripts\windows\tests\Invoke-LauncherScenarios.ps1
+          exit $LASTEXITCODE
+
+      - name: Stop anything left running
+        if: always()
+        shell: powershell
+        run: |
+          if (Test-Path .\scripts\windows\stop-or-vip.ps1) { & .\scripts\windows\stop-or-vip.ps1 -NoGui }
+          exit 0
+
+      - name: Upload launcher logs and window preview
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-launcher-logs
+          path: |
+            .orvip/logs/
+          retention-days: 14
