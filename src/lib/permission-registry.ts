@@ -58,6 +58,8 @@ export const MODULES: ModuleDef[] = [
     ],
     scopes: ["OWN", "ASSIGNED", "TEAM", "ALL"],
   },
+  // Scheduling control (head of installations): work on everyone's bookings.
+  { id: "scheduling", pages: ["/calendar", "/appointments/new"], actions: [a("manage", "appointments.manageAll", 3, "manageAllBookings")] },
   { id: "customers", pages: ["/customers"], actions: [a("view", "customers.view", 0), a("special", "customers.contact", 0, "viewContact")], scopes: ["OWN", "ASSIGNED", "TEAM", "ALL"] },
   { id: "visits", pages: ["/appointments/[id]"], actions: [a("create", "checkins.record", 1, "checkIn"), a("edit", "visits.report", 2, "reportOutcome")] },
   { id: "board", pages: ["/board"], actions: [a("view", "board.view", 0)] },

@@ -13,6 +13,7 @@ export const TEMPLATE_IDS = [
   "role:ACCOUNTANT",
   "role:STORE",
   "role:WAREHOUSE_MANAGER",
+  "role:INSTALLATION_MANAGER",
   "role:DRIVER",
   "salesOwnRecords",
   "teamLeader",

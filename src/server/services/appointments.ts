@@ -112,7 +112,7 @@ const TX_OPTIONS = { timeout: 20_000, maxWait: 10_000 };
  */
 export function canManageAppointment(user: CurrentUser, appt: { createdById: string }, permission: Permission = "appointments.manage"): boolean {
   if (!hasPermission(user, permission)) return false;
-  if (user.role === "ADMIN") return true;
+  if (hasPermission(user, "appointments.manageAll")) return true;
   return user.settings.salesCanEditOthersAppointments || appt.createdById === user.id;
 }
 
@@ -643,11 +643,12 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
     if (existing) return getAppointment(user, existing.id);
   }
 
-  // The original creator always comes from the session. Only an Admin may record a booking on
-  // behalf of a Sales employee.
+  // The original creator always comes from the session. Only someone who works on everyone's
+  // bookings (Admin, installation manager, or anyone given the permission) may record a booking
+  // on behalf of a Sales employee.
   let creatorId = user.id;
   if (input.salesUserId && input.salesUserId !== user.id) {
-    if (user.role !== "ADMIN") throw new ForbiddenError("appointmentErrors.onBehalfAdminOnly");
+    if (!hasPermission(user, "appointments.manageAll")) throw new ForbiddenError("appointmentErrors.onBehalfAdminOnly");
     const sales = await prisma.user.findUnique({ where: { id: input.salesUserId } });
     if (!sales || !sales.isActive || (sales.role !== "SALES" && sales.role !== "ADMIN")) {
       throw new ValidationError({ salesUserId: msg("appointmentErrors.chooseSales") });

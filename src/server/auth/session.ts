@@ -5,7 +5,7 @@ import { cache } from "react";
 import type { Role } from "@prisma/client";
 import { DEFAULT_LOCALE, LOCALE_COOKIE, isLocale, type Locale } from "@/i18n/config";
 import { scopesFor, type DataScope } from "@/lib/permission-registry";
-import { permissionsFor, type Permission } from "@/lib/permissions";
+import { mergeScopes, permissionsFor, type Permission } from "@/lib/permissions";
 import type { SettingsValues } from "@/lib/validation";
 import { prisma } from "../db";
 import { parseSettings } from "../services/settings";
@@ -120,6 +120,8 @@ type SessionRow = {
   permissionDenies: string[] | null;
   dataScopes: unknown;
   teamId: string | null;
+  rolePermissions: string[] | null;
+  roleScopes: unknown;
   settings: unknown;
 };
 
@@ -133,8 +135,11 @@ export async function userFromToken(token: string | undefined | null, cookieLoca
            u."permissionGrants", u."permissionDenies", u."dataScopes",
            -- A deactivated team no longer gives anyone "team" visibility.
            (SELECT t.id FROM teams t WHERE t.id = u."teamId" AND t."isActive") AS "teamId",
+           -- The custom role, while it is active and still matches the person's base role.
+           r.permissions AS "rolePermissions", r."dataScopes" AS "roleScopes",
            (SELECT value FROM settings WHERE key = 'general') AS settings
     FROM sessions s JOIN users u ON u.id = s."userId"
+    LEFT JOIN access_roles r ON r.id = u."accessRoleId" AND r."isActive" AND r."baseRole" = u.role
     WHERE s.id = ${id}`;
   const u = rows[0];
   if (!u) return null;
@@ -157,7 +162,7 @@ export async function userFromToken(token: string | undefined | null, cookieLoca
     isActive: u.isActive,
     viewerPermissions: u.viewerPermissions,
     permissions: [...permissions],
-    scopes: scopesFor({ role: u.role, permissions }, u.dataScopes),
+    scopes: scopesFor({ role: u.role, permissions }, mergeScopes(u.roleScopes, u.dataScopes)),
     teamId: u.teamId,
     settings,
     sessionId: id,

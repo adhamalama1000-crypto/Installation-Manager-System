@@ -47,6 +47,7 @@ const USERS: { name: string; email: string; role: Role; color?: string; isActive
   { name: "Nadia Fawzy", email: "nadia.accounts@example.com", role: "ACCOUNTANT", phone: "+20 100 444 5566" },
   { name: "Sameh Store", email: "store@example.com", role: "STORE", phone: "+20 100 555 6677" },
   { name: "Wael Warehouse", email: "warehouse@example.com", role: "WAREHOUSE_MANAGER", phone: "+20 100 777 8899" },
+  { name: "Ihab Installations", email: "installations@example.com", role: "INSTALLATION_MANAGER", phone: "+20 100 777 6655" },
   { name: "Laila Viewer", email: "viewer@example.com", role: "VIEWER", viewerPermissions: ["appointments.view", "location.view", "reports.view"] },
   { name: "Tarek Driver", email: "driver@example.com", role: "DRIVER", phone: "+20 100 666 7788" },
 ];

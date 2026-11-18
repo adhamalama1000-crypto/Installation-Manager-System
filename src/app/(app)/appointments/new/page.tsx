@@ -22,7 +22,7 @@ export default async function NewAppointmentPage({ searchParams }: { searchParam
   const [technicians, statuses, sales, original] = await Promise.all([
     activeTechnicians(),
     listStatuses(t.locale),
-    user.role === "ADMIN" ? salesPeople() : Promise.resolve(null),
+    user.permissions.includes("appointments.manageAll") ? salesPeople() : Promise.resolve(null),
     // A follow-up visit starts from the earlier appointment's customer, site and product.
     sp.followUp ? getAppointment(user, sp.followUp).catch((e) => (e instanceof NotFoundError ? null : Promise.reject(e))) : Promise.resolve(null),
   ]);

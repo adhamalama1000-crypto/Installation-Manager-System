@@ -1,10 +1,10 @@
 import "server-only";
-import { Prisma, type Role, type User } from "@prisma/client";
+import { Prisma, type AccessRole, type Role, type User } from "@prisma/client";
 import { z } from "zod";
 import { msg } from "@/i18n/translator";
-import { ADMIN_ONLY_PERMISSIONS, MODULES, scopeOverrides, scopesFor, viewerMayHold, type DataScope } from "@/lib/permission-registry";
+import { ADMIN_ONLY_PERMISSIONS, MODULES, scopesFor, viewerMayHold, type DataScope } from "@/lib/permission-registry";
 import { TEMPLATE_IDS, templateFor, type TemplateId } from "@/lib/permission-templates";
-import { PERMISSIONS, overridesFor, permissionsFor, roleDefaults, type Permission } from "@/lib/permissions";
+import { PERMISSIONS, mergeScopes, overridesFor, permissionsFor, roleDefaults, type Permission } from "@/lib/permissions";
 import { prisma, type Tx } from "../db";
 import { assertCan } from "../access";
 import type { CurrentUser } from "../auth/session";
@@ -30,8 +30,41 @@ function assertAdmin(actor: CurrentUser) {
   if (actor.role !== "ADMIN") throw new ForbiddenError();
 }
 
-function subjectOf(u: Pick<User, "role" | "viewerPermissions" | "isActive" | "permissionGrants" | "permissionDenies">) {
-  return { role: u.role, viewerPermissions: u.viewerPermissions, isActive: true, permissionGrants: u.permissionGrants, permissionDenies: u.permissionDenies };
+type UserWithRole = User & { accessRole?: AccessRole | null };
+
+/** The custom role that applies to a person: active and of the person's base role (else none). */
+export function liveRole(u: UserWithRole): AccessRole | null {
+  const r = u.accessRole;
+  return r && r.isActive && r.baseRole === u.role ? r : null;
+}
+
+function subjectOf(u: UserWithRole) {
+  const r = liveRole(u);
+  return {
+    role: u.role,
+    viewerPermissions: u.viewerPermissions,
+    isActive: true,
+    permissionGrants: u.permissionGrants,
+    permissionDenies: u.permissionDenies,
+    rolePermissions: r ? r.permissions : null,
+  };
+}
+
+/** Effective scopes of a stored person (custom role's scopes, then their own). */
+function scopesOf(u: UserWithRole, permissions: ReadonlySet<string>, userScopes: unknown = u.dataScopes) {
+  return scopesFor({ role: u.role, permissions }, mergeScopes(liveRole(u)?.dataScopes ?? null, userScopes));
+}
+
+/** The person's own scope overrides: only the modules that differ from their custom role / base role. */
+function userScopeOverrides(u: UserWithRole, permissions: ReadonlySet<string>, wanted: Record<string, string>): Record<string, DataScope> {
+  const base = scopesFor({ role: u.role, permissions }, liveRole(u)?.dataScopes ?? null);
+  const out: Record<string, DataScope> = {};
+  for (const m of MODULES) {
+    const w = wanted[m.id];
+    if (!m.scopes?.length || typeof w !== "string" || !(m.scopes as readonly string[]).includes(w)) continue;
+    if (w !== base[m.id]) out[m.id] = w as DataScope;
+  }
+  return out;
 }
 
 /** What a role may be given at all (everything but Admin-only; Viewers: view and export only). */
@@ -46,17 +79,22 @@ export type UserAccessDTO = Awaited<ReturnType<typeof getUserAccess>>;
 export async function getUserAccess(actor: CurrentUser, userId: string) {
   assertAdmin(actor);
   if (typeof userId !== "string" || userId.length > 64) throw new NotFoundError("userErrors.notFound");
-  const [u, people, teams] = await Promise.all([
-    prisma.user.findUnique({ where: { id: userId } }),
+  const [u, people, teams, roles] = await Promise.all([
+    prisma.user.findUnique({ where: { id: userId }, include: { accessRole: true } }),
     prisma.user.findMany({ where: { id: { not: userId } }, select: { id: true, name: true, role: true, isActive: true }, orderBy: [{ isActive: "desc" }, { name: "asc" }] }),
     prisma.team.findMany({ orderBy: [{ isActive: "desc" }, { name: "asc" }] }),
+    prisma.accessRole.findMany({ where: { isActive: true }, select: { id: true, name: true, nameAr: true, baseRole: true }, orderBy: { name: "asc" } }),
   ]);
   if (!u) throw new NotFoundError("userErrors.notFound");
   const settings = actor.settings;
-  const defaults = roleDefaults(u, settings);
-  const effective = permissionsFor(subjectOf(u), settings);
+  const subject = subjectOf(u);
+  const defaults = roleDefaults(subject, settings);
+  const effective = permissionsFor(subject, settings);
+  const role = liveRole(u);
   return {
-    user: { id: u.id, name: u.name, email: u.email, role: u.role, isActive: u.isActive, teamId: u.teamId },
+    user: { id: u.id, name: u.name, email: u.email, role: u.role, isActive: u.isActive, teamId: u.teamId, accessRoleId: role?.id ?? null },
+    accessRole: role ? { id: role.id, name: role.name, nameAr: role.nameAr } : null,
+    accessRoles: roles.filter((r) => r.baseRole === u.role),
     isSelf: u.id === actor.id,
     isAdmin: u.role === "ADMIN",
     roleDefaults: PERMISSIONS.filter((p) => defaults.has(p)),
@@ -64,8 +102,8 @@ export async function getUserAccess(actor: CurrentUser, userId: string) {
     denies: (u.permissionDenies ?? []).filter((p) => ALL.has(p)),
     effective: PERMISSIONS.filter((p) => effective.has(p)),
     assignable: PERMISSIONS.filter((p) => assignable(u.role, p)),
-    scopes: scopesFor({ role: u.role, permissions: effective }, u.dataScopes),
-    defaultScopes: scopesFor({ role: u.role, permissions: effective }, null),
+    scopes: scopesOf(u, effective),
+    defaultScopes: scopesOf(u, effective, null),
     templates: TEMPLATE_IDS.map((id) => {
       const tpl = templateFor(id, settings);
       return { id, permissions: tpl.permissions.filter((p) => assignable(u.role, p)), scopes: tpl.scopes };
@@ -87,12 +125,13 @@ const accessSchema = z.discriminatedUnion("mode", [
   z.object({ mode: z.literal("reset"), reason: z.preprocess((v) => (typeof v === "string" ? v.trim() || null : (v ?? null)), z.string().max(500).nullable()) }),
   z.object({ mode: z.literal("copy"), fromUserId: z.string().min(1).max(64), reason: z.preprocess((v) => (typeof v === "string" ? v.trim() || null : (v ?? null)), z.string().max(500).nullable()) }),
   z.object({ mode: z.literal("template"), template: z.enum(TEMPLATE_IDS), reason: z.preprocess((v) => (typeof v === "string" ? v.trim() || null : (v ?? null)), z.string().max(500).nullable()) }),
+  z.object({ mode: z.literal("role"), accessRoleId: z.string().min(1).max(64).nullable(), reason: z.preprocess((v) => (typeof v === "string" ? v.trim() || null : (v ?? null)), z.string().max(500).nullable()) }),
 ]);
 
 async function lockUser(tx: Tx, id: string) {
   const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM users WHERE id = ${id} FOR UPDATE`;
   if (!rows.length) throw new NotFoundError("userErrors.notFound");
-  return tx.user.findUniqueOrThrow({ where: { id } });
+  return tx.user.findUniqueOrThrow({ where: { id }, include: { accessRole: true } });
 }
 
 /**
@@ -112,11 +151,13 @@ export async function setUserAccess(actor: CurrentUser, userId: string, raw: unk
     const before = await lockUser(tx, userId);
     if (before.role === "ADMIN") throw new ValidationError({ _form: msg("access.errors.admin") }, msg("access.errors.admin"));
 
+    if (input.mode === "role") return assignRole(tx, actor, before, input.accessRoleId, input.reason ?? null);
+
     let wanted: string[];
     let wantedScopes: Record<string, string>;
     let teamId = before.teamId;
     if (input.mode === "reset") {
-      wanted = [...roleDefaults(before, settings)];
+      wanted = [...roleDefaults(subjectOf(before), settings)];
       wantedScopes = {};
     } else if (input.mode === "template") {
       const tpl = templateFor(input.template as TemplateId, settings);
@@ -124,11 +165,11 @@ export async function setUserAccess(actor: CurrentUser, userId: string, raw: unk
       wantedScopes = tpl.scopes;
     } else if (input.mode === "copy") {
       if (input.fromUserId === userId) throw new ValidationError({ fromUserId: msg("access.errors.copySelf") }, msg("access.errors.copySelf"));
-      const src = await tx.user.findUnique({ where: { id: input.fromUserId } });
+      const src = await tx.user.findUnique({ where: { id: input.fromUserId }, include: { accessRole: true } });
       if (!src) throw new NotFoundError("userErrors.notFound");
       const srcPerms = permissionsFor({ ...subjectOf(src), isActive: true }, settings);
       wanted = [...srcPerms];
-      wantedScopes = scopesFor({ role: src.role, permissions: srcPerms }, src.dataScopes);
+      wantedScopes = scopesOf(src, srcPerms);
     } else {
       wanted = input.permissions;
       wantedScopes = input.scopes ?? {};
@@ -141,18 +182,19 @@ export async function setUserAccess(actor: CurrentUser, userId: string, raw: unk
       }
     }
     // Never more than the role may hold, whatever was sent.
-    const refused = wanted.filter((p) => !assignable(before.role, p) && ALL.has(p) && !roleDefaults(before, settings).has(p as Permission));
+    const base = subjectOf(before);
+    const refused = wanted.filter((p) => !assignable(before.role, p) && ALL.has(p) && !roleDefaults(base, settings).has(p as Permission));
     if (input.mode === "set" && refused.length) {
       throw new ValidationError({ _form: msg("access.errors.notAssignable", { permissions: refused.join(", ") }) }, msg("access.errors.notAssignable", { permissions: refused.join(", ") }));
     }
     const allowed = wanted.filter((p) => assignable(before.role, p));
-    const { grants, denies } = overridesFor(before, settings, allowed);
-    const after = permissionsFor({ role: before.role, viewerPermissions: before.viewerPermissions, permissionGrants: grants, permissionDenies: denies }, settings);
-    const scopes = scopeOverrides({ role: before.role, permissions: after }, wantedScopes);
+    const { grants, denies } = overridesFor(base, settings, allowed);
+    const after = permissionsFor({ ...base, permissionGrants: grants, permissionDenies: denies }, settings);
+    const scopes = userScopeOverrides(before, after, wantedScopes);
 
-    const beforeEffective = permissionsFor(subjectOf(before), settings);
-    const beforeScopes = scopesFor({ role: before.role, permissions: beforeEffective }, before.dataScopes);
-    const afterScopes = scopesFor({ role: before.role, permissions: after }, scopes);
+    const beforeEffective = permissionsFor(base, settings);
+    const beforeScopes = scopesOf(before, beforeEffective);
+    const afterScopes = scopesOf(before, after, scopes);
     const added = PERMISSIONS.filter((p) => after.has(p) && !beforeEffective.has(p));
     const removed = PERMISSIONS.filter((p) => !after.has(p) && beforeEffective.has(p));
     const scopeChanges = Object.fromEntries(Object.keys(afterScopes).filter((m) => afterScopes[m] !== beforeScopes[m]).map((m) => [m, { from: beforeScopes[m], to: afterScopes[m] }]));
@@ -187,10 +229,43 @@ export async function setUserAccess(actor: CurrentUser, userId: string, raw: unk
   });
 }
 
+/**
+ * Gives a person a custom role (accessRoleId) or takes it away (null: the base role's defaults).
+ * Like a change of role, it clears the person's individual permissions and scopes, so they get
+ * exactly the role. Only an active custom role of the person's base role can be given.
+ */
+async function assignRole(tx: Tx, actor: CurrentUser, before: UserWithRole, accessRoleId: string | null, reason: string | null) {
+  const settings = actor.settings;
+  let role: AccessRole | null = null;
+  if (accessRoleId) {
+    role = await tx.accessRole.findUnique({ where: { id: accessRoleId } });
+    if (!role || !role.isActive || role.baseRole !== before.role) {
+      throw new ValidationError({ accessRoleId: msg("accessRoles.errors.notForRole") }, msg("accessRoles.errors.notForRole"));
+    }
+  }
+  if ((before.accessRoleId ?? null) === accessRoleId && !before.permissionGrants.length && !before.permissionDenies.length && before.dataScopes === null) return { changed: false };
+  const beforeEffective = permissionsFor(subjectOf(before), settings);
+  const after = permissionsFor({ role: before.role, viewerPermissions: before.viewerPermissions, isActive: true, rolePermissions: role ? role.permissions : null }, settings);
+  await tx.user.update({ where: { id: before.id }, data: { accessRoleId, permissionGrants: [], permissionDenies: [], dataScopes: Prisma.DbNull } });
+  const added = PERMISSIONS.filter((p) => after.has(p) && !beforeEffective.has(p));
+  const removed = PERMISSIONS.filter((p) => !after.has(p) && beforeEffective.has(p));
+  await recordAudit(tx, {
+    entityType: "USER",
+    entityId: before.id,
+    module: "users",
+    action: "USER_ACCESS_CHANGED",
+    summary: msg("accessRoles.audit.assigned", { name: actor.name, person: before.name, role: role ? role.name : `@enums.role.${before.role}` }),
+    reason,
+    changes: { mode: "role", accessRoleId: { from: before.accessRoleId ?? null, to: accessRoleId }, permissionsAdded: added, permissionsRemoved: removed },
+    actorId: actor.id,
+  });
+  return { changed: true, added, removed };
+}
+
 /** The effective scope of every scoped module for a stored user (for lists and checks). */
-export function effectiveScopes(u: Pick<User, "role" | "viewerPermissions" | "permissionGrants" | "permissionDenies" | "dataScopes">, settings: CurrentUser["settings"]): Record<string, DataScope> {
-  const perms = permissionsFor({ ...u, isActive: true }, settings);
-  return scopesFor({ role: u.role, permissions: perms }, u.dataScopes);
+export function effectiveScopes(u: UserWithRole, settings: CurrentUser["settings"]): Record<string, DataScope> {
+  const perms = permissionsFor(subjectOf(u), settings);
+  return scopesOf(u, perms);
 }
 
 // ---------------------------------------------------------------------------------------------
