@@ -183,7 +183,7 @@ function Invoke-OrVipStart {
     try {
         $result = Start-OrVipSystem -Report $report -NoBrowser:$NoBrowser
         $script:url = $result.Url
-        $warnings = Get-OrVipWarnings
+        $warnings = @(Get-OrVipWarnings)
         if ($warnings.Count -gt 0) { $statusEn.Text += [Environment]::NewLine + 'Note: ' + ($warnings -join ' ') }
         Set-OrVipButtons 'running'
     } catch {

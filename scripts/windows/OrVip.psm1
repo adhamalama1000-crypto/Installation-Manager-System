@@ -44,7 +44,7 @@ function Get-OrVipRoot { $script:Root }
 function Get-OrVipLogFile { $script:LogFile }
 function Get-OrVipLogDir { $script:LogDir }
 function Get-OrVipExitCodes { $script:ExitCodes }
-function Get-OrVipWarnings { ,@($script:Warnings) }
+function Get-OrVipWarnings { return [string[]]@($script:Warnings | Where-Object { $_ }) }
 
 # --------------------------------------------------------------------------------------------
 # Messages, errors, logging
