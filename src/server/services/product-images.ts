@@ -1,4 +1,5 @@
 import "server-only";
+import { assertEditable } from "./inventory-catalog";
 import { createHash } from "node:crypto";
 import { msg } from "@/i18n/translator";
 import { prisma } from "../db";
@@ -35,7 +36,8 @@ export async function uploadProductImage(user: CurrentUser, productId: string, b
   if (!bytes) throw new ValidationError({ file: msg("attachments.errors.tooLarge") }, msg("attachments.errors.tooLarge"));
   const type = detectImageType(bytes);
   if (!type) throw new ValidationError({ file: msg("attachments.errors.type") }, msg("attachments.errors.type"));
-  const product = await prisma.product.findUnique({ where: { id: checkId(productId) }, select: { id: true, sku: true } });
+  const product = await prisma.product.findUnique({ where: { id: checkId(productId) }, select: { id: true, sku: true, lockedAt: true, archivedAt: true } });
+  if (product) assertEditable(product);
   if (!product) throw new NotFoundError();
   const key = await saveFile(bytes, type);
   try {
@@ -83,7 +85,8 @@ export async function readProductImage(user: CurrentUser, id: string): Promise<{
 export async function removeProductImage(user: CurrentUser, id: string): Promise<void> {
   assertCan(user, "products.manage");
   await prisma.$transaction(async (tx) => {
-    const row = await tx.productImage.findUnique({ where: { id: checkId(id) }, select: { productId: true, deletedAt: true, product: { select: { sku: true } } } });
+    const row = await tx.productImage.findUnique({ where: { id: checkId(id) }, select: { productId: true, deletedAt: true, product: { select: { sku: true, lockedAt: true, archivedAt: true } } } });
+    if (row) assertEditable(row.product);
     if (!row || row.deletedAt) throw new NotFoundError();
     await tx.productImage.update({ where: { id }, data: { deletedAt: new Date(), deletedById: user.id } });
     await recordAudit(tx, {
@@ -100,7 +103,8 @@ export async function removeProductImage(user: CurrentUser, id: string): Promise
 /** Puts an image first (the one shown in lists). */
 export async function makeImageFirst(user: CurrentUser, id: string): Promise<ProductImageDTO[]> {
   assertCan(user, "products.manage");
-  const row = await prisma.productImage.findUnique({ where: { id: checkId(id) }, select: { productId: true, deletedAt: true } });
+  const row = await prisma.productImage.findUnique({ where: { id: checkId(id) }, select: { productId: true, deletedAt: true, product: { select: { sku: true, lockedAt: true, archivedAt: true } } } });
+  if (row) assertEditable(row.product);
   if (!row || row.deletedAt) throw new NotFoundError();
   const rows = await current(row.productId);
   await prisma.productImage.update({ where: { id }, data: { sortOrder: Math.min(...rows.map((r) => r.sortOrder)) - 1 } });

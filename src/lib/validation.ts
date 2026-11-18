@@ -441,6 +441,8 @@ export const settingsSchema = z
     requireDeliveryProof: z.boolean(),
     /** Installation visits need at least one installed serial number before "Done". */
     serialRequired: z.boolean(),
+    /** A stocktake must be approved by someone who neither counted nor submitted it (separation of duties). */
+    stocktakeIndependentApproval: z.boolean().default(true),
     /** The company's location: check-ins further than 400 m from it are flagged (null = not set). */
     companyLatitude: z.number().refine(isValidLatitude, msg("validation.latitude")).nullable(),
     companyLongitude: z.number().refine(isValidLongitude, msg("validation.longitude")).nullable(),

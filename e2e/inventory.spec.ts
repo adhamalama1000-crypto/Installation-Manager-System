@@ -68,7 +68,7 @@ test("the warehouse manager adds a product, receives it, and reverses the receip
   await expect(page.getByText("Reason: Wrong supplier invoice")).toBeVisible();
 });
 
-test("a stocktake of a new warehouse is counted, submitted and approved into an adjustment", async ({ page }) => {
+test("a stocktake of a new warehouse is counted, submitted and approved into an adjustment", async ({ page, browser }) => {
   const code = `E2E${run}`;
   await login(page, "warehouse@example.com");
   await page.goto("/warehouses");
@@ -96,12 +96,18 @@ test("a stocktake of a new warehouse is counted, submitted and approved into an 
   await page.getByRole("dialog", { name: /Submit stocktake/ }).getByRole("button", { name: "Submit for approval" }).click();
   await expect(page.getByRole("heading", { level: 1 })).toContainText("Awaiting approval");
 
-  await page.getByRole("button", { name: "Approve" }).click();
-  await page.getByRole("dialog", { name: /Approve stocktake/ }).getByRole("button", { name: "Approve" }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Approved");
-  await page.getByRole("link", { name: /^Adjustment ADJ-/ }).click();
-  await expect(page.getByRole("heading", { level: 1 })).toContainText("Posted");
-  await expect(page.locator("table").last()).toContainText("Adjustment increase");
+  // Separation of duties (on by default): whoever counted cannot approve their own count.
+  await expect(page.getByRole("alert").filter({ hasText: /Someone (else|who did not count) must approve, reject or send it back/ })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Approve" })).toHaveCount(0);
+  const approver = await (await browser.newContext({ baseURL: test.info().project.use.baseURL })).newPage();
+  await login(approver, "admin@example.com");
+  await approver.goto(page.url());
+  await approver.getByRole("button", { name: "Approve" }).click();
+  await approver.getByRole("dialog", { name: /Approve stocktake/ }).getByRole("button", { name: "Approve" }).click();
+  await expect(approver.getByRole("heading", { level: 1 })).toContainText("Approved");
+  await approver.getByRole("link", { name: /^Adjustment ADJ-/ }).click();
+  await expect(approver.getByRole("heading", { level: 1 })).toContainText("Posted");
+  await expect(approver.locator("table").last()).toContainText("Adjustment increase");
 });
 
 test("the store keeper prepares an adjustment but cannot post it; a technician sees only their van", async ({ page, browser }) => {

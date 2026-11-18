@@ -5,6 +5,9 @@ import { Card, CardBody } from "@/components/ui/card";
 import { Alert, BackArrow, PageHeader } from "@/components/ui/misc";
 import { StocktakeBadge } from "@/components/erp/badges";
 import { StocktakeSheet } from "@/components/erp/stocktake-forms";
+import { PlannedPanel, StocktakePhotos } from "@/components/erp/stocktake-planning";
+import { dateKey, timeKey } from "@/lib/time";
+import { prisma } from "@/server/db";
 import { nameOf } from "@/components/erp/labels";
 import { getT } from "@/i18n/server";
 import { dateTime } from "@/lib/format";
@@ -25,6 +28,11 @@ export default async function StocktakePage({ params }: { params: Promise<{ id: 
   const tz = user.settings.timezone;
   const L = t.locale;
   const closed = s.status === "APPROVED" || s.status === "REJECTED" || s.status === "CANCELLED";
+  const planned = s.status === "PLANNED";
+  // People who may be assigned or supervise: active staff who can count or approve stock.
+  const people = s.can.editPlan
+    ? await prisma.user.findMany({ where: { isActive: true, role: { in: ["ADMIN", "STORE", "WAREHOUSE_MANAGER"] } }, select: { id: true, name: true }, orderBy: { name: "asc" } })
+    : [];
   return (
     <>
       <PageHeader
@@ -37,6 +45,8 @@ export default async function StocktakePage({ params }: { params: Promise<{ id: 
           <span className="flex flex-wrap items-center gap-3">
             <bdi className="font-mono">{s.number}</bdi>
             <StocktakeBadge status={s.status} label={t.dyn(`enums.stocktakeStatus.${s.status}`)} className="text-sm" />
+            {s.overdue && <span className="rounded-full border border-danger/40 bg-danger-soft px-2.5 py-0.5 text-sm font-medium text-fg">{t("stocktakePlan.overdueBadge")}</span>}
+            {s.mandatory && <span className="rounded-full border border-line px-2.5 py-0.5 text-sm text-fg-muted">{t("stocktakePlan.mandatoryBadge")}</span>}
           </span>
         }
         description={
@@ -47,10 +57,37 @@ export default async function StocktakePage({ params }: { params: Promise<{ id: 
       />
       <Card className="mb-6">
         <CardBody className="space-y-1 text-sm text-fg-muted">
-          <p>{t("stocktakes.snapshotAt", { when: dateTime(s.snapshotAt, tz, L), name: s.createdBy.name })}</p>
-          <p className="font-medium text-fg" role="status">
-            {t("stocktakes.progress", { counted: s.summary.counted, lines: s.summary.lines, differences: s.summary.differences })}
+          {s.name && (
+            <p className="font-medium text-fg" dir="auto">
+              {s.name}
+              {s.kind && <span className="ms-2 text-xs font-normal text-fg-muted">· {t.dyn(`stocktakePlan.kinds.${s.kind}`)}</span>}
+            </p>
+          )}
+          {s.plannedStart && <p>{t("stocktakePlan.plannedFor", { when: `${dateTime(s.plannedStart, tz, L)}${s.plannedEnd ? ` – ${timeKey(s.plannedEnd, tz)}` : ""}` })}</p>}
+          {s.postponedFrom && <p>{t("stocktakePlan.postponedFrom", { when: dateTime(s.postponedFrom, tz, L), reason: s.postponeReason ?? "" })}</p>}
+          {(s.plannedStart || s.assignees.length > 0 || s.supervisor) && (
+            <p>
+              {t("stocktakePlan.fields.assignees")}: {s.assignees.length ? s.assignees.map((a) => a.name).join(L === "ar" ? "، " : ", ") : t("stocktakePlan.anyone")} · {t("stocktakePlan.fields.supervisor")}: {s.supervisor?.name ?? t("stocktakePlan.noSupervisor")}
+            </p>
+          )}
+          <p>
+            {t("stocktakePlan.scope")}: {s.categoryIds.length || s.productIds.length ? t("stocktakePlan.scopeCount", { categories: s.categoryIds.length, products: s.productIds.length }) : t("stocktakePlan.wholeWarehouse")}
           </p>
+          {s.instructions && (
+            <p className="whitespace-pre-line text-fg" dir="auto">
+              {t("stocktakePlan.instructions")}: {s.instructions}
+            </p>
+          )}
+          {s.snapshotAt && <p>{t("stocktakes.snapshotAt", { when: dateTime(s.snapshotAt, tz, L), name: s.startedBy?.name ?? s.createdBy.name })}</p>}
+          {s.round > 0 && <p className="font-medium text-warning">{t("stocktakePlan.round", { round: s.round + 1 })}</p>}
+          {!planned && (
+            <p className="font-medium text-fg" role="status">
+              {t("stocktakes.progress", { counted: s.summary.counted, lines: s.summary.lines, differences: s.summary.differences })}
+              {s.summary.missing > 0 && ` · ${t("stocktakePlan.missing")}: ${s.summary.missing}`}
+              {s.summary.excess > 0 && ` · ${t("stocktakePlan.excess")}: ${s.summary.excess}`}
+              {s.summary.damaged > 0 && ` · ${t("stocktakePlan.damaged")}: ${s.summary.damaged}`}
+            </p>
+          )}
           {s.submittedBy && s.submittedAt && <p>{t("stocktakes.submittedBy", { name: s.submittedBy.name, when: dateTime(s.submittedAt, tz, L) })}</p>}
           {s.decidedBy && s.decidedAt && (
             <p>
@@ -68,12 +105,32 @@ export default async function StocktakePage({ params }: { params: Promise<{ id: 
           {s.note && <p dir="auto">{s.note}</p>}
         </CardBody>
       </Card>
-      {!closed && (
-        <Alert tone="info" className="mb-4" title={t("warehouses.frozen")}>
-          {t("warehouses.frozenText", { number: s.number })}
-        </Alert>
+      {planned ? (
+        <PlannedPanel
+          id={s.id}
+          number={s.number}
+          version={s.version}
+          date={s.plannedStart ? dateKey(s.plannedStart, tz) : ""}
+          startTime={s.plannedStart ? timeKey(s.plannedStart, tz) : "09:00"}
+          durationMinutes={s.plannedStart && s.plannedEnd ? Math.round((Date.parse(s.plannedEnd) - Date.parse(s.plannedStart)) / 60000) : 60}
+          assigneeIds={s.assignees.map((a) => a.id)}
+          supervisorId={s.supervisor?.id ?? null}
+          instructions={s.instructions}
+          mandatory={s.mandatory}
+          people={people}
+          can={{ start: s.can.start, editPlan: s.can.editPlan, cancel: s.can.cancel }}
+        />
+      ) : (
+        <>
+          {!closed && (
+            <Alert tone="info" className="mb-4" title={t("warehouses.frozen")}>
+              {t("warehouses.frozenText", { number: s.number })}
+            </Alert>
+          )}
+          <StocktakeSheet id={s.id} number={s.number} warehouseId={s.warehouse.id} bins={s.warehouse.bins} lines={s.lines} can={s.can} decisionBlocked={s.decisionBlocked} />
+          <StocktakePhotos id={s.id} photos={s.photos} canAdd={s.can.photo} />
+        </>
       )}
-      <StocktakeSheet id={s.id} number={s.number} warehouseId={s.warehouse.id} bins={s.warehouse.bins} lines={s.lines} can={s.can} />
     </>
   );
 }

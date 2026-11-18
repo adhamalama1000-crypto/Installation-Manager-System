@@ -60,7 +60,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
         }
       />
       <Card className="mb-4 p-4">
-        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_10rem_9rem_9rem_auto]">
+        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1fr)_12rem_10rem_9rem_9rem_auto]">
           <input name="q" defaultValue={sp.q} placeholder={t("catalog.search")} aria-label={t("catalog.search")} className={control} />
           <select name="categoryId" defaultValue={sp.categoryId ?? ""} aria-label={t("catalog.products.category")} className={control}>
             <option value="">{t("catalog.allCategories")}</option>
@@ -88,6 +88,7 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
           <select name="active" defaultValue={sp.active ?? "1"} aria-label={t("common.status")} className={control}>
             <option value="1">{t("catalog.activeOnly")}</option>
             <option value="0">{t("catalog.inactiveOnly")}</option>
+            <option value="archived">{t("itemLock.filterArchived")}</option>
             <option value="all">{t("catalog.allProducts")}</option>
           </select>
           <select name="sort" defaultValue={sp.sort ?? "name"} aria-label={t("catalog.sort")} className={control}>
@@ -145,7 +146,9 @@ export default async function ProductsPage({ searchParams }: { searchParams: Pro
                         <span>
                           <span className="font-medium text-fg">{nameOf(p, t)}</span>
                           <span className="ms-2 inline-flex flex-wrap gap-1 align-middle">
-                            {!p.isActive && <Badge>{t("common.inactive")}</Badge>}
+                            {!p.isActive && !p.archived && <Badge>{t("common.inactive")}</Badge>}
+                            {p.locked && <Badge className="border-warning/40 bg-warning-soft text-fg">{t("itemLock.lockedBadge")}</Badge>}
+                            {p.archived && <Badge className="bg-surface-muted">{t("itemLock.archivedBadge")}</Badge>}
                             {p.hasVariants && <Badge>{t("variants.count", { count: p.variantCount })}</Badge>}
                             {p.serialMode === "REQUIRED" && <Badge>{t("catalog.serialTracked")}</Badge>}
                             {p.serialMode === "OPTIONAL" && <Badge>{t("serialModes.OPTIONAL")}</Badge>}

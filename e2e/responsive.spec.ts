@@ -23,3 +23,30 @@ test("mobile navigation drawer opens and navigates", async ({ page }) => {
   await expect(page).toHaveURL(/\/calendar/);
   await expect(page.getByRole("tab", { name: "Agenda" })).toHaveAttribute("aria-selected", "true");
 });
+
+test.describe("tablet landscape (1024 px)", () => {
+  test.use({ viewport: { width: 1024, height: 768 } });
+
+  test("filter rows of the product and stock lists fit beside the sidebar", async ({ page }) => {
+    await login(page, "admin@example.com");
+    for (const path of ["/products", "/stock", "/stock/movements", "/stock/documents"]) {
+      await page.goto(path);
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, path).toBeLessThanOrEqual(1);
+    }
+  });
+});
+
+test.describe("phone menus", () => {
+  test.use({ viewport: { width: 360, height: 780 } });
+
+  test("the New document menu opens fully on screen", async ({ page }) => {
+    await login(page, "admin@example.com");
+    await page.goto("/stock/documents");
+    await page.getByText("New document").click();
+    const box = await page.getByRole("link", { name: "Goods receipt" }).boundingBox();
+    expect(box).not.toBeNull();
+    expect(box!.x).toBeGreaterThanOrEqual(0);
+    expect(box!.x + box!.width).toBeLessThanOrEqual(360);
+  });
+});

@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { msg } from "@/i18n/translator";
 import { brandSchema, categorySchema, productSchema, serialFlags, serialModeOf, unitSchema, type SerialMode } from "@/lib/inventory";
+import type { Specification } from "@/lib/stocktake-schedule";
 import { prisma, type Tx } from "../db";
 import { assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
@@ -172,6 +173,8 @@ const productInclude = {
   brand: { select: { id: true, name: true } },
   parent: { select: { id: true, sku: true, nameEn: true, nameAr: true } },
   images: { where: { deletedAt: null }, orderBy: [{ sortOrder: "asc" }, { createdAt: "asc" }], select: { id: true }, take: 1 },
+  lockedBy: { select: { id: true, name: true } },
+  archivedBy: { select: { id: true, name: true } },
   _count: { select: { variants: true } },
 } satisfies Prisma.ProductInclude;
 type ProductRow = Prisma.ProductGetPayload<{ include: typeof productInclude }>;
@@ -209,6 +212,11 @@ export type ProductDTO = {
   /** The first image, if any. */
   imageUrl: string | null;
   isActive: boolean;
+  /** Locked: information cannot change until unlocked (stock can still move). */
+  locked: { at: string; by: { id: string; name: string } | null; reason: string | null } | null;
+  /** Archived: retired, hidden from lists and pickers, read-only. */
+  archived: { at: string; by: { id: string; name: string } | null } | null;
+  specifications: Specification[];
   version: number;
   /** For a product with variants: the total of its variants. */
   onHand: number;
@@ -256,6 +264,9 @@ function toProductDTO(user: CurrentUser, p: ProductRow, onHand: number): Product
     colorHex: p.colorHex,
     imageUrl: p.images[0] ? productImageUrl(p.images[0].id) : null,
     isActive: p.isActive,
+    locked: p.lockedAt ? { at: p.lockedAt.toISOString(), by: p.lockedBy, reason: p.lockReason } : null,
+    archived: p.archivedAt ? { at: p.archivedAt.toISOString(), by: p.archivedBy } : null,
+    specifications: Array.isArray(p.specifications) ? (p.specifications as Specification[]) : [],
     version: p.version,
     onHand,
     low: minStock > 0 && onHand < minStock,
@@ -331,6 +342,9 @@ function productWhere(f: ProductFilters): Prisma.ProductWhereInput {
   if (f.brandId) and.push({ brandId: f.brandId });
   if (f.unitId) and.push({ unitId: f.unitId });
   if (f.active !== "all") and.push({ isActive: f.active !== "0" });
+  // Archived items are hidden unless asked for (active=archived, or all).
+  if (f.active === "archived") and.splice(and.length - 1, 1, { archivedAt: { not: null } });
+  else if (f.active !== "all") and.push({ archivedAt: null });
   return and.length ? { AND: and } : {};
 }
 
@@ -397,7 +411,7 @@ export async function getProduct(user: CurrentUser, id: string): Promise<Product
   };
 }
 
-const AUDITED = ["sku", "barcode", "nameEn", "nameAr", "categoryId", "brandId", "model", "description", "unitId", "purchaseCost", "sellingPrice", "minStock", "warrantyMonths", "trackSerials", "serialsOptional", "isActive"];
+const AUDITED = ["sku", "barcode", "nameEn", "nameAr", "categoryId", "brandId", "model", "description", "unitId", "purchaseCost", "sellingPrice", "minStock", "warrantyMonths", "trackSerials", "serialsOptional", "isActive", "specifications"];
 /** What a variant takes from its product. */
 export const SHARED_WITH_VARIANTS = ["categoryId", "brandId", "model", "description", "unitId", "warrantyMonths", "trackSerials", "serialsOptional"] as const;
 
@@ -452,6 +466,7 @@ export async function saveProduct(user: CurrentUser, id: string | null, raw: unk
     return await prisma.$transaction(async (tx) => {
       const before = id ? await tx.product.findUnique({ where: { id: checkId(id) } }) : null;
       if (id && !before) throw new NotFoundError();
+      if (before) assertEditable(before);
       if (before && version !== undefined && version !== before.version) throw new StaleRecordError();
       // A variant's shared details are set on its product: only its own fields change here.
       if (before?.parentId) {
@@ -503,8 +518,10 @@ export async function saveProduct(user: CurrentUser, id: string | null, raw: unk
       }
       if (Object.keys(errors).length) throw new ValidationError(errors);
 
+      const { specifications, ...rest } = data;
       const values = {
-        ...data,
+        ...rest,
+        ...(specifications !== undefined ? { specifications: specifications === null || !specifications.length ? Prisma.DbNull : (specifications as Prisma.InputJsonValue) } : {}),
         ...serialFlags(serialMode),
         sku: sku ?? (await nextSku(tx, data.categoryId)),
         barcode: data.barcode ?? before?.barcode ?? (generateBarcode ? await nextInternalBarcode(tx) : null),
@@ -553,3 +570,13 @@ export async function catalogOptions(user: CurrentUser) {
   ]);
   return { units, categories, brands };
 }
+
+/**
+ * A locked or archived product cannot change (the database refuses it too). Lock: unlock first
+ * (products.unlock). Archive: bring it back first (products.archive).
+ */
+export function assertEditable(p: { sku: string; lockedAt: Date | null; archivedAt: Date | null }) {
+  if (p.archivedAt) throw new ValidationError({ _form: msg("itemLock.errors.archived", { sku: p.sku }) }, msg("itemLock.errors.archived", { sku: p.sku }));
+  if (p.lockedAt) throw new ValidationError({ _form: msg("itemLock.errors.locked", { sku: p.sku }) }, msg("itemLock.errors.locked", { sku: p.sku }));
+}
+

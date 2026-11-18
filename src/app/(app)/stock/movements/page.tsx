@@ -51,7 +51,7 @@ export default async function StockLedgerPage({ searchParams }: { searchParams: 
         }
       />
       <Card className="mb-4 p-4">
-        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-[1fr_12rem_11rem_9.5rem_9.5rem_auto]">
+        <form method="get" className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-[minmax(0,1fr)_12rem_11rem_9.5rem_9.5rem_auto]">
           {sp.productId && <input type="hidden" name="productId" value={sp.productId} />}
           <input name="q" defaultValue={sp.q} placeholder={t("stock.ledger.search")} aria-label={t("stock.ledger.search")} className={control} />
           <select name="type" defaultValue={sp.type ?? ""} aria-label={t("stock.fields.movementType")} className={control}>

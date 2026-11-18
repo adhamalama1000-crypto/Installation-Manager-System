@@ -13,7 +13,8 @@ export function NewDocumentMenu({ t, types }: { t: T; types: { type: StockDocTyp
       <summary className={buttonClasses("primary", "md", "cursor-pointer list-none [&::-webkit-details-marker]:hidden")}>
         <Plus className="h-4 w-4" /> {t("stock.newDocument")} <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
       </summary>
-      <ul className="absolute end-0 z-30 mt-1 w-60 overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-pop">
+      {/* On phones the list opens in the page flow under the button, so it can never leave the screen; from sm up it floats. */}
+      <ul className="z-30 mt-1 w-60 max-w-full overflow-hidden rounded-lg border border-line bg-surface py-1 shadow-pop sm:absolute sm:end-0">
         {types.map((d) => (
           <li key={`${d.type}-${d.returnKind ?? ""}`}>
             <Link href={`/stock/documents/new?type=${d.type}${d.returnKind ? `&returnKind=${d.returnKind}` : ""}`} className="block px-4 py-2 text-sm text-fg hover:bg-surface-muted">

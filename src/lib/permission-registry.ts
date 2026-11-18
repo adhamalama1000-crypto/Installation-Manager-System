@@ -73,7 +73,18 @@ export const MODULES: ModuleDef[] = [
   { id: "finance", pages: ["/finance"], actions: [a("view", "finance.view", 0), a("edit", "cash.receive", 2, "receiveCash"), a("export", "finance.export", 3)] },
   { id: "reports", pages: ["/reports"], actions: [a("view", "reports.view", 0), a("export", "reports.export", 3)] },
   { id: "serialCustody", pages: ["/inventory"], actions: [a("view", "stock.view", 0), a("edit", "stock.manage", 2)] },
-  { id: "products", pages: ["/products"], actions: [a("view", "products.view", 0), a("edit", "products.manage", 2, "createEditImport"), a("export", "products.export", 3)] },
+  {
+    id: "products",
+    pages: ["/products"],
+    actions: [
+      a("view", "products.view", 0),
+      a("edit", "products.manage", 2, "createEditImport"),
+      a("export", "products.export", 3),
+      a("special", "products.lock", 3, "lockItems"),
+      a("special", "products.unlock", 3, "unlockItems"),
+      a("archive", "products.archive", 3),
+    ],
+  },
   { id: "warehouses", pages: ["/warehouses"], actions: [a("view", "warehouses.view", 0), a("edit", "warehouses.manage", 2)] },
   {
     id: "inventory",
@@ -86,6 +97,7 @@ export const MODULES: ModuleDef[] = [
       a("create", "inventory.count", 1, "count"),
       a("approve", "inventory.approve", 3),
       a("export", "inventory.reports", 3, "costsAndExports"),
+      a("manage", "stocktakes.schedule", 3, "scheduleStocktakes"),
     ],
     scopes: ["ASSIGNED", "ALL"],
   },
