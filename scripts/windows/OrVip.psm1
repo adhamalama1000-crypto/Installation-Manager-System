@@ -869,15 +869,20 @@ function Start-OrVipServer {
     [System.IO.File]::AppendAllText($log, $line, (New-Object System.Text.UTF8Encoding $false))
     $inner = '"{0}" "{1}" start -p {2} -H {3} 1>>"{4}" 2>&1' -f $Node.Node, $entry, $Config.appPort, $listen, $log
 
-    $psi = New-Object System.Diagnostics.ProcessStartInfo
-    $psi.FileName = Join-Path $env:SystemRoot 'System32\cmd.exe'
-    $psi.Arguments = '/d /s /c "' + $inner + '"'
-    $psi.WorkingDirectory = $script:Root
-    $psi.UseShellExecute = $false
-    $psi.CreateNoWindow = $true
-    $psi.EnvironmentVariables['NODE_ENV'] = 'production'
-    $psi.EnvironmentVariables['NEXT_TELEMETRY_DISABLED'] = '1'
-    $p = [System.Diagnostics.Process]::Start($psi)
+    # Started through the Windows shell (Start-Process) on purpose: unlike Process.Start with
+    # UseShellExecute=false, it does not hand the launcher's own handles (console, pipes) to the
+    # long-running server, so the server is fully independent of the launcher window and of any
+    # program that is reading the launcher's output. The server inherits these two variables.
+    $saved = @{ NODE_ENV = $env:NODE_ENV; NEXT_TELEMETRY_DISABLED = $env:NEXT_TELEMETRY_DISABLED }
+    $env:NODE_ENV = 'production'
+    $env:NEXT_TELEMETRY_DISABLED = '1'
+    try {
+        $p = Start-Process -FilePath (Join-Path $env:SystemRoot 'System32\cmd.exe') -ArgumentList ('/d /s /c "' + $inner + '"') -WorkingDirectory $script:Root -WindowStyle Hidden -PassThru
+    } finally {
+        $env:NODE_ENV = $saved.NODE_ENV
+        $env:NEXT_TELEMETRY_DISABLED = $saved.NEXT_TELEMETRY_DISABLED
+    }
+    $null = $p.Handle   # keep a handle so HasExited and ExitCode stay readable
     $self = Get-OrVipProcess $p.Id
     $state = @{ pid = $p.Id; created = (Get-OrVipCreationTicks $self); childPid = $null; childCreated = $null; port = $Config.appPort; startedAt = (Get-Date -Format 's') }
 
