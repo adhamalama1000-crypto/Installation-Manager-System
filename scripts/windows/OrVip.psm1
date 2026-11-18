@@ -161,7 +161,11 @@ function ConvertTo-OrVipArgument {
 function Stop-OrVipProcessTree {
     param([int]$ProcessId)
     $taskkill = Join-Path $env:SystemRoot 'System32\taskkill.exe'
-    & $taskkill /PID $ProcessId /T /F 2>&1 | Out-Null
+    # Windows PowerShell 5.1 turns a native program's error output into a terminating error when
+    # $ErrorActionPreference is Stop; "process not found" (already ended) is fine here.
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { & $taskkill /PID $ProcessId /T /F *> $null } finally { $ErrorActionPreference = $old }
 }
 
 <#
@@ -376,7 +380,9 @@ function Get-OrVipNode {
         }
     }
     if (-not $node) { return $null }
-    $versionText = (& $node -v 2>$null | Select-Object -First 1)
+    $old = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try { $versionText = [string](& $node -v 2>$null | Select-Object -First 1) } finally { $ErrorActionPreference = $old }
     $version = $null
     if ($versionText -match 'v?(\d+\.\d+\.\d+)') { $version = [version]$Matches[1] }
     $npm = Join-Path (Split-Path $node -Parent) 'npm.cmd'
@@ -929,7 +935,9 @@ function Stop-OrVipServer {
         if ($health.IsOrVip) { Write-OrVipLog 'INFO' 'an OR VIP server not started by the launcher is running; left alone'; return 'not-ours' }
         return 'not-running'
     }
-    foreach ($id in $tracked.Pids) { Write-OrVipLog 'INFO' ('stopping process tree ' + $id); Stop-OrVipProcessTree $id }
+    foreach ($id in $tracked.Pids) {
+        if (Get-Process -Id $id -ErrorAction SilentlyContinue) { Write-OrVipLog 'INFO' ('stopping process tree ' + $id); Stop-OrVipProcessTree $id }
+    }
     $deadline = (Get-Date).AddSeconds($TimeoutSec)
     while ($true) {
         $still = @($tracked.Pids | Where-Object { Get-Process -Id $_ -ErrorAction SilentlyContinue })

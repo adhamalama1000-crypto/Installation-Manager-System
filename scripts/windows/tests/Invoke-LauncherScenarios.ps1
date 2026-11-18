@@ -24,11 +24,33 @@ $results = New-Object System.Collections.ArrayList
 $failed = 0
 Set-Location $root
 
-function Invoke-Launcher([string]$Script, [string[]]$Arguments = @()) {
-    $out = & $ps -NoProfile -ExecutionPolicy Bypass -File (Join-Path $win $Script) @Arguments 2>&1 | Out-String
-    $code = $LASTEXITCODE
-    Write-Host $out
-    return @{ Code = $code; Output = $out }
+<#
+  Runs a launcher script in a separate Windows PowerShell and returns its exit code and output.
+  Output goes to files (not a pipe), so a server left running can never hold the reader open, and
+  every run has a time limit so a hang shows up as a failed check with its output.
+#>
+function Invoke-Launcher([string]$Script, [string[]]$Arguments = @(), [int]$TimeoutSec = 900) {
+    $out = Join-Path $env:TEMP ('orvip-run-{0}.out' -f [guid]::NewGuid().ToString('N'))
+    $err = $out + '.err'
+    $argList = @('-NoProfile', '-ExecutionPolicy', 'Bypass', '-File', ('"{0}"' -f (Join-Path $win $Script)))
+    foreach ($a in $Arguments) { if ($a -match '\s') { $argList += ('"{0}"' -f $a) } else { $argList += $a } }
+    $p = Start-Process -FilePath $ps -ArgumentList $argList -RedirectStandardOutput $out -RedirectStandardError $err -NoNewWindow -PassThru
+    $null = $p.Handle
+    if ($p.WaitForExit($TimeoutSec * 1000)) { $code = $p.ExitCode }
+    else {
+        Stop-Tree $p.Id
+        $code = -999
+        Write-Host ("TIMEOUT: {0} did not finish within {1} s" -f $Script, $TimeoutSec) -ForegroundColor Red
+    }
+    $text = ''
+    foreach ($f in @($out, $err)) { if (Test-Path $f) { $text += [System.IO.File]::ReadAllText($f); Remove-Item $f -Force -ErrorAction SilentlyContinue } }
+    Write-Host $text
+    return @{ Code = $code; Output = $text }
+}
+function Stop-Tree([int]$Id) {
+    # taskkill reports "not found" on stderr when the process already ended; that is fine here.
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { & (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $Id /T /F *> $null } finally { $ErrorActionPreference = $old }
 }
 function Check([string]$Scenario, [bool]$Condition, [string]$What) {
     $ok = if ($Condition) { 'PASS' } else { 'FAIL' }
@@ -45,7 +67,8 @@ function Get-Health {
 function Get-ServerPid { if (Test-Path $state) { return [int]((Get-Content $state -Raw | ConvertFrom-Json).pid) } return $null }
 function Test-PortFree { -not (Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue) }
 function Get-RowCounts {
-    $out = & node (Join-Path $PSScriptRoot 'row-counts.mjs') 2>&1
+    $old = $ErrorActionPreference; $ErrorActionPreference = 'Continue'
+    try { $out = & node (Join-Path $PSScriptRoot 'row-counts.mjs') 2>$null } finally { $ErrorActionPreference = $old }
     return [string]($out | Select-Object -Last 1)
 }
 function Write-Env([string]$Url) {
@@ -73,7 +96,7 @@ $env:ORVIP_ADMIN_EMAIL = 'owner@orvip.test'
 $env:ORVIP_ADMIN_NAME = 'Owner'
 $env:ORVIP_ADMIN_PASSWORD = 'Launcher-Test-2026'
 $started = Get-Date
-$r = Invoke-Launcher 'setup-or-vip.ps1' @('-NonInteractive', '-DatabaseMode', 'external', '-NoBrowser')
+$r = Invoke-Launcher 'setup-or-vip.ps1' @('-NonInteractive', '-DatabaseMode', 'external', '-NoBrowser') 2400
 Remove-Item Env:ORVIP_ADMIN_PASSWORD
 Check 'First launch' ($r.Code -eq 0) "setup exit code 0 (got $($r.Code)) in $([int]((Get-Date) - $started).TotalSeconds) s"
 Check 'First launch' (Test-Path $envFile) '.env created'
@@ -142,7 +165,7 @@ Check 'Restart' (-not (Get-Process -Id $pid2 -ErrorAction SilentlyContinue)) 'ol
 Check 'Restart keeps data' ((Get-RowCounts) -eq $rows) 'rows unchanged'
 
 # 9. Windows restart recovery: the server is gone and its process id now belongs to someone else -----
-& (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $pid3 /T /F | Out-Null
+Stop-Tree $pid3
 Start-Sleep -Seconds 2
 $innocent = Start-Process (Join-Path $env:SystemRoot 'System32\PING.EXE') -ArgumentList '-n', '600', '127.0.0.1' -PassThru -WindowStyle Hidden
 @{ pid = $innocent.Id; created = '638000000000000000'; childPid = $null; childCreated = $null; port = 3000 } | ConvertTo-Json | Set-Content $state
@@ -171,7 +194,7 @@ $r = Invoke-Launcher 'start-or-vip.ps1' @('-NoGui', '-NoBrowser')
 Check 'Server started by hand' ($r.Code -eq 0 -and $r.Output -match 'not started by this launcher') 'reuses it and says so'
 $r = Invoke-Launcher 'stop-or-vip.ps1' @('-NoGui')
 Check 'Server started by hand' (-not $manual.HasExited -and $r.Output -match 'not started by this launcher') 'stop leaves it running'
-& (Join-Path $env:SystemRoot 'System32\taskkill.exe') /PID $manual.Id /T /F | Out-Null
+Stop-Tree $manual.Id
 Start-Sleep -Seconds 2
 
 # 12. Wrong database password ------------------------------------------------------------------------
