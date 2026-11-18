@@ -3,28 +3,40 @@
 @custom-variant dark (&:where(.dark, .dark *));
 
 /*
- * Design tokens. Brand colours are sampled from the supplied logo:
- *   logo orange  #E55823   (accents, focus rings, active indicators)
- *   logo charcoal #292929  ("Smart Home Systems" lettering - primary text)
- * Primary buttons use #C44617, a deeper shade of the same orange, so white button text keeps a
- * WCAG AA contrast ratio (4.96:1; the pure logo orange is 3.65:1 with white).
+ * OR VIP design tokens. The palette is taken from the supplied OR VIP Tech Solutions logo:
+ *   Deep Navy      #071A3D  navigation and structural surfaces
+ *   Royal Blue     #0757D8  primary actions, active states, focus rings
+ *   Electric Blue  #00A8FF  sparing highlights (active navigation marker, emblem glow)
+ *   Metallic Silver #DCE4F2 borders and secondary surfaces
+ *   Soft Background #F4F7FC data-heavy page background
+ * White on Royal Blue is 6.3:1 (WCAG AA for text). Electric Blue is never used for body text on
+ * light surfaces (2.6:1); in dark mode it is the readable accent text colour.
  */
 :root {
-  --brand: #e55823;
-  --brand-strong: #c44617;
-  --brand-stronger: #a43b13;
-  --brand-soft: #fceee8;
-  --brand-text: #b54016;
+  --brand: #0757d8;
+  --brand-strong: #0757d8;
+  --brand-stronger: #0546b0;
+  --brand-soft: #e8f0fd;
+  --brand-text: #064fc2;
+  --accent: #00a8ff;
 
-  --bg: #f7f7f6;
+  --bg: #f4f7fc;
   --surface: #ffffff;
-  --surface-muted: #f3f3f2;
-  --surface-hover: #efefed;
-  --line: #e4e4e2;
-  --line-strong: #d1d1ce;
-  --fg: #292929;
-  --fg-muted: #5f5f5c;
-  --fg-subtle: #7a7a76;
+  --surface-muted: #eef2f9;
+  --surface-hover: #e6ecf6;
+  --line: #dce4f2;
+  --line-strong: #c3cee0;
+  --fg: #0b1b36;
+  --fg-muted: #46546e;
+  --fg-subtle: #5f6d86;
+
+  /* Navigation: Deep Navy in both themes, so the product reads as one OR VIP surface. */
+  --nav-bg: #071a3d;
+  --nav-fg: #dce4f2;
+  --nav-muted: #a3b2cd;
+  --nav-hover: rgb(220 228 242 / 0.08);
+  --nav-active: rgb(0 168 255 / 0.16);
+  --nav-line: rgb(220 228 242 / 0.12);
 
   --success: #047857;
   --success-soft: #e7f6ef;
@@ -32,33 +44,41 @@
   --warning-soft: #fdf6e3;
   --danger: #c0262d;
   --danger-soft: #fdecec;
-  --info: #1d4ed8;
-  --info-soft: #eaf0fd;
+  --info: #0757d8;
+  --info-soft: #e8f0fd;
 
-  --shadow-sm: 0 1px 2px rgb(16 16 16 / 0.05);
-  --shadow-md: 0 4px 16px rgb(16 16 16 / 0.08);
-  /* Chart series (categorical slots 1-2, validated on this surface for colour-vision deficiency and contrast). */
-  --series-1: #2a78d6;
-  --series-2: #eb6834;
+  --shadow-sm: 0 1px 2px rgb(7 26 61 / 0.06);
+  --shadow-md: 0 6px 18px rgb(7 26 61 / 0.1);
+  /* Chart series (categorical slots 1-2, validated for colour-vision deficiency and contrast). */
+  --series-1: #0757d8;
+  --series-2: #e0702e;
   color-scheme: light;
 }
 
 .dark {
-  --brand: #e55823;
-  --brand-strong: #c44617;
-  --brand-stronger: #e55823;
-  --brand-soft: rgb(229 88 35 / 0.14);
-  --brand-text: #f07a4c;
+  --brand: #3b8bff;
+  --brand-strong: #0757d8;
+  --brand-stronger: #2b6fe6;
+  --brand-soft: rgb(0 168 255 / 0.14);
+  --brand-text: #5cc2ff;
+  --accent: #00a8ff;
 
-  --bg: #0b0b0b;
-  --surface: #151515;
-  --surface-muted: #1c1c1c;
-  --surface-hover: #232323;
-  --line: #2b2b2b;
-  --line-strong: #3a3a3a;
-  --fg: #f4f4f3;
-  --fg-muted: #b3b3ae;
-  --fg-subtle: #8e8e89;
+  --bg: #050f24;
+  --surface: #0b1a36;
+  --surface-muted: #102345;
+  --surface-hover: #15294f;
+  --line: #1c3159;
+  --line-strong: #284170;
+  --fg: #eef3fb;
+  --fg-muted: #b0bdd4;
+  --fg-subtle: #8a9aba;
+
+  --nav-bg: #040c1e;
+  --nav-fg: #dce4f2;
+  --nav-muted: #9aaac7;
+  --nav-hover: rgb(220 228 242 / 0.07);
+  --nav-active: rgb(0 168 255 / 0.16);
+  --nav-line: rgb(220 228 242 / 0.1);
 
   --success: #34d399;
   --success-soft: rgb(52 211 153 / 0.12);
@@ -66,13 +86,35 @@
   --warning-soft: rgb(251 191 36 / 0.12);
   --danger: #f87171;
   --danger-soft: rgb(248 113 113 / 0.12);
-  --info: #93b4fb;
-  --info-soft: rgb(147 180 251 / 0.12);
+  --info: #5cc2ff;
+  --info-soft: rgb(0 168 255 / 0.12);
 
-  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.4);
-  --shadow-md: 0 6px 20px rgb(0 0 0 / 0.5);
-  --series-1: #3987e5;
-  --series-2: #d95926;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.45);
+  --shadow-md: 0 8px 24px rgb(0 0 0 / 0.5);
+  --series-1: #3b8bff;
+  --series-2: #e0702e;
+  color-scheme: dark;
+}
+
+/*
+ * Deep Navy navigation surface. Re-maps the neutral tokens inside the sidebar so every control in
+ * it (links, theme and language switches, profile) follows the navy identity without its own styles.
+ */
+.nav-surface {
+  --surface: #0d2552;
+  --surface-muted: rgb(220 228 242 / 0.07);
+  --surface-hover: rgb(220 228 242 / 0.11);
+  --line: var(--nav-line);
+  --line-strong: rgb(220 228 242 / 0.22);
+  --fg: #ffffff;
+  --fg-muted: #c7d2e6;
+  --fg-subtle: var(--nav-muted);
+  --brand: #00a8ff;
+  --brand-soft: var(--nav-active);
+  --brand-text: #8fd8ff;
+  --shadow-sm: 0 1px 2px rgb(0 0 0 / 0.35);
+  background: var(--nav-bg);
+  color: var(--fg);
   color-scheme: dark;
 }
 
@@ -82,6 +124,13 @@
   --color-brand-stronger: var(--brand-stronger);
   --color-brand-soft: var(--brand-soft);
   --color-brand-text: var(--brand-text);
+  --color-accent: var(--accent);
+  --color-nav: var(--nav-bg);
+  --color-nav-fg: var(--nav-fg);
+  --color-nav-muted: var(--nav-muted);
+  --color-nav-hover: var(--nav-hover);
+  --color-nav-active: var(--nav-active);
+  --color-nav-line: var(--nav-line);
   --color-bg: var(--bg);
   --color-surface: var(--surface);
   --color-surface-muted: var(--surface-muted);
@@ -126,7 +175,7 @@ body {
 }
 
 ::selection {
-  background: rgb(229 88 35 / 0.25);
+  background: rgb(7 87 216 / 0.22);
 }
 
 /* Native date/time pickers follow the theme. */
@@ -141,7 +190,7 @@ input[type="time"]::-webkit-calendar-picker-indicator {
 }
 
 dialog::backdrop {
-  background: rgb(10 10 10 / 0.45);
+  background: rgb(4 12 30 / 0.55);
 }
 
 /* Top progress bar while a page navigation is in flight (see NavigationProgress). */

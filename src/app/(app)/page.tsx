@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import {
   AlertTriangle,
-  ArrowRight,
   CalendarCheck,
   CalendarClock,
   CalendarDays,
@@ -18,6 +17,7 @@ import {
 } from "lucide-react";
 import type { StatusKind } from "@prisma/client";
 import { AgendaItem } from "@/components/appointments/agenda-item";
+import { ActivityCard, ApprovalsCard, AttendanceCard, FinanceCard, KpiTile, SalesCard, WarehouseCard } from "@/components/dashboard/operations";
 import { MyDayCard } from "@/components/field/my-day-card";
 import { TechJobsCard } from "@/components/schedule/tech-jobs";
 import { AutoRefresh } from "@/components/layout/auto-refresh";
@@ -30,6 +30,7 @@ import { addDaysToKey, addMonthsToKey, startOfMonthKey } from "@/lib/time";
 import { dateTime, longDate } from "@/lib/format";
 import { requireUser } from "@/server/auth/session";
 import { dashboardSummary } from "@/server/services/dashboard";
+import { operationsOverview } from "@/server/services/dashboard-operations";
 import { getAppointment } from "@/server/services/appointments";
 import { attendance, myDay } from "@/server/services/field";
 import { listStatuses } from "@/server/services/statuses";
@@ -64,9 +65,10 @@ export default async function DashboardPage() {
     );
   }
   const tz = user.settings.timezone;
-  const [summary, statuses] = await Promise.all([
+  const [summary, statuses, ops] = await Promise.all([
     dashboardSummary(user),
     listStatuses(t.locale),
+    operationsOverview(user),
   ]);
   const idsOf = (kind: StatusKind) =>
     statuses
@@ -213,43 +215,49 @@ export default async function DashboardPage() {
 
       <section
         aria-label={t("dashboard.summary")}
-        className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-4 xl:grid-cols-7"
+        className="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-7"
       >
-        {cards.map(
-          ({ key, label, value, icon: Icon, href, hint, attention }) => (
-            <Link
-              key={key}
-              href={href}
-              className={cn(
-                "group rounded-xl border bg-surface p-4 shadow-card transition-colors hover:border-line-strong",
-                attention && value > 0 ? "border-warning/50" : "border-line",
-              )}
-            >
-              <div className="flex items-center justify-between">
-                <span
-                  className={cn(
-                    "flex h-8 w-8 items-center justify-center rounded-lg",
-                    attention && value > 0
-                      ? "bg-warning-soft text-warning"
-                      : "bg-brand-soft text-brand-text",
-                  )}
-                >
-                  <Icon className="h-4 w-4" />
-                </span>
-                <ArrowRight
-                  className="h-4 w-4 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 rtl:rotate-180"
-                  aria-hidden
-                />
-              </div>
-              <p className="mt-3 text-2xl font-semibold tabular-nums text-fg">
-                {value}
-              </p>
-              <p className="text-sm font-medium text-fg">{label}</p>
-              <p className="text-xs text-fg-subtle">{hint}</p>
-            </Link>
-          ),
-        )}
+        {cards.map(({ key, label, value, icon, href, hint, attention }) => (
+          <KpiTile
+            key={key}
+            href={href}
+            label={label}
+            value={value}
+            hint={hint}
+            icon={icon}
+            tone={attention && value > 0 ? "warning" : "brand"}
+          />
+        ))}
       </section>
+
+      {(ops.activity || ops.attendance || ops.approvals) && (
+        <section
+          aria-label={t("dashboard.ops.operations")}
+          className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2 xl:grid-cols-3"
+        >
+          {ops.activity && <ActivityCard data={ops.activity} t={t} />}
+          {ops.attendance && <AttendanceCard data={ops.attendance} t={t} />}
+          {ops.approvals && <ApprovalsCard items={ops.approvals} t={t} />}
+        </section>
+      )}
+
+      {(ops.sales || ops.warehouse || ops.finance) && (
+        <div
+          className={cn(
+            "mt-6 grid grid-cols-1 gap-6",
+            ops.sales && (ops.warehouse || ops.finance) && "xl:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)]",
+            !ops.sales && ops.warehouse && ops.finance && "lg:grid-cols-2",
+          )}
+        >
+          {ops.sales && <SalesCard data={ops.sales} t={t} />}
+          {(ops.warehouse || ops.finance) && (
+            <div className={cn("grid grid-cols-1 gap-6", !ops.sales && "contents")}>
+              {ops.warehouse && <WarehouseCard data={ops.warehouse} t={t} />}
+              {ops.finance && <FinanceCard data={ops.finance} t={t} />}
+            </div>
+          )}
+        </div>
+      )}
 
       {summary.afterSales && (
         <section
@@ -282,27 +290,8 @@ export default async function DashboardPage() {
               href: `/after-sales?list=${l}`,
               hint: t.dyn(`dashboard.afterSales.${l}Hint`),
             })),
-          ].map(({ key, label, value, icon: Icon, href, hint }) => (
-            <Link
-              key={key}
-              href={href}
-              className="group rounded-xl border border-line bg-surface p-4 shadow-card transition-colors hover:border-line-strong"
-            >
-              <div className="flex items-center justify-between">
-                <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-brand-soft text-brand-text">
-                  <Icon className="h-4 w-4" />
-                </span>
-                <ArrowRight
-                  className="h-4 w-4 text-fg-subtle opacity-0 transition-opacity group-hover:opacity-100 rtl:rotate-180"
-                  aria-hidden
-                />
-              </div>
-              <p className="mt-3 text-2xl font-semibold tabular-nums text-fg">
-                {value}
-              </p>
-              <p className="text-sm font-medium text-fg">{label}</p>
-              <p className="text-xs text-fg-subtle">{hint}</p>
-            </Link>
+          ].map(({ key, label, value, icon, href, hint }) => (
+            <KpiTile key={key} href={href} label={label} value={value} hint={hint} icon={icon} />
           ))}
         </section>
       )}
