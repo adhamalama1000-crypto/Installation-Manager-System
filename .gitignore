@@ -15,3 +15,6 @@ npm-debug.log*
 
 # Uploaded visit photos, signatures and proofs (back up with the database; never commit)
 storage/
+
+# Windows launcher state, logs and pre-update database backups (per computer; never commit)
+.orvip/
