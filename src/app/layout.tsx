@@ -13,7 +13,7 @@ const poppins = Poppins({
   display: "swap",
 });
 
-// Arabic text (as in the original Aura app); Latin letters and digits keep Poppins.
+// Arabic text; Latin letters and digits keep Poppins.
 const cairo = Cairo({
   subsets: ["arabic", "latin"],
   weight: ["400", "500", "600", "700"],
@@ -32,8 +32,8 @@ export async function generateMetadata(): Promise<Metadata> {
 
 export const viewport: Viewport = {
   themeColor: [
-    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
-    { media: "(prefers-color-scheme: dark)", color: "#0b0b0b" },
+    { media: "(prefers-color-scheme: light)", color: "#071a3d" },
+    { media: "(prefers-color-scheme: dark)", color: "#040c1e" },
   ],
 };
 

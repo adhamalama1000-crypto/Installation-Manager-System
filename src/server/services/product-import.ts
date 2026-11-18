@@ -719,7 +719,7 @@ async function toBuffer(wb: ExcelJS.Workbook): Promise<Buffer> {
 export async function importTemplate(user: CurrentUser): Promise<Buffer> {
   assertCan(user, "products.manage");
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Installation Manager System";
+  wb.creator = "OR VIP ERP";
   const ws = wb.addWorksheet(PRODUCTS_SHEET.en);
   styleHeader(ws, PRODUCT_COLUMNS);
   ws.addRow({ sku: "", name_en: "Smart Lock Model Y", name_ar: "قفل ذكي موديل Y", category: "Smart locks", brand: "Yale", model: "Y1", unit: "PCS", purchase_cost: "3500", selling_price: "4900", min_stock: "2", warranty_months: "24", serial_mode: "REQUIRED", generate_barcode: "no", active: "yes" });
@@ -755,7 +755,7 @@ export async function exportProductsXlsx(user: CurrentUser): Promise<Buffer> {
   const children = new Map<string, typeof rows>();
   for (const r of rows) if (r.parentId) children.set(r.parentId, [...(children.get(r.parentId) ?? []), r]);
   const wb = new ExcelJS.Workbook();
-  wb.creator = "Installation Manager System";
+  wb.creator = "OR VIP ERP";
   const ws = wb.addWorksheet(PRODUCTS_SHEET.en);
   const extra: ImportColumn = { key: "on_hand", en: "On hand (not imported)", ar: "الرصيد (لا يُستورد)", hintEn: "Information only.", hintAr: "للمعلومة فقط." };
   styleHeader(ws, [...PRODUCT_COLUMNS, extra]);

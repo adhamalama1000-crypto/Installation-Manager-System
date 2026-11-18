@@ -1,4 +1,4 @@
-# Installation Manager System
+# OR VIP ERP - Installation Manager System
 
 A full-stack web application for scheduling and managing installation appointments (smart locks, smart home, CCTV, intercoms, ...): customers and installation sites, Sales bookings, technician assignment with **server-side double-booking prevention**, a colour-coded company calendar, reports, and a complete audit history.
 
@@ -6,7 +6,7 @@ Built with **Next.js 16 (App Router) · React 19 · TypeScript · Tailwind CSS 4
 
 | Dashboard | Calendar (week) |
 |---|---|
-| ![Dashboard](docs/screenshots/dashboard.png) | ![Calendar week view](docs/screenshots/calendar-week.png) |
+| ![OR VIP dashboard](docs/or-vip/dash-light.png) | ![Calendar week view](docs/screenshots/calendar-week.png) |
 | **Booking form with live technician availability** | **Dark theme (month view)** |
 | ![New appointment](docs/screenshots/new-appointment.png) | ![Calendar month dark](docs/screenshots/calendar-month-dark.png) |
 
@@ -341,11 +341,14 @@ No secrets are committed. `.env` is git-ignored and `.env.example` documents the
 
 ## Branding
 
-- The supplied logo is used unmodified (`public/brand/logo.png`, cropped from the provided image only to remove the surrounding screenshot frame; the original is kept in `docs/brand/logo-source.png`). It appears on the login page and in the sidebar. In dark mode it sits on a white tile instead of being recoloured.
-- Colours were **sampled from the logo**: orange `#E55823` and the charcoal of "Smart Home Systems" `#292929`. The orange is used for accents, active navigation, focus rings and highlights. Primary buttons use `#C44617`, a deeper shade of the same orange, because white text on `#E55823` only reaches a 3.65:1 contrast ratio. `#C44617` reaches 4.96:1 (WCAG AA).
-- Design tokens live in [`src/app/globals.css`](src/app/globals.css) (light and dark).
-- The default Sales calendar colours were checked as a categorical palette (lightness, chroma, colour-blind separation, contrast) on both light and dark backgrounds, and every colour is always shown next to the person's name.
-- Typeface: Poppins (self-hosted by `next/font` at build time).
+OR VIP Tech Solutions identity (see the screenshots in [docs/or-vip/](docs/or-vip/)).
+
+- **Logo.** `public/brand/logo.png` is a straight crop of the supplied artwork (`docs/brand/or-vip-logo-source.jpg`); it is never redrawn, recoloured or stretched. The artwork carries its own deep-navy background, so it is always shown on that navy plate: flush in the navy sidebar and on the sign-in brand panel, and with a thin silver frame on light pages. `public/brand/mark.png`, `src/app/icon.png` (favicon) and `src/app/apple-icon.png` are crops of the globe emblem (the "O").
+- **Palette** (from the logo): Deep Navy `#071A3D` for navigation and structure, Royal Blue `#0757D8` for primary actions and active states, Electric Blue `#00A8FF` only for small highlights, Metallic Silver `#DCE4F2` for borders, Soft Background `#F4F7FC` behind data-heavy screens. White on Royal Blue is 6.2:1 (WCAG AA); every text/background token pair in both themes was checked for AA contrast.
+- **Themes.** Light and dark are separate token sets in [`src/app/globals.css`](src/app/globals.css), not an automatic inversion. The sidebar is Deep Navy in both; the `.nav-surface` class re-maps the neutral tokens inside it so every control there follows the navy look.
+- **Charts.** Series colours (`--series-1` Royal Blue, `--series-2` orange) were validated as a categorical palette (lightness band, chroma, colour-blind separation, contrast) on the light and dark surfaces. Counts are always written next to colours.
+- The default Sales calendar colours were checked as a categorical palette on both light and dark backgrounds, and every colour is always shown next to the person's name.
+- Typefaces: Poppins (Latin) and Cairo (Arabic), self-hosted by `next/font` at build time.
 
 ## Notifications - what is and isn't included
 

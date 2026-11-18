@@ -104,7 +104,7 @@ function SidebarContent({ user, onNavigate }: { user: ShellUser; onNavigate?: ()
             active ? "bg-brand-soft text-brand-text" : "text-fg-muted hover:bg-surface-muted hover:text-fg",
           )}
         >
-          {active && <span className="absolute inset-y-1.5 start-0 w-1 rounded-e-full bg-brand" aria-hidden />}
+          {active && <span className="absolute inset-y-1.5 start-0 w-[3px] rounded-e-full bg-accent" aria-hidden />}
           <Icon className="h-[18px] w-[18px] shrink-0" />
           {label}
           <PendingDot />
@@ -114,11 +114,10 @@ function SidebarContent({ user, onNavigate }: { user: ShellUser; onNavigate?: ()
   };
   return (
     <div className="flex h-full flex-col">
-      <div className="flex flex-col items-start gap-3 px-5 pb-4 pt-5">
-        <Link href="/" onClick={onNavigate} aria-label={t("nav.goToDashboard")}>
-          <Logo width={104} priority />
+      <div className="px-4 pb-4 pt-4">
+        <Link href="/" onClick={onNavigate} aria-label={t("nav.goToDashboard")} className="block rounded-lg">
+          <Logo width={216} priority variant="onDark" />
         </Link>
-        <p className="text-xs font-medium uppercase tracking-[0.14em] text-fg-subtle">{t("app.name")}</p>
       </div>
       {canCreate && (
         <div className="px-4 pb-3">
@@ -148,7 +147,7 @@ function SidebarContent({ user, onNavigate }: { user: ShellUser; onNavigate?: ()
         <Link href="/profile" onClick={onNavigate} className="flex items-center gap-3 rounded-lg p-1.5 hover:bg-surface-muted">
           <span
             className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full text-xs font-semibold text-white"
-            style={{ backgroundColor: user.role === "SALES" || user.color ? colorOrFallback(user.color) : "#292929" }}
+            style={{ backgroundColor: user.role === "SALES" || user.color ? colorOrFallback(user.color) : "#0757D8" }}
             aria-hidden
           >
             {initials(user.name)}
@@ -184,15 +183,15 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
         <NavigationProgress />
       </Suspense>
       {/* Desktop sidebar */}
-      <aside className="fixed inset-y-0 start-0 z-30 hidden w-64 border-e border-line bg-surface lg:block">
+      <aside className="nav-surface fixed inset-y-0 start-0 z-30 hidden w-64 border-e border-nav-line lg:block">
         <SidebarContent user={user} />
       </aside>
 
       {/* Mobile drawer */}
       {open && (
         <div className="fixed inset-0 z-50 lg:hidden" role="dialog" aria-modal="true" aria-label={t("nav.navigation")}>
-          <button type="button" className="absolute inset-0 bg-black/40" aria-label={t("nav.closeNavigation")} onClick={() => setOpen(false)} />
-          <aside className="absolute inset-y-0 start-0 w-72 max-w-[85vw] border-e border-line bg-surface shadow-pop">
+          <button type="button" className="absolute inset-0 bg-[#040c1e]/55" aria-label={t("nav.closeNavigation")} onClick={() => setOpen(false)} />
+          <aside className="nav-surface absolute inset-y-0 start-0 w-72 max-w-[85vw] shadow-pop">
             <button type="button" onClick={() => setOpen(false)} className="absolute end-3 top-3 rounded-md p-1.5 text-fg-subtle hover:bg-surface-muted" aria-label={t("nav.closeNavigation")}>
               <X className="h-5 w-5" />
             </button>
@@ -201,13 +200,13 @@ export function AppShell({ user, children }: { user: ShellUser; children: React.
         </div>
       )}
 
-      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-surface/90 px-4 backdrop-blur sm:px-6 lg:px-8">
+      <header className="sticky top-0 z-20 flex h-14 items-center gap-3 border-b border-line bg-surface/95 px-4 backdrop-blur sm:px-6 lg:px-8">
         <button type="button" onClick={() => setOpen(true)} className="-ms-1 rounded-lg p-2 text-fg-muted hover:bg-surface-muted lg:hidden" aria-label={t("nav.openNavigation")}>
           <Menu className="h-5 w-5" />
         </button>
         <Link href="/" className="flex items-center gap-2 lg:hidden">
-          <LogoMark size={28} />
-          <span className="text-sm font-semibold">{t("app.short")}</span>
+          <LogoMark size={30} />
+          <span className="text-sm font-semibold tracking-wide text-fg">{t("app.short")}</span>
         </Link>
         <div className="ms-auto flex items-center gap-2">
           {user.permissions.includes("appointments.create") && (

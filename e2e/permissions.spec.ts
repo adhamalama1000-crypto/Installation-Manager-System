@@ -4,7 +4,7 @@ import { PASSWORD, login } from "./helpers";
 test("unauthenticated users are sent to the login page", async ({ page }) => {
   await page.goto("/appointments");
   await expect(page).toHaveURL(/\/login/);
-  await expect(page.getByRole("img", { name: /aura/ }).first()).toBeVisible();
+  await expect(page.getByRole("img", { name: /OR VIP/ }).first()).toBeVisible();
 });
 
 test("wrong password shows a clear error", async ({ page }) => {
