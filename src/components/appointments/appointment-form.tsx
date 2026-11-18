@@ -40,7 +40,8 @@ import { cn } from "@/lib/utils";
 type TechOption = { id: string; name: string; isActive: boolean };
 type LeaveInfo = { type: LeaveType; startDate: string; endDate: string } | null;
 type Suggestion = { suggested?: boolean; fits?: boolean; heldBy?: { name: string; until: string } | null; specialty?: string | null };
-type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo } & Suggestion>;
+type OffHours = "dayOff" | "outsideHours" | null;
+type Availability = Record<string, { available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo; offHours: OffHours } & Suggestion>;
 export type SavedLocation = {
   id: string;
   area: string | null;
@@ -80,7 +81,7 @@ export function AppointmentForm({
   originalCreator,
   initialLocations = [],
   closedWeekdays = [],
-  isAdmin = false,
+  canOverride = false,
   canAssign = true,
   followUpOf,
   inspectionOnlyWeekdays = [],
@@ -103,7 +104,8 @@ export function AppointmentForm({
   canAssign?: boolean;
   /** Weekdays (0 = Sunday) that cannot be booked (Settings). */
   closedWeekdays?: number[];
-  isAdmin?: boolean;
+  /** appointments.override: may book a past date, a closed day, outside working hours or over a hold, with a reason. */
+  canOverride?: boolean;
   /** Code of the visit this one follows up (create only). */
   followUpOf?: { id: string; code: string };
   /** Weekdays on which smart-home visits should only be inspections (Settings, Aura's Saturday rule). */
@@ -121,7 +123,7 @@ export function AppointmentForm({
   const [checking, setChecking] = useState(false);
   const [savedLocations, setSavedLocations] = useState<SavedLocation[]>(initialLocations);
   const [customDuration, setCustomDuration] = useState(!DURATION_PRESETS.includes(initial.durationMinutes));
-  const [allowClosedDay, setAllowClosedDay] = useState(false);
+  const [overrideReason, setOverrideReason] = useState("");
   const [hold, setHold] = useState<{ until: string | null; error: string | null; pending: boolean } | null>(null);
   const [quote, setQuote] = useState<{ url: string; data: QuoteDTO } | null>(null);
   const [readingQuote, setReadingQuote] = useState(false);
@@ -166,7 +168,7 @@ export function AppointmentForm({
     const timer = setTimeout(async () => {
       setChecking(true);
       try {
-        const res = await api<{ technicians: ({ id: string; available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo } & Suggestion)[] }>("/api/appointments/availability", {
+        const res = await api<{ technicians: ({ id: string; available: boolean; conflicts: ConflictDTO[]; leave: LeaveInfo; offHours?: OffHours } & Suggestion)[] }>("/api/appointments/availability", {
           method: "POST",
           body: {
             date: v.date,
@@ -184,7 +186,7 @@ export function AppointmentForm({
           Object.fromEntries(
             res.technicians.map((t2) => [
               t2.id,
-              { available: t2.available, conflicts: t2.conflicts, leave: t2.leave ?? null, suggested: t2.suggested, fits: t2.fits, heldBy: t2.heldBy ?? null, specialty: t2.specialty ?? null },
+              { available: t2.available, conflicts: t2.conflicts, leave: t2.leave ?? null, offHours: t2.offHours ?? null, suggested: t2.suggested, fits: t2.fits, heldBy: t2.heldBy ?? null, specialty: t2.specialty ?? null },
             ]),
           ),
         );
@@ -231,6 +233,7 @@ export function AppointmentForm({
   }
 
   const closedDay = /^\d{4}-\d{2}-\d{2}$/.test(v.date) && closedWeekdays.includes(weekdayOfKey(v.date));
+  const pastDate = /^\d{4}-\d{2}-\d{2}$/.test(v.date) && v.date < todayKey(tz);
   const toCollect = useMemo(() => {
     const n = (s: string) => (s.trim() === "" ? null : Number(s.replace(/[,\s]/g, "")));
     const [total, deposit, fee] = [n(v.totalPrice), n(v.depositAmount), n(v.extraFee)];
@@ -245,6 +248,13 @@ export function AppointmentForm({
     () => (statusBlocks && availability ? v.technicianIds.filter((id) => availability[id] && !availability[id]!.available) : []),
     [availability, v.technicianIds, statusBlocks],
   );
+  // A soft rule this booking breaks (the server re-checks): a past or closed day (when the date is
+  // new), or a chosen technician's day off, hours or someone else's hold.
+  const dateChanged = mode === "create" || v.date !== initial.date;
+  const needsOverride =
+    (dateChanged && (pastDate || (closedDay && statusBlocks))) ||
+    (statusBlocks && !!availability && v.technicianIds.some((id) => !!availability[id]?.offHours || !!availability[id]?.heldBy)) ||
+    !!errors.overrideReason;
 
   /**
    * Aura's api_hold, done automatically: the technicians picked for this slot are held for 10
@@ -323,7 +333,7 @@ export function AppointmentForm({
       quoteUrl: v.quoteUrl.trim() || null,
       customerConfirmation: v.customerConfirmation,
       followUpOfId: mode === "create" ? v.followUpOfId : undefined,
-      allowClosedDay: isAdmin && closedDay ? allowClosedDay : undefined,
+      overrideReason: canOverride && needsOverride ? overrideReason.trim() || null : undefined,
       categoryOther: v.categoryOther,
       brand: v.brand,
       model: v.model,
@@ -805,7 +815,7 @@ export function AppointmentForm({
                 {(p) => <Input {...p} type="date" value={v.date} onChange={(e) => set("date", e.target.value)} />}
               </Field>
             </div>
-            {!isAdmin && /^\d{4}-\d{2}-\d{2}$/.test(v.date) && v.date < todayKey(tz) && (
+            {!canOverride && pastDate && (
               <div className="sm:col-span-2">
                 <Alert tone="warning">{t("appointmentErrors.pastDate")}</Alert>
               </div>
@@ -818,15 +828,15 @@ export function AppointmentForm({
             {closedDay && (
               <div className="sm:col-span-2">
                 <Alert tone="warning" title={t("form.closedDay", { day: t.dyn(`enums.weekday.${weekdayOfKey(v.date)}`) })}>
-                  {isAdmin ? (
-                    <label className="mt-1 flex items-center gap-2">
-                      <input type="checkbox" checked={allowClosedDay} onChange={(e) => setAllowClosedDay(e.target.checked)} className="h-4 w-4 accent-[var(--brand-strong)]" />
-                      {t("form.bookClosedDay")}
-                    </label>
-                  ) : (
-                    t("form.chooseAnotherDate")
-                  )}
+                  {canOverride ? t("form.overrideHint") : t("form.chooseAnotherDate")}
                 </Alert>
+              </div>
+            )}
+            {canOverride && needsOverride && (
+              <div className="sm:col-span-2" data-field="overrideReason">
+                <Field label={t("form.overrideReason")} hint={t("form.overrideReasonHint")} required error={err("overrideReason")}>
+                  {(p) => <Input {...p} value={overrideReason} onChange={(e) => setOverrideReason(e.target.value)} maxLength={500} dir="auto" />}
+                </Field>
               </div>
             )}
             <div data-field="startTime">
@@ -975,7 +985,7 @@ export function AppointmentForm({
               {activeTechs.map((tech) => {
                 const a = availability?.[tech.id];
                 const selected = v.technicianIds.includes(tech.id);
-                const busy = statusBlocks && a && !a.available;
+                const busy = statusBlocks && a && (!a.available || (!canOverride && !!a.offHours));
                 const conflicted = conflicts.some((c) => c.technicianId === tech.id);
                 return (
                   <li key={tech.id}>
@@ -1005,9 +1015,17 @@ export function AppointmentForm({
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
                                 <CalendarOff className="h-3.5 w-3.5" /> {t("form.onLeave")}
                               </span>
+                            ) : busy && a.offHours && a.available ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
+                                <XCircle className="h-3.5 w-3.5" /> {t(a.offHours === "dayOff" ? "form.dayOff" : "form.outsideHours")}
+                              </span>
                             ) : busy ? (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-danger">
                                 <XCircle className="h-3.5 w-3.5" /> {t("form.busy")}
+                              </span>
+                            ) : statusBlocks && a.offHours ? (
+                              <span className="inline-flex items-center gap-1 text-xs font-medium text-warning">
+                                <CalendarOff className="h-3.5 w-3.5" /> {t(a.offHours === "dayOff" ? "form.dayOff" : "form.outsideHours")}
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1 text-xs font-medium text-success">

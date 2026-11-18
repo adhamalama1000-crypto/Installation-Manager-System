@@ -93,7 +93,7 @@ export default async function NewAppointmentPage({ searchParams }: { searchParam
         tz={tz}
         closedWeekdays={user.settings.closedWeekdays}
         inspectionOnlyWeekdays={user.settings.inspectionOnlyWeekdays}
-        isAdmin={user.role === "ADMIN"}
+        canOverride={user.permissions.includes("appointments.override")}
         canAssign={user.permissions.includes("appointments.assign")}
         followUpOf={original ? { id: original.id, code: original.code } : undefined}
         initialLocations={locations}

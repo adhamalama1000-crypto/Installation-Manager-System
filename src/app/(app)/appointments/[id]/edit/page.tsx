@@ -54,7 +54,7 @@ export default async function EditAppointmentPage({ params }: { params: Promise<
         originalCreator={appt.createdBy}
         closedWeekdays={user.settings.closedWeekdays}
         inspectionOnlyWeekdays={user.settings.inspectionOnlyWeekdays}
-        isAdmin={user.role === "ADMIN"}
+        canOverride={user.permissions.includes("appointments.override")}
         canAssign={user.permissions.includes("appointments.assign")}
         initialLocations={locations.map((l) => ({
           id: l.id,

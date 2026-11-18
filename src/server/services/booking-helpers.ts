@@ -7,7 +7,7 @@ import { distanceM, type Geo } from "@/lib/field";
 import { computeEnd, dateKey, dayRangeUtc, isValidDateString, TIME_RE, timeKey, zonedToUtc } from "@/lib/time";
 import { fieldErrorsFromZod } from "@/lib/validation";
 import { prisma, type Db } from "../db";
-import { assertCanAny } from "../access";
+import { assertCanAny, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
 import { findTechnicianConflicts, lockTechnicians } from "./scheduling";
@@ -30,14 +30,15 @@ export async function activeHolds(db: Db, technicianIds: string[], startsAt: Dat
   });
 }
 
-/** Refuses a booking on a technician someone else is holding (Admins may book over a hold, as Aura's managers could). */
-export async function assertNotHeld(db: Db, user: CurrentUser, technicianIds: string[], startsAt: Date, endsAt: Date) {
-  if (user.role === "ADMIN") return;
+/**
+ * Why a booking would take a technician someone else is holding, or null. Booking over a hold is an
+ * override (appointments.override with a reason), as Aura's managers could; see services/appointments.ts.
+ */
+export async function heldByOtherMessage(db: Db, user: CurrentUser, technicianIds: string[], startsAt: Date, endsAt: Date): Promise<string | null> {
   const held = await activeHolds(db, technicianIds, startsAt, endsAt, user.id);
-  if (!held.length) return;
+  if (!held.length) return null;
   const h = held[0]!;
-  const text = msg("holds.heldByOther", { technician: h.technician.name, name: h.user.name, until: timeKey(h.expiresAt, user.settings.timezone) });
-  throw new ValidationError({ technicianIds: text }, text);
+  return msg("holds.heldByOther", { technician: h.technician.name, name: h.user.name, until: timeKey(h.expiresAt, user.settings.timezone) });
 }
 
 /**
@@ -165,7 +166,7 @@ export async function suggestTechnicians(
   return out;
 }
 
-/** Aura: only managers may book on a past date. */
+/** Aura: only managers may book on a past date (appointments.override). */
 export function canBookInPast(user: CurrentUser) {
-  return user.role === "ADMIN";
+  return hasPermission(user, "appointments.override");
 }

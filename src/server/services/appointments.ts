@@ -50,7 +50,8 @@ import { diffValues, recordAudit } from "./audit";
 import { resolveComplaintsForVisit } from "./complaints";
 import { assertEvidenceAndSubmit } from "./evidence";
 import { insertCheckIn } from "./field";
-import { assertNotHeld, canBookInPast, releaseOwnHolds } from "./booking-helpers";
+import { heldByOtherMessage, releaseOwnHolds } from "./booking-helpers";
+import { workingHoursViolations } from "./work-hours";
 import { localized, notifyUsers } from "./notifications";
 import { findTechnicianConflicts, isOverlapViolation, isUniqueViolation, lockTechnicians } from "./scheduling";
 import { assertTechniciansNotOnLeave } from "./leaves";
@@ -583,21 +584,56 @@ function detailData(input: AppointmentInput, before?: DetailBefore) {
   };
 }
 
-/** Aura: only managers may book on a date that has passed (company-local day). */
-function assertNotPast(user: CurrentUser, date: string, tz: string) {
-  if (canBookInPast(user) || date >= todayKey(tz)) return;
-  throw new ValidationError({ date: msg("appointmentErrors.pastDate") }, msg("appointmentErrors.pastDate"));
+/**
+ * Soft scheduling rules: a closed day, a technician's day off or time outside their working hours,
+ * someone else's hold. Someone with appointments.override may book over them with a reason; the
+ * rules overridden and the reason go into the audit log. Without the permission (or without a
+ * reason) the booking is refused with the rule's message. Overlapping visits and approved leave
+ * are never overridable.
+ */
+class Overrides {
+  readonly rules: string[] = [];
+  constructor(
+    private readonly user: CurrentUser,
+    readonly reason: string | null,
+  ) {}
+  get allowed() {
+    return hasPermission(this.user, "appointments.override");
+  }
+  check(rule: string, field: string, text: string) {
+    if (this.allowed && this.reason) {
+      if (!this.rules.includes(rule)) this.rules.push(rule);
+      return;
+    }
+    const errors: Record<string, string> = { [field]: text };
+    if (this.allowed) errors.overrideReason = msg("appointmentErrors.overrideReason");
+    throw new ValidationError(errors, text);
+  }
+  /** What the audit entry records. */
+  audit(): Record<string, unknown> {
+    return this.rules.length ? { overrides: { rules: this.rules, reason: this.reason } } : {};
+  }
 }
 
-/** Closed weekdays (Settings) cannot be booked; only an Admin may book one, and only explicitly. */
-function assertOpenDay(user: CurrentUser, date: string, closedWeekdays: number[], allowClosedDay: boolean | undefined) {
+/** Aura: only managers may book on a date that has passed (company-local day): appointments.override. */
+function assertNotPast(user: CurrentUser, date: string, tz: string, overrides: Overrides) {
+  if (date >= todayKey(tz)) return;
+  if (!overrides.allowed) throw new ValidationError({ date: msg("appointmentErrors.pastDate") }, msg("appointmentErrors.pastDate"));
+  if (!overrides.rules.includes("pastDate")) overrides.rules.push("pastDate");
+}
+
+/** Closed weekdays (Settings) are booked only as an override, with a reason. */
+function assertOpenDay(date: string, closedWeekdays: number[], overrides: Overrides) {
   const day = weekdayOfKey(date);
   if (!closedWeekdays.includes(day)) return;
-  if (user.role === "ADMIN" && allowClosedDay) return;
-  throw new ValidationError(
-    { date: msg(user.role === "ADMIN" ? "appointmentErrors.closedDayAdmin" : "appointmentErrors.closedDay", { day: `@enums.weekday.${day}` }) },
-    "appointmentErrors.closedDate",
-  );
+  overrides.check("closedDay", "date", msg(overrides.allowed ? "appointmentErrors.closedDayAdmin" : "appointmentErrors.closedDay", { day: `@enums.weekday.${day}` }));
+}
+
+/** Working hours, days off and holds of the technicians on a booking (soft rules). */
+async function assertSoftRules(tx: Tx, user: CurrentUser, technicianIds: string[], holdCheckIds: string[], startsAt: Date, endsAt: Date, tz: string, overrides: Overrides) {
+  for (const v of await workingHoursViolations(tx, technicianIds, startsAt, endsAt, tz)) overrides.check(v.rule, "technicianIds", v.message);
+  const held = await heldByOtherMessage(tx, user, holdCheckIds, startsAt, endsAt);
+  if (held) overrides.check("heldByOther", "technicianIds", held);
 }
 
 async function loadFull(tx: Tx, id: string) {
@@ -658,6 +694,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
 
   const startsAt = zonedToUtc(input.date, input.startTime, tz);
   const endsAt = computeEnd(startsAt, input.durationMinutes);
+  const overrides = new Overrides(user, input.overrideReason ?? null);
   if (input.followUpOfId) {
     const original = await prisma.appointment.findFirst({ where: { AND: [{ id: input.followUpOfId }, appointmentScope(user)] }, select: { id: true } });
     if (!original) throw new ValidationError({ followUpOfId: msg("appointmentErrors.originalGone") });
@@ -673,13 +710,13 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         if (existing) return existing.id;
       }
       const status = await resolveStatus(tx, input.statusId);
-      if (status.blocksSchedule) assertOpenDay(user, input.date, settings.closedWeekdays, input.allowClosedDay);
-      assertNotPast(user, input.date, tz);
+      if (status.blocksSchedule) assertOpenDay(input.date, settings.closedWeekdays, overrides);
+      assertNotPast(user, input.date, tz, overrides);
       await validateTechnicians(tx, input.technicianIds, []);
       await lockTechnicians(tx, input.technicianIds);
       if (status.blocksSchedule) {
         await assertTechniciansNotOnLeave(tx, input.technicianIds, startsAt, endsAt, tz);
-        await assertNotHeld(tx, user, input.technicianIds, startsAt, endsAt);
+        await assertSoftRules(tx, user, input.technicianIds, input.technicianIds, startsAt, endsAt, tz, overrides);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
           startsAt,
@@ -744,7 +781,9 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
           status: status.name,
           technicians: full.technicians.map((t) => t.technician.name),
           createdBy: full.createdBy.name,
+          ...overrides.audit(),
         },
+        reason: overrides.rules.length ? overrides.reason : null,
         actorId: user.id,
       });
       await notifyUsers(
@@ -800,15 +839,16 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
   const tz = settings.timezone;
   const startsAt = zonedToUtc(input.date, input.startTime, tz);
   const endsAt = computeEnd(startsAt, input.durationMinutes);
+  const overrides = new Overrides(user, input.overrideReason ?? null);
 
   try {
     await prisma.$transaction(async (tx) => {
       const existing = await loadForUpdate(tx, user, id, input.version);
       const status = await resolveStatus(tx, input.statusId, existing.status);
       if (status.blocksSchedule && dateKey(existing.startsAt, tz) !== input.date) {
-        assertOpenDay(user, input.date, settings.closedWeekdays, input.allowClosedDay);
+        assertOpenDay(input.date, settings.closedWeekdays, overrides);
       }
-      if (dateKey(existing.startsAt, tz) !== input.date) assertNotPast(user, input.date, tz);
+      if (dateKey(existing.startsAt, tz) !== input.date) assertNotPast(user, input.date, tz, overrides);
       const currentTechIds = existing.technicians.map((t) => t.technicianId);
       const sameTeam = currentTechIds.length === input.technicianIds.length && currentTechIds.every((t) => input.technicianIds.includes(t));
       if (!sameTeam && !hasPermission(user, "appointments.assign")) throw new ForbiddenError("appointmentErrors.assignNotAllowed");
@@ -822,7 +862,9 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
         const onLeaveCheck = recheck ? input.technicianIds : input.technicianIds.filter((t) => !currentTechIds.includes(t));
         await assertTechniciansNotOnLeave(tx, onLeaveCheck, startsAt, endsAt, tz);
         const timeChanged = existing.startsAt.getTime() !== startsAt.getTime() || existing.endsAt.getTime() !== endsAt.getTime();
-        await assertNotHeld(tx, user, timeChanged ? input.technicianIds : input.technicianIds.filter((t) => !currentTechIds.includes(t)), startsAt, endsAt);
+        // Working hours and holds: the technicians whose time on this booking changes.
+        const changedTechs = timeChanged || !existing.status.blocksSchedule ? input.technicianIds : input.technicianIds.filter((t) => !currentTechIds.includes(t));
+        await assertSoftRules(tx, user, changedTechs, changedTechs, startsAt, endsAt, tz, overrides);
         const conflicts = await findTechnicianConflicts(tx, {
           technicianIds: input.technicianIds,
           startsAt,
@@ -944,6 +986,11 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
           changes: { status: { from: existing.status.name, to: status.name } },
           actorId: user.id,
         });
+      }
+      if (overrides.rules.length) {
+        // The rules booked over and why go with the first entry of this change (or their own).
+        if (audits.length) Object.assign(audits[0]!, { changes: { ...(audits[0]!.changes as object), ...overrides.audit() }, reason: overrides.reason });
+        else audits.push({ entityType: "APPOINTMENT", entityId: id, appointmentId: id, action: "APPOINTMENT_UPDATED", summary: msg("audit.appointmentUpdated", { code }), changes: overrides.audit(), reason: overrides.reason, actorId: user.id });
       }
       for (const a of audits) await recordAudit(tx, a);
       // Saved: whatever the editor was holding while changing the booking is no longer needed.

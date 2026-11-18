@@ -21,6 +21,12 @@ export const PERMISSIONS = [
   "appointments.export",
   /** Book on behalf of a Sales employee and edit or cancel anyone's bookings, whatever the "Sales can edit each other's bookings" setting says. */
   "appointments.manageAll",
+  /** Book despite a soft rule (outside a technician's working hours, a closed day, someone else's hold) with a reason; book on past dates. */
+  "appointments.override",
+  /** The company schedule: every technician's day, read-only, without other people's customer details. */
+  "schedule.global",
+  /** Technicians' working hours and days off. */
+  "schedule.manage",
   /** Customer directory pages. */
   "customers.view",
   /** Customer phone numbers. */
@@ -266,12 +272,13 @@ function roleBase(user: Pick<PermissionSubject, "role" | "viewerPermissions">, s
         "sales.view",
         "sales.manage",
         "penalties.own",
+        "schedule.global",
       ];
       if (settings.salesCanViewReports) p.push("reports.view", "analytics.view");
       return new Set(p);
     }
     case "TECHNICIAN": {
-      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record", "expenses.record", "inventory.view", "penalties.own"];
+      const p: Permission[] = ["appointments.view", "location.view", "visits.report", "leaves.request", "stock.view", "complaints.view", "checkins.record", "expenses.record", "inventory.view", "penalties.own", "schedule.global"];
       if (settings.technicianCanSeeContacts) p.push("customers.contact");
       return new Set(p);
     }
@@ -296,6 +303,7 @@ function roleBase(user: Pick<PermissionSubject, "role" | "viewerPermissions">, s
       // movements, no users or settings.
       return new Set<Permission>([
         "appointments.view", "appointments.manage", "appointments.create", "appointments.cancel", "appointments.assign", "appointments.export", "appointments.manageAll",
+        "appointments.override", "schedule.global", "schedule.manage",
         "customers.view", "customers.contact", "location.view", "notes.internal", "history.view", "visits.report",
         "leaves.manage", "complaints.view", "complaints.manage", "quality.grade", "evidence.review",
         "board.view", "attendance.view", "attendance.manage", "route.view", "route.manage",

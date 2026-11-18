@@ -46,7 +46,8 @@ test("the driver works through the day's car route and the Admin sees the car on
       durationMinutes: 15,
       technicianIds: [],
       needsCar: true,
-      allowClosedDay: true,
+      // Today may be a closed day in Settings: the Admin books it as an override with a reason.
+      overrideReason: "e2e: today may be a closed day",
     },
   });
   expect(created.status()).toBe(201);

@@ -79,12 +79,20 @@ describe("closed weekdays", () => {
     await updateSettings(asCurrent(admin), { ...DEFAULT_SETTINGS, closedWeekdays: [5] });
   });
 
-  it("refuses bookings on a closed day, except an Admin who explicitly allows it", async () => {
+  it("refuses bookings on a closed day, except an override (appointments.override) with a reason", async () => {
     await expect(createAppointment(asCurrent(sales), appointmentPayload({ date: FRIDAY }))).rejects.toBeInstanceOf(ValidationError);
-    await expect(createAppointment(asCurrent(sales), appointmentPayload({ date: FRIDAY, allowClosedDay: true }))).rejects.toBeInstanceOf(ValidationError);
+    // Sales may not override, reason or not.
+    await expect(createAppointment(asCurrent(sales), appointmentPayload({ date: FRIDAY, allowClosedDay: true, overrideReason: "customer insists" }))).rejects.toBeInstanceOf(ValidationError);
     await expect(createAppointment(asCurrent(admin), appointmentPayload({ date: FRIDAY }))).rejects.toBeInstanceOf(ValidationError);
-    const forced = await createAppointment(asCurrent(admin), appointmentPayload({ date: FRIDAY, allowClosedDay: true }));
+    // The old flag alone is no longer enough: the reason is asked for.
+    const noReason = await createAppointment(asCurrent(admin), appointmentPayload({ date: FRIDAY, allowClosedDay: true })).catch((e: ValidationError) => e);
+    expect(noReason).toBeInstanceOf(ValidationError);
+    expect((noReason as ValidationError).fieldErrors.overrideReason).toMatch(/reason for overriding the schedule/);
+    const forced = await createAppointment(asCurrent(admin), appointmentPayload({ date: FRIDAY, overrideReason: "customer insists" }));
     expect(forced.id).toBeTruthy();
+    const audit = await prisma.auditLog.findFirstOrThrow({ where: { entityId: forced.id, action: "APPOINTMENT_CREATED" } });
+    expect(audit.changes).toMatchObject({ overrides: { rules: ["closedDay"], reason: "customer insists" } });
+    expect(audit.reason).toBe("customer insists");
     // A status that does not block the schedule (e.g. cancelled) is not a booking.
     expect((await createAppointment(asCurrent(sales), appointmentPayload({ date: FRIDAY, statusId: statuses.CANCELLED }))).id).toBeTruthy();
   });

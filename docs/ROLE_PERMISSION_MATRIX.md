@@ -37,8 +37,8 @@ button is never the protection.
 | Spec role | Implemented as | Notes |
 |---|---|---|
 | **A. Administrator** | Built-in **Admin** | Everything, always. Manages users, roles, permissions, settings, audit log. |
-| **B. Installation Manager** | Built-in **Installation manager** (new) | Every booking: create, edit, reschedule, cancel, assign, book for a Sales employee and edit anyone's bookings (`appointments.manageAll`); every technician's schedule; leave, complaints, quality, work review, live board, attendance review, car route; reports. No money, stock movements, users or settings. |
-| **C. Technician** | Built-in **Technician** | Own assigned visits only (record scope *Assigned*); record outcomes, check in, photos and evidence, leave requests, own vehicle stock, own expenses. Cannot reassign or change schedules. |
+| **B. Installation Manager** | Built-in **Installation manager** (new) | Every booking: create, edit, reschedule, cancel, assign, book for a Sales employee and edit anyone's bookings (`appointments.manageAll`); the company schedule (`schedule.global`), technicians' working hours (`schedule.manage`) and booking over soft scheduling rules with a recorded reason (`appointments.override`); reschedule requests; leave, complaints, quality, work review, live board, attendance review, car route; reports. No money, stock movements, users or settings. |
+| **C. Technician** | Built-in **Technician** | Own assigned visits only (record scope *Assigned*); record outcomes, check in, photos and evidence, ask to reschedule an assigned visit, leave requests, own vehicle stock, own expenses. Reads the company schedule (`schedule.global`) with other people's customers hidden. Cannot reassign or change schedules. |
 | **D. Warehouse Employee** | Built-in **Store keeper**, or a **custom role** based on it | The store keeper receives, issues, transfers and counts stock but does not create products or approve adjustments. A warehouse employee who also creates products is a custom role based on *Store keeper* with *Products → create/edit* added (create it from *Roles and permissions → Store keeper → Custom role from this*). See *Decisions* below. |
 | **E. Sales Representative** | Built-in **Sales** | Books and follows bookings, customers, sales invoices. Record scope *All* by default; the template *Sales: own customers and records only* (or a custom role) limits it to their own. Cannot change technician assignments of other people's bookings unless *Sales can edit each other's bookings* is on. |
 | (also) | Accountant, Warehouse manager, Driver, Viewer | Unchanged. |
@@ -59,7 +59,10 @@ change it, or change one person's permissions, without code changes.
 | appointments | `appointments.assign` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | appointments | `appointments.cancel` | ✓ | ✓ |  |  |  |  | ✓ |  |  |
 | appointments | `appointments.export` | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ | ✓ |
+| scheduling | `schedule.global` | ✓ | ✓ | ✓ |  |  |  | ✓ |  |  |
+| scheduling | `schedule.manage` | ✓ |  |  |  |  |  | ✓ |  |  |
 | scheduling | `appointments.manageAll` | ✓ |  |  |  |  |  | ✓ |  |  |
+| scheduling | `appointments.override` | ✓ |  |  |  |  |  | ✓ |  |  |
 | customers | `customers.view` | ✓ | ✓ |  | ✓ |  |  | ✓ |  |  |
 | customers | `customers.contact` | ✓ | ✓ | ✓ | ✓ |  |  | ✓ | ✓ |  |
 | visits | `checkins.record` | ✓ |  | ✓ |  |  |  |  |  |  |
@@ -146,3 +149,10 @@ change it, or change one person's permissions, without code changes.
    anyone's access silently. Roles are never deleted.
 4. **Giving or removing a custom role clears the person's individual changes**, as a change of role
    already did.
+5. **Scheduling rules that were Admin-only** (booking a past date, a closed day, or over someone
+   else's hold) are now the permission `appointments.override` (Admin and Installation manager by
+   default). A closed day, a technician's day off or hours, and someone else's hold need a written
+   reason, recorded in the audit log; a past date does not (as before for Admins). Overlapping
+   visits and approved leave can never be overridden. See `INSTALLATION_SCHEDULING_SPECIFICATION.md`.
+6. **Sales read the company schedule by default** (`schedule.global`), because booking needs to see
+   who is free. Customer details on it follow each reader's appointment scope.
