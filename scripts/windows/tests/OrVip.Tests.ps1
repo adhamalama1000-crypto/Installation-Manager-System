@@ -104,7 +104,7 @@ Describe 'Messages' {
             $p.Value.en | Should -Not -BeNullOrEmpty -Because $p.Name
             $p.Value.ar | Should -Not -BeNullOrEmpty -Because $p.Name
         }
-        (Get-OrVipText 'step.database').ar | Should -Match '[؀-ۿ]'
+        (Get-OrVipText 'step.database').ar | Should -Match '[\u0600-\u06FF]'
     }
     It 'fills placeholders and never shows a password in them' {
         $t = Get-OrVipText 'error.databaseTimeout' @{ seconds = 15; target = 'postgresql://u:pw@h:1/d' }
