@@ -9,7 +9,7 @@ import { POST as login } from "@/app/api/auth/login/route";
 import { hashPassword } from "@/server/auth/password";
 import { resetHashPoolForTests } from "@/server/auth/hash-pool";
 import { purgeOldLoginAttempts, reserveLoginAttempt, resetCleanupScheduleForTests } from "@/server/auth/rate-limit";
-import { accountKey, addressKey, loginLimits } from "@/lib/login-limits";
+import { accountAddressKey, accountKey, addressKey, loginLimits } from "@/lib/login-limits";
 import { makeUser, prisma, resetDb } from "../helpers";
 
 const PASSWORD = "Password123";
@@ -25,7 +25,7 @@ function loginReq(email: string, password: string, headers: Record<string, strin
 const statuses = (rs: Response[]) => rs.reduce<Record<number, number>>((m, r) => ((m[r.status] = (m[r.status] ?? 0) + 1), m), {});
 const audits = (action: string) => prisma.auditLog.count({ where: { action } });
 
-const ENV = ["TRUSTED_PROXY_HOPS", "LOGIN_MAX_FAILURES_PER_ACCOUNT", "LOGIN_MAX_FAILURES_PER_IP", "LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE", "AUTH_HASH_THREADS", "AUTH_HASH_MAX_QUEUE", "AUTH_HASH_QUEUE_TIMEOUT_MS"];
+const ENV = ["TRUSTED_PROXY_HOPS", "LOGIN_MAX_FAILURES_PER_ACCOUNT", "LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL", "LOGIN_MAX_FAILURES_PER_IP", "LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE", "AUTH_HASH_THREADS", "AUTH_HASH_MAX_QUEUE", "AUTH_HASH_QUEUE_TIMEOUT_MS", "AUTH_HASH_MAX_PER_CLIENT", "AUTH_HASH_PRIORITY_RESERVE"];
 let hash: string;
 
 /** Limits use fixed windows (1 and 15 minutes); start each test well inside one so it cannot straddle two. */
@@ -73,10 +73,12 @@ describe("per-account limit", () => {
     expect(await prisma.loginAttempt.findMany({ distinct: ["ipAddress"], select: { ipAddress: true } })).toEqual([{ ipAddress: "unknown" }]);
   });
 
-  it("holds for the same account from many real addresses (behind a trusted proxy)", async () => {
+  it("holds for the same account from many real addresses (behind a trusted proxy): 10 in total", async () => {
     process.env.TRUSTED_PROXY_HOPS = "1";
+    // Each address has 5 attempts at the account, the account 10 across all addresses
+    // (LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL), so changing address does not buy more guesses.
     const rs = await Promise.all(Array.from({ length: 20 }, (_, i) => login(loginReq("victim@test.local", WRONG, { "x-forwarded-for": `198.51.100.${i + 1}` }))));
-    expect(statuses(rs)).toEqual({ 401: 5, 429: 15 });
+    expect(statuses(rs)).toEqual({ 401: 10, 429: 10 });
   });
 
   it("is cleared by a successful sign-in, and treats unknown emails exactly like real ones", async () => {
@@ -105,6 +107,9 @@ describe("per-address limit (trusted proxy only)", () => {
     process.env.TRUSTED_PROXY_HOPS = "1";
     process.env.AUTH_HASH_MAX_QUEUE = "100";
     process.env.AUTH_HASH_QUEUE_TIMEOUT_MS = "60000"; // let all 30 admitted checks queue (the default refuses some with 503)
+    // This test is about the address counter; the pool's own per-client cap (2 at a time, tested in
+    // login-availability.test.ts) would answer most of these 60 simultaneous requests with 503.
+    process.env.AUTH_HASH_MAX_PER_CLIENT = "0";
     // The client rotates the left part; the proxy-appended address (rightmost) stays the same.
     const rs = await Promise.all(Array.from({ length: 60 }, (_, i) => login(loginReq(`user${i}@test.local`, WRONG, { "x-forwarded-for": `6.6.${i}.6, 203.0.113.9` }))));
     expect(statuses(rs)).toEqual({ 401: 30, 429: 30 });
@@ -138,11 +143,26 @@ describe("several app instances sharing the database", () => {
   it("count together: 3 connection pools x 40 simultaneous reservations give exactly 5 slots", async () => {
     const instances = [prisma, new PrismaClient(), new PrismaClient()];
     try {
-      const results = await Promise.all(instances.flatMap((db) => Array.from({ length: 40 }, () => reserveLoginAttempt("victim@test.local", "203.0.113.5", { db }))));
+      // No trusted address: the account counter alone decides (a known address is checked first and
+      // has its own limit, covered below).
+      const results = await Promise.all(instances.flatMap((db) => Array.from({ length: 40 }, () => reserveLoginAttempt("victim@test.local", "unknown", { db }))));
       expect(results.filter((r) => r.ok)).toHaveLength(5);
       expect(results.filter((r) => !r.ok && r.firstBlock)).toHaveLength(1);
       const row = await prisma.authRateLimit.findFirstOrThrow({ where: { key: accountKey("victim@test.local") } });
       expect(row.count).toBe(120);
+    } finally {
+      await Promise.all(instances.slice(1).map((c) => c.$disconnect()));
+    }
+  });
+
+  it("count together for one account from one trusted address: exactly 5 slots", async () => {
+    const instances = [prisma, new PrismaClient(), new PrismaClient()];
+    try {
+      const results = await Promise.all(instances.flatMap((db) => Array.from({ length: 10 }, () => reserveLoginAttempt("victim@test.local", "203.0.113.5", { db }))));
+      expect(results.filter((r) => r.ok)).toHaveLength(5);
+      expect(results.filter((r) => !r.ok && r.scope === "account" && r.firstBlock)).toHaveLength(1);
+      const row = await prisma.authRateLimit.findFirstOrThrow({ where: { key: accountAddressKey("victim@test.local", "203.0.113.5") } });
+      expect(row.count).toBe(30); // refused requests keep counting against the (account, address) pair
     } finally {
       await Promise.all(instances.slice(1).map((c) => c.$disconnect()));
     }

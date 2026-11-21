@@ -37,7 +37,7 @@ import {
 } from "@/lib/validation";
 import { prisma, type Tx } from "../db";
 import { statusParam, whenParam } from "../i18n-params";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { customerScope, appointmentScope, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import {
   ForbiddenError,
@@ -468,7 +468,15 @@ async function validateTechnicians(tx: Tx, ids: string[], alreadyAssigned: strin
   return users;
 }
 
-async function upsertCustomerAndLocation(tx: Tx, input: AppointmentInput) {
+/**
+ * Saves the booking's customer and location. An existing customer (by id from the client) is only
+ * updated when the caller may see that customer (customerScope), or when it is the customer the
+ * caller is already authorised for through the booking itself (`authorisedCustomerId`: the
+ * edited booking's own customer, or the original visit's customer for a follow-up). The row is
+ * locked first, so the check and the update see the same customer. An unknown or out-of-scope id
+ * gets the same answer (nothing is created instead, nothing is revealed).
+ */
+async function upsertCustomerAndLocation(tx: Tx, user: CurrentUser, input: AppointmentInput, authorisedCustomerId: string | null = null) {
   const c = input.customer;
   const customerData = {
     name: c.name,
@@ -479,8 +487,14 @@ async function upsertCustomerAndLocation(tx: Tx, input: AppointmentInput) {
   };
   let customer;
   if (c.id) {
-    const existing = await tx.customer.findUnique({ where: { id: c.id } });
-    if (!existing) throw new ValidationError({ "customer.id": msg("appointmentErrors.customerGone") });
+    const gone = () => new ValidationError({ "customer.id": msg("appointmentErrors.customerGone") });
+    if (typeof c.id !== "string" || c.id.length > 64) throw gone();
+    const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM customers WHERE id = ${c.id} FOR UPDATE`;
+    if (!locked.length) throw gone();
+    if (c.id !== authorisedCustomerId) {
+      const visible = await tx.customer.findFirst({ where: { AND: [{ id: c.id }, customerScope(user)] }, select: { id: true } });
+      if (!visible) throw gone();
+    }
     customer = await tx.customer.update({ where: { id: c.id }, data: customerData });
   } else {
     customer = await tx.customer.create({ data: customerData });
@@ -695,9 +709,12 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
   const startsAt = zonedToUtc(input.date, input.startTime, tz);
   const endsAt = computeEnd(startsAt, input.durationMinutes);
   const overrides = new Overrides(user, input.overrideReason ?? null);
+  // A follow-up books the original visit's customer, which the caller sees through that visit.
+  let followUpCustomerId: string | null = null;
   if (input.followUpOfId) {
-    const original = await prisma.appointment.findFirst({ where: { AND: [{ id: input.followUpOfId }, appointmentScope(user)] }, select: { id: true } });
+    const original = await prisma.appointment.findFirst({ where: { AND: [{ id: input.followUpOfId }, appointmentScope(user)] }, select: { id: true, customerId: true } });
     if (!original) throw new ValidationError({ followUpOfId: msg("appointmentErrors.originalGone") });
+    followUpCustomerId = original.customerId;
   }
 
   try {
@@ -725,7 +742,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         });
         if (conflicts.length) throw new SchedulingConflictError(conflicts);
       }
-      const { customer, location } = await upsertCustomerAndLocation(tx, input);
+      const { customer, location } = await upsertCustomerAndLocation(tx, user, input, followUpCustomerId);
       const appt = await tx.appointment.create({
         data: {
           customerId: customer.id,
@@ -875,7 +892,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
         if (conflicts.length) throw new SchedulingConflictError(conflicts);
       }
 
-      const { customer, location } = await upsertCustomerAndLocation(tx, input);
+      const { customer, location } = await upsertCustomerAndLocation(tx, user, input, existing.customerId);
       await tx.appointment.update({
         where: { id, version: existing.version },
         data: {

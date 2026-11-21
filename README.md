@@ -342,7 +342,9 @@ Serverless platforms work too. Use a pooled connection string for `DATABASE_URL`
 | `NEW_ADMIN_PASSWORD` | | Non-interactive input for `npm run reset-admin-password -- --yes` |
 | `TRUSTED_PROXY_HOPS` | | Reverse proxies in front of the app that append `X-Forwarded-For` (default 0: the header is ignored) |
 | `AUTH_HASH_THREADS` / `AUTH_HASH_MAX_QUEUE` / `AUTH_HASH_QUEUE_TIMEOUT_MS` / `AUTH_HASH_JOB_TIMEOUT_MS` | | Password-check worker pool (defaults: min(2, cores − 1) threads, 12 × threads queued, 5 s, 10 s) |
-| `LOGIN_MAX_FAILURES_PER_ACCOUNT` / `LOGIN_MAX_FAILURES_PER_IP` / `LOGIN_FAILURE_WINDOW_MINUTES` / `LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE` | | Sign-in limits (defaults 5 / 30 per 15 minutes, 300 per minute overall) |
+| `AUTH_HASH_PRIORITY_RESERVE` / `AUTH_HASH_MAX_PER_CLIENT` | | Pool places kept for known devices and signed-in users (default a third), and checks per client at once (default 2) |
+| `LOGIN_MAX_FAILURES_PER_ACCOUNT` / `LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL` / `LOGIN_MAX_FAILURES_PER_IP` / `LOGIN_FAILURE_WINDOW_MINUTES` / `LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE` | | Sign-in limits (defaults 5 per account per client, 10 per account across addresses, 30 per address per 15 minutes, 300 per minute overall); see the docs for known devices |
+| `UPLOAD_MAX_INFLIGHT_MB` / `UPLOAD_IDLE_TIMEOUT_MS` / `UPLOAD_TOTAL_TIMEOUT_MS` | | Upload bodies being received at once per process (default 256 MB), and their idle / total timeouts (30 s / 15 min) |
 | `LOGIN_ATTEMPT_RETENTION_DAYS` | | Days raw sign-in records are kept (default 30) |
 | `JSON_BODY_TIMEOUT_MS` | | Longest time a JSON request body may take to arrive (default 60000) |
 

@@ -88,6 +88,17 @@ export async function listAttachments(user: CurrentUser, appointmentId: string):
   return { items: rows.filter((r) => canView(user, a, r.kind)).map((r) => toDTO(user, a, r)), rights: await rightsFor(prisma, user, a) };
 }
 
+/**
+ * The checks that need no file: a valid kind, a visit the caller may see, and the right to add
+ * that kind. The upload route runs this BEFORE reading the body, so a caller who may not upload
+ * never makes the server receive (and buffer) the file. uploadAttachment checks again.
+ */
+export async function authorizeAttachmentUpload(user: CurrentUser, appointmentId: string, kindRaw: string | null): Promise<void> {
+  if (!ATTACHMENT_KINDS.includes(kindRaw as AttachmentKind)) throw new ValidationError({ kind: msg("attachments.errors.kind") });
+  const a = await visibleTarget(prisma, user, appointmentId);
+  if (!(await rightsFor(prisma, user, a))[kindRaw as AttachmentKind]) throw new ForbiddenError();
+}
+
 export async function uploadAttachment(user: CurrentUser, appointmentId: string, kindRaw: string | null, bytes: Uint8Array | null): Promise<AttachmentDTO> {
   if (!ATTACHMENT_KINDS.includes(kindRaw as AttachmentKind)) throw new ValidationError({ kind: msg("attachments.errors.kind") });
   const kind = kindRaw as AttachmentKind;

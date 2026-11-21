@@ -157,4 +157,70 @@ describe("password verification on worker threads", () => {
     console.log(`[hash-pool] one compareSync on the main thread blocked it for ${blockedMs.toFixed(0)} ms`);
     expect(blockedMs).toBeGreaterThan(maxMs);
   });
+
+  describe("lanes and per-client limits", () => {
+    it("keeps the reserved places for priority jobs: standard ones are refused first", async () => {
+      // 1 worker + 3 queued = 4 places, 2 of them reserved for priority.
+      const p = pool({ size: 1, maxQueue: 3, priorityReserve: 2 });
+      const standard = [p.compare("a", HASH12), p.compare("b", HASH12)];
+      expect(p.hasCapacity()).toBe(false);
+      await expect(p.compare("c", HASH12)).rejects.toBeInstanceOf(HashPoolBusyError);
+      expect(p.hasCapacity({ lane: "priority" })).toBe(true);
+      const priority = [p.compare("Correct-Horse-1", HASH12, { lane: "priority" }), p.compare("d", HASH12, { lane: "priority" })];
+      // Now the pool is full for everyone.
+      await expect(p.compare("e", HASH12, { lane: "priority" })).rejects.toBeInstanceOf(HashPoolBusyError);
+      expect(p.stats()).toMatchObject({ inFlightStandard: 2, inFlightPriority: 2, rejectedLane: 1, rejectedBusy: 1 });
+      expect(await Promise.all([...standard, ...priority])).toEqual([false, false, true, false]);
+      expect(p.stats()).toMatchObject({ inFlightStandard: 0, inFlightPriority: 0 });
+    });
+
+    it("starts waiting priority jobs before waiting standard ones", async () => {
+      const p = pool({ size: 1, maxQueue: 10 });
+      const order: string[] = [];
+      const track = (name: string, job: Promise<boolean>) => job.then(() => order.push(name));
+      const jobs = [
+        track("s1", p.compare("a", HASH12)), // runs at once
+        track("s2", p.compare("b", HASH12)),
+        track("s3", p.compare("c", HASH12)),
+        track("p1", p.compare("d", HASH12, { lane: "priority" })),
+      ];
+      await Promise.all(jobs);
+      expect(order).toEqual(["s1", "p1", "s2", "s3"]);
+    });
+
+    it("lets one client hold at most maxPerClient places, per lane", async () => {
+      const p = pool({ size: 2, maxQueue: 10, maxPerClient: 2 });
+      const mine = [p.compare("a", HASH12, { client: "ip:1" }), p.compare("b", HASH12, { client: "ip:1" })];
+      expect(p.hasCapacity({ client: "ip:1" })).toBe(false);
+      await expect(p.compare("c", HASH12, { client: "ip:1" })).rejects.toBeInstanceOf(HashPoolBusyError);
+      expect(p.hasCapacity({ client: "ip:2" })).toBe(true);
+      expect(p.hasCapacity({})).toBe(true); // an unidentified client is not limited per client
+      const other = p.compare("Correct-Horse-1", HASH12, { client: "ip:2" });
+      expect(p.stats().rejectedClient).toBe(1);
+      expect(await Promise.all([...mine, other])).toEqual([false, false, true]);
+      // Places are given back when jobs finish (or fail).
+      expect(p.hasCapacity({ client: "ip:1" })).toBe(true);
+    });
+
+    it("gives places back on every outcome: success, worker failure, queue timeout", async () => {
+      const p = pool({ size: 1, maxQueue: 2, maxPerClient: 1, queueTimeoutMs: 200, source: FAULTY });
+      await expect(p.compare("throw", HASH12, { client: "c1" })).rejects.toBeInstanceOf(HashPoolFailureError);
+      expect(p.hasCapacity({ client: "c1" })).toBe(true);
+      const first = p.compare("x", HASH12, { client: "a" });
+      await expect(p.compare("y", HASH12, { client: "b" })).rejects.toBeInstanceOf(HashPoolBusyError); // waited > 200 ms
+      expect(p.hasCapacity({ client: "b" })).toBe(true);
+      await first;
+      expect(p.stats()).toMatchObject({ inFlightStandard: 0, queued: 0 });
+    });
+
+    it("does not respawn crashing workers on every new job while backing off", async () => {
+      const p = pool({ size: 1, maxQueue: 50, queueTimeoutMs: 300, source: FAULTY });
+      for (let i = 0; i < 4; i++) await expect(p.compare("crash", HASH12)).rejects.toBeInstanceOf(HashPoolFailureError);
+      // The 4th crash in a minute starts a back-off: no worker for ~1 s, whatever arrives meanwhile.
+      const waiting = Array.from({ length: 10 }, () => p.compare("x", HASH12).catch((e: Error) => e));
+      expect(p.stats().workers).toBe(0);
+      for (const e of await Promise.all(waiting)) expect(e).toBeInstanceOf(HashPoolBusyError);
+      expect(p.stats().crashes).toBe(4);
+    });
+  });
 });
