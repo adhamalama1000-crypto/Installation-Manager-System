@@ -231,6 +231,9 @@ export const accessAr: Widen<typeof accessEn> = {
     loginSucceeded: "{name} سجّل الدخول",
     loginFailed: "محاولة دخول فاشلة لـ {email}",
     loginBlocked: "تم إيقاف الدخول بعد محاولات فاشلة متكررة لـ {email}",
+    loginFailedUnknown: "محاولة دخول فاشلة لحساب غير موجود من {ip} (المحاولات التالية في هذه الفترة في سجل الدخول فقط)",
+    loginBlockedAddress: "تم إيقاف الدخول من {ip} بعد محاولات فاشلة متكررة",
+    loginBlockedGlobal: "تم إيقاف الدخول لمدة دقيقة: محاولات فاشلة كثيرة على جميع الحسابات",
     logout: "{name} سجّل الخروج",
   },
   exportAudit: {

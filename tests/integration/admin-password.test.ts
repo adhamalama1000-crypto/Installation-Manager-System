@@ -7,6 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import type { User } from "@prisma/client";
 import { POST as login } from "@/app/api/auth/login/route";
 import { hashPassword, verifyPassword } from "@/server/auth/password";
+import { accountKey, addressKey, loginLimits, windowStart } from "@/lib/login-limits";
 import { ADMIN_EMAIL, adminStatus, describeDatabase, passwordProblem, resetAdminPassword } from "../../scripts/admin-password";
 import { makeUser, prisma, resetDb } from "../helpers";
 
@@ -21,8 +22,15 @@ beforeEach(async () => {
   other = await makeUser("ADMIN", { email: "second.admin@test.local", passwordHash: await hashPassword("Second123456") });
 });
 
+/** n failed sign-ins as the sign-in counts them: the per-account and per-address limit counters. */
 async function failures(email: string, n: number, ip = "10.0.0.1") {
-  for (let i = 0; i < n; i++) await prisma.loginAttempt.create({ data: { email, ipAddress: ip, success: false } });
+  const { windowMinutes } = loginLimits();
+  const w = windowStart(new Date(), windowMinutes);
+  const expiresAt = new Date(w.getTime() + 2 * windowMinutes * 60_000);
+  for (const key of [accountKey(email), addressKey(ip)]) {
+    await prisma.authRateLimit.upsert({ where: { key_windowStart: { key, windowStart: w } }, create: { key, windowStart: w, count: n, expiresAt }, update: { count: { increment: n } } });
+  }
+  for (let i = 0; i < n; i++) await prisma.loginAttempt.create({ data: { email, ipAddress: ip, success: false, outcome: "BAD_PASSWORD" } });
 }
 async function session(userId: string, id: string) {
   await prisma.session.create({ data: { id, userId, expiresAt: new Date(Date.now() + 3600_000) } });
@@ -66,7 +74,10 @@ describe("resetting the admin password", () => {
     for (const email of Object.keys(before).filter((e) => e !== ADMIN_EMAIL)) expect(after[email]).toBe(before[email]);
     expect(await prisma.user.count()).toBe(users);
     expect((await prisma.user.findUniqueOrThrow({ where: { id: admin.id } })).role).toBe("ADMIN");
-    expect(await prisma.loginAttempt.count({ where: { email: ADMIN_EMAIL } })).toBe(0);
+    // The lockout counter is gone; the raw sign-in records stay for investigation.
+    expect(await prisma.authRateLimit.count({ where: { key: accountKey(ADMIN_EMAIL) } })).toBe(0);
+    expect(await prisma.authRateLimit.findFirst({ where: { key: accountKey(sales.email) } })).toMatchObject({ count: 2 });
+    expect(await prisma.loginAttempt.count({ where: { email: ADMIN_EMAIL } })).toBe(6);
     expect(await prisma.loginAttempt.count({ where: { email: sales.email } })).toBe(2);
     expect(await prisma.session.count({ where: { userId: admin.id } })).toBe(0);
     expect(await prisma.session.count({ where: { userId: sales.id } })).toBe(1);

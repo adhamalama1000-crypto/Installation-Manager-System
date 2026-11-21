@@ -78,7 +78,38 @@ export class StaleRecordError extends AppError {
 }
 
 export class RateLimitError extends AppError {
-  constructor(message = "errors.rateLimited") {
+  constructor(
+    message = "errors.rateLimited",
+    public readonly retryAfterSeconds?: number,
+  ) {
     super(message, 429, "RATE_LIMITED");
+  }
+}
+
+/** Temporary refusal (e.g. the sign-in pool is full). Retry-After tells clients when to retry. */
+export class ServiceUnavailableError extends AppError {
+  constructor(
+    message = "errors.authBusy",
+    public readonly retryAfterSeconds = 5,
+  ) {
+    super(message, 503, "SERVICE_UNAVAILABLE");
+  }
+}
+
+export class PayloadTooLargeError extends AppError {
+  constructor(message = "errors.bodyTooLarge") {
+    super(message, 413, "PAYLOAD_TOO_LARGE", { fieldErrors: { _form: message } });
+  }
+}
+
+export class RequestTimeoutError extends AppError {
+  constructor(message = "errors.bodyTimeout") {
+    super(message, 408, "REQUEST_TIMEOUT", { fieldErrors: { _form: message } });
+  }
+}
+
+export class BadRequestError extends AppError {
+  constructor(message = "errors.validation") {
+    super(message, 400, "BAD_REQUEST", { fieldErrors: { _form: message } });
   }
 }

@@ -362,13 +362,36 @@ model PasswordToken {
 model LoginAttempt {
   id        BigInt   @id @default(autoincrement())
   email     String
+  /// The client address from a trusted proxy (TRUSTED_PROXY_HOPS), or "unknown".
   ipAddress String
   success   Boolean
+  /// SUCCESS | BAD_PASSWORD | UNKNOWN_ACCOUNT | INACTIVE (null on rows written before this column).
+  /// Only attempts whose password was actually checked are recorded; rate-limited requests are
+  /// counted in auth_rate_limits instead, so a flood cannot grow this table without bound.
+  outcome   String?
+  userAgent String?
   createdAt DateTime @default(now()) @db.Timestamptz(3)
 
   @@index([email, createdAt])
   @@index([ipAddress, createdAt])
+  @@index([createdAt])
   @@map("login_attempts")
+}
+
+/// Sign-in rate-limit counters in fixed time windows, shared by every app instance. A request
+/// takes a slot with one atomic INSERT ... ON CONFLICT DO UPDATE ... RETURNING count, so concurrent
+/// requests can never all pass a limit. Rows expire (expiresAt) and are deleted in the background.
+/// Keys: "acct:<sha256 of email>", "ip:<address>", "global", and "audit:..." markers that make
+/// failed / blocked sign-in audit entries at most one per key and window.
+model AuthRateLimit {
+  key         String
+  windowStart DateTime @db.Timestamptz(3)
+  count       Int      @default(0)
+  expiresAt   DateTime @db.Timestamptz(3)
+
+  @@id([key, windowStart])
+  @@index([expiresAt])
+  @@map("auth_rate_limits")
 }
 
 model Customer {

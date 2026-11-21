@@ -231,6 +231,9 @@ export const accessEn = {
     loginSucceeded: "{name} signed in",
     loginFailed: "Failed sign-in attempt for {email}",
     loginBlocked: "Sign-in blocked after repeated failures for {email}",
+    loginFailedUnknown: "Failed sign-in for an unknown account from {ip} (further ones this window are only in the sign-in log)",
+    loginBlockedAddress: "Sign-ins from {ip} blocked after repeated failures",
+    loginBlockedGlobal: "Sign-ins paused for a minute: too many failed attempts across all accounts",
     logout: "{name} signed out",
   },
   exportAudit: {

@@ -311,7 +311,7 @@ Then sign in, set the timezone in **Settings**, and add Sales, Technician and Vi
 Production checklist:
 
 - Serve over **HTTPS** and set `APP_URL` to the public `https://` URL. Session cookies are marked `Secure` for requests that arrive over HTTPS: directly, with `X-Forwarded-Proto: https` from the proxy, or for the `APP_URL` host. Have the proxy send `X-Forwarded-Proto`.
-- Run behind a reverse proxy that sets `X-Forwarded-For` (used for per-IP login rate limiting; the per-account limit applies regardless).
+- Behind a reverse proxy that appends `X-Forwarded-For`, set `TRUSTED_PROXY_HOPS=1` (the number of such proxies) and block direct access to the app's port; that turns on the per-address sign-in limit. Without it the header is ignored, because any client can send it; the per-account and global limits apply regardless. See [docs/AUTH_AND_REQUEST_SECURITY.md](docs/AUTH_AND_REQUEST_SECURITY.md) for sign-in limits, the password worker pool and request body limits.
 - Back up the PostgreSQL database and the upload folder (`UPLOAD_DIR`) regularly, at the same time.
 - Check-ins need **HTTPS**: browsers only give the phone's location to secure pages (and `localhost`). Without it, check-ins are recorded without a location and shown as such.
 - Late alerts: set `CRON_SECRET` (16+ characters) and call `POST /api/cron/late-check` with `Authorization: Bearer <CRON_SECRET>` every 15 minutes. On Windows:
@@ -340,6 +340,11 @@ Serverless platforms work too. Use a pooled connection string for `DATABASE_URL`
 | `E2E_BASE_URL` | | Point Playwright at an already running app |
 | `ALLOWED_DEV_ORIGINS` | | Development only: other hostnames (comma-separated) that may open the dev server, e.g. the machine's network IP |
 | `NEW_ADMIN_PASSWORD` | | Non-interactive input for `npm run reset-admin-password -- --yes` |
+| `TRUSTED_PROXY_HOPS` | | Reverse proxies in front of the app that append `X-Forwarded-For` (default 0: the header is ignored) |
+| `AUTH_HASH_THREADS` / `AUTH_HASH_MAX_QUEUE` / `AUTH_HASH_QUEUE_TIMEOUT_MS` / `AUTH_HASH_JOB_TIMEOUT_MS` | | Password-check worker pool (defaults: min(2, cores − 1) threads, 12 × threads queued, 5 s, 10 s) |
+| `LOGIN_MAX_FAILURES_PER_ACCOUNT` / `LOGIN_MAX_FAILURES_PER_IP` / `LOGIN_FAILURE_WINDOW_MINUTES` / `LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE` | | Sign-in limits (defaults 5 / 30 per 15 minutes, 300 per minute overall) |
+| `LOGIN_ATTEMPT_RETENTION_DAYS` | | Days raw sign-in records are kept (default 30) |
+| `JSON_BODY_TIMEOUT_MS` | | Longest time a JSON request body may take to arrive (default 60000) |
 
 No secrets are committed. `.env` is git-ignored and `.env.example` documents the format.
 
