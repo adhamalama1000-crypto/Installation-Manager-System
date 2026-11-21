@@ -59,8 +59,8 @@ async function printStatus() {
     console.log(`  has a password:    ${s.hasPassword ? "yes" : "NO"}`);
     console.log(`  open sessions:     ${s.sessions}`);
   }
-  console.log(`  failed sign-ins in the last 15 min: ${s.recentFailures}${s.emailLocked ? " (LOCKED OUT until 15 minutes after the last one)" : ""}`);
-  if (s.lockedAddresses.length) console.log(`  addresses locked out (30 failures in 15 min): ${s.lockedAddresses.join(", ")}`);
+  console.log(`  failed sign-ins in the current limit window: ${s.recentFailures}${s.emailLocked ? " (LOCKED OUT until the window ends)" : ""}`);
+  if (s.lockedAddresses.length) console.log(`  addresses locked out in the current window: ${s.lockedAddresses.join(", ")}`);
   return s;
 }
 

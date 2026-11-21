@@ -25,6 +25,9 @@ const PASSWORD = "Password123";
 const noParams = { params: Promise.resolve({}) };
 const idParams = (id: string) => ({ params: Promise.resolve({ id }) });
 const UA = "access-api-test/1.0";
+// These requests arrive as if through one reverse proxy that wrote X-Forwarded-For; without
+// TRUSTED_PROXY_HOPS the header is ignored (anyone can send it) and the address is "unknown".
+process.env.TRUSTED_PROXY_HOPS = "1";
 
 function req(p: string, init: { method?: string; body?: unknown; cookie?: string; headers?: Record<string, string> } = {}) {
   const headers: Record<string, string> = { host: "localhost:3000", "user-agent": UA, "x-forwarded-for": "203.0.113.7", ...(init.headers ?? {}) };

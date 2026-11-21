@@ -5,46 +5,44 @@
  */
 import type { PrismaClient } from "@prisma/client";
 import bcrypt from "bcryptjs";
+import { accountKey, loginLimits, windowStart } from "../src/lib/login-limits";
 
 /** The only account these functions read or change. */
 export const ADMIN_EMAIL = "admin@example.com";
-
-/** The same limits as the sign-in (src/server/auth/rate-limit.ts). */
-const WINDOW_MS = 15 * 60 * 1000;
-const MAX_FAILURES_PER_EMAIL = 5;
-const MAX_FAILURES_PER_IP = 30;
 
 export type AdminStatus = {
   exists: boolean;
   role: string | null;
   isActive: boolean | null;
   hasPassword: boolean;
-  /** Failed sign-ins for this email in the last 15 minutes. */
+  /** Failed sign-ins counted against this email in the current limit window. */
   recentFailures: number;
-  /** This email is locked out right now (5 failures in 15 minutes). */
+  /** This email is locked out right now (LOGIN_MAX_FAILURES_PER_ACCOUNT reached in the window). */
   emailLocked: boolean;
-  /** Addresses locked out right now (30 failures in 15 minutes, any accounts). */
+  /** Addresses locked out right now (LOGIN_MAX_FAILURES_PER_IP reached in the window, any accounts). */
   lockedAddresses: string[];
   sessions: number;
 };
 
-/** Read-only: the state of admin@example.com and of the sign-in lockout. */
+/** Read-only: the state of admin@example.com and of the sign-in lockout (the counters the sign-in uses). */
 export async function adminStatus(prisma: PrismaClient, now = new Date()): Promise<AdminStatus> {
-  const since = new Date(now.getTime() - WINDOW_MS);
+  const limits = loginLimits();
+  const window = windowStart(now, limits.windowMinutes);
   const user = await prisma.user.findUnique({ where: { email: ADMIN_EMAIL }, select: { id: true, role: true, isActive: true, passwordHash: true } });
-  const [recentFailures, byIp, sessions] = await Promise.all([
-    prisma.loginAttempt.count({ where: { email: ADMIN_EMAIL, success: false, createdAt: { gte: since } } }),
-    prisma.loginAttempt.groupBy({ by: ["ipAddress"], where: { success: false, createdAt: { gte: since } }, _count: { _all: true } }),
+  const [account, addresses, sessions] = await Promise.all([
+    prisma.authRateLimit.findUnique({ where: { key_windowStart: { key: accountKey(ADMIN_EMAIL), windowStart: window } }, select: { count: true } }),
+    prisma.authRateLimit.findMany({ where: { key: { startsWith: "ip:" }, windowStart: window, count: { gte: limits.perAddress } }, select: { key: true }, orderBy: { key: "asc" } }),
     user ? prisma.session.count({ where: { userId: user.id, expiresAt: { gt: now } } }) : Promise.resolve(0),
   ]);
+  const recentFailures = account?.count ?? 0;
   return {
     exists: !!user,
     role: user?.role ?? null,
     isActive: user?.isActive ?? null,
     hasPassword: !!user?.passwordHash,
     recentFailures,
-    emailLocked: recentFailures >= MAX_FAILURES_PER_EMAIL,
-    lockedAddresses: byIp.filter((r) => r._count._all >= MAX_FAILURES_PER_IP).map((r) => r.ipAddress),
+    emailLocked: recentFailures >= limits.perAccount,
+    lockedAddresses: addresses.map((r) => r.key.slice("ip:".length)),
     sessions,
   };
 }
@@ -61,8 +59,9 @@ export type ResetResult = { activated: boolean; isActive: boolean; clearedFailur
 
 /**
  * Sets a new password for admin@example.com, and only that account: it must exist and be an Admin
- * (nothing is created and no role changes). In the same transaction it clears that email's failed
- * sign-ins (lifting its lockout), signs it out everywhere and records the reset in the audit log.
+ * (nothing is created and no role changes). In the same transaction it clears that email's sign-in
+ * limit counters (lifting its lockout), signs it out everywhere and records the reset in the audit
+ * log. The raw sign-in records (login_attempts) are kept for investigation.
  * With `activate`, a deactivated account is switched back on.
  */
 export async function resetAdminPassword(prisma: PrismaClient, opts: { password: string; activate?: boolean; now?: Date }): Promise<ResetResult> {
@@ -76,7 +75,9 @@ export async function resetAdminPassword(prisma: PrismaClient, opts: { password:
     if (user.role !== "ADMIN") throw new Error(`${ADMIN_EMAIL} is not an Admin account. Nothing was changed.`);
     const activate = !!opts.activate && !user.isActive;
     await tx.user.update({ where: { id: user.id }, data: { passwordHash, passwordChangedAt: now, ...(activate ? { isActive: true } : {}) } });
-    const cleared = await tx.loginAttempt.deleteMany({ where: { email: ADMIN_EMAIL, success: false } });
+    const counters = await tx.authRateLimit.findMany({ where: { key: accountKey(ADMIN_EMAIL) }, select: { count: true } });
+    await tx.authRateLimit.deleteMany({ where: { key: accountKey(ADMIN_EMAIL) } });
+    const cleared = { count: counters.reduce((n, c) => n + c.count, 0) };
     const ended = await tx.session.deleteMany({ where: { userId: user.id } });
     await tx.auditLog.create({
       data: {
