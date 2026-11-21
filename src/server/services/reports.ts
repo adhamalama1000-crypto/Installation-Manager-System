@@ -5,7 +5,7 @@ import { appointmentCode } from "@/lib/constants";
 import { categoryText, statusName } from "@/lib/format";
 import { dayRangeUtc, fmt, isValidDateString } from "@/lib/time";
 import { prisma } from "../db";
-import { appointmentScope, assertCan, hasPermission } from "../access";
+import { appointmentScope, appointmentScopeSql, assertCan, hasPermission } from "../access";
 import type { CurrentUser } from "../auth/session";
 import { ValidationError } from "../errors";
 import { appointmentExportRows, appointmentFilterSql, type ExportRow } from "./appointment-reads";
@@ -25,8 +25,10 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
   const tz = user.settings.timezone;
   const { start, end } = dayRangeUtc(range.from, range.to, tz);
   const where: Prisma.AppointmentWhereInput = { AND: [appointmentScope(user), { startsAt: { gte: start, lt: end } }] };
-  // The two raw SQL aggregates below are company-wide. That is correct because reports.view is
-  // never granted to assignment-scoped roles (technicians); guard against that changing.
+  // Every figure, including the raw SQL aggregates below, covers only the appointments the reader
+  // may see (the same row-level scope as the appointment list), so nothing outside it can show up
+  // in counts, workload, daily totals or areas.
+  const scope = appointmentScopeSql(user);
   if (user.role === "TECHNICIAN") throw new ValidationError({ _form: msg("reportErrors.technicians") });
 
   const [total, byStatusRaw, bySalesRaw, byCategoryRaw, statuses, users, workloadRaw, dailyRaw, byAreaRaw] = await Promise.all([
@@ -41,19 +43,19 @@ export async function buildReport(user: CurrentUser, range: ReportRange) {
       FROM appointment_technicians at
       JOIN appointments a ON a.id = at."appointmentId"
       JOIN appointment_statuses s ON s.id = a."statusId"
-      WHERE a."startsAt" >= ${start} AND a."startsAt" < ${end}
+      WHERE ${scope} AND a."startsAt" >= ${start} AND a."startsAt" < ${end}
       GROUP BY at."technicianId", s.kind`,
     prisma.$queryRaw<{ day: string; jobs: bigint }[]>`
       SELECT to_char(a."startsAt" AT TIME ZONE ${tz}, 'YYYY-MM-DD') AS day, COUNT(*)::bigint AS jobs
       FROM appointments a
-      WHERE a."startsAt" >= ${start} AND a."startsAt" < ${end}
+      WHERE ${scope} AND a."startsAt" >= ${start} AND a."startsAt" < ${end}
       GROUP BY day ORDER BY day`,
     // Aura's statistics by area (top 10); areas are address details, so only for readers who may see them.
     hasPermission(user, "location.view")
       ? prisma.$queryRaw<{ area: string; jobs: bigint }[]>`
           SELECT min(trim(l.area)) AS area, COUNT(*)::bigint AS jobs
           FROM appointments a JOIN customer_locations l ON l.id = a."locationId"
-          WHERE a."startsAt" >= ${start} AND a."startsAt" < ${end} AND trim(coalesce(l.area, '')) <> ''
+          WHERE ${scope} AND a."startsAt" >= ${start} AND a."startsAt" < ${end} AND trim(coalesce(l.area, '')) <> ''
           GROUP BY lower(trim(l.area)) ORDER BY jobs DESC, area LIMIT 10`
       : Promise.resolve([]),
   ]);

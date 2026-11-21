@@ -4,6 +4,7 @@ import { createReadStream } from "node:fs";
 import { mkdir, readFile, rm, stat, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Readable } from "node:stream";
+import { BadRequestError, RequestTimeoutError, ServiceUnavailableError } from "./errors";
 
 /**
  * Uploaded files on the server's disk. UPLOAD_DIR must be outside the public folder: files are only
@@ -112,24 +113,104 @@ export async function discardFile(key: string): Promise<void> {
   await rm(resolveKey(key), { force: true });
 }
 
-/** Reads a request body, refusing more than `max` bytes without buffering the rest. */
-export async function readLimitedBody(req: Request, max: number): Promise<Uint8Array | null> {
-  const declared = Number(req.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > max) return null;
+function intFromEnv(name: string, fallback: number, min: number, max: number): number {
+  const n = Number(process.env[name]);
+  return process.env[name] && Number.isInteger(n) && n >= min && n <= max ? n : fallback;
+}
+
+// Bytes of upload bodies being received right now in this process (memory is per process).
+const INFLIGHT_KEY = Symbol.for("ims.uploadBytesInFlight");
+const gUploads = globalThis as typeof globalThis & { [INFLIGHT_KEY]?: { bytes: number } };
+
+export type ReadBodyOptions = {
+  /** Longest time without any new bytes before the upload is refused (default UPLOAD_IDLE_TIMEOUT_MS, 30 s). */
+  idleTimeoutMs?: number;
+  /** Longest time for the whole body (default UPLOAD_TOTAL_TIMEOUT_MS, 15 min). */
+  totalTimeoutMs?: number;
+};
+
+/**
+ * Reads an upload body of at most `max` bytes into memory. Returns null when it is larger (the
+ * caller answers "too large"); nothing beyond `max` is ever buffered.
+ *
+ * - Content-Length is checked first (larger is refused before reading; malformed or contradictory
+ *   values get 400), but not trusted: the bytes are counted as they arrive.
+ * - Memory budget: before reading, the body's size (the declared length, else `max`) is reserved
+ *   from UPLOAD_MAX_INFLIGHT_MB (default 256) for this process; when that is used up by uploads in
+ *   progress the request gets 503 at once instead of piling up in memory.
+ * - A body that stops arriving (idle timeout) or takes too long overall gets 408; a body the client
+ *   aborted gets 400 (errors.bodyIncomplete), not a generic 500.
+ * - In every refusal the stream is cancelled and the reservation released.
+ */
+export async function readLimitedBody(req: Request, max: number, opts: ReadBodyOptions = {}): Promise<Uint8Array | null> {
+  const raw = req.headers.get("content-length");
+  let declared: number | null = null;
+  if (raw !== null) {
+    const values = new Set(raw.split(",").map((v) => v.trim()));
+    const [v] = [...values] as [string];
+    if (values.size !== 1 || !/^\d{1,15}$/.test(v)) {
+      void req.body?.cancel().catch(() => undefined);
+      throw new BadRequestError("errors.badContentLength");
+    }
+    declared = Number(v);
+  }
+  if (declared !== null && declared > max) {
+    void req.body?.cancel().catch(() => undefined);
+    return null;
+  }
   if (!req.body) return new Uint8Array();
+
+  const budget = intFromEnv("UPLOAD_MAX_INFLIGHT_MB", 256, 1, 100_000) * 1024 * 1024;
+  const reserve = declared ?? max;
+  const inflight = (gUploads[INFLIGHT_KEY] ??= { bytes: 0 });
+  if (inflight.bytes + reserve > budget) {
+    void req.body.cancel().catch(() => undefined);
+    throw new ServiceUnavailableError("errors.uploadBusy", 10);
+  }
+  inflight.bytes += reserve;
+
+  const idleMs = opts.idleTimeoutMs ?? intFromEnv("UPLOAD_IDLE_TIMEOUT_MS", 30_000, 1_000, 3_600_000);
+  const totalMs = opts.totalTimeoutMs ?? intFromEnv("UPLOAD_TOTAL_TIMEOUT_MS", 15 * 60_000, 1_000, 6 * 3_600_000);
   const reader = req.body.getReader();
   const chunks: Uint8Array[] = [];
   let size = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) break;
-    size += value.byteLength;
-    if (size > max) {
-      await reader.cancel();
-      return null;
+  const deadline = Date.now() + totalMs;
+  let timer: NodeJS.Timeout | undefined;
+  try {
+    for (;;) {
+      const wait = Math.min(idleMs, deadline - Date.now());
+      if (wait <= 0) throw new RequestTimeoutError();
+      let step: ReadableStreamReadResult<Uint8Array>;
+      try {
+        step = await Promise.race([
+          reader.read(),
+          new Promise<never>((_, reject) => {
+            timer = setTimeout(() => reject(new RequestTimeoutError()), wait);
+          }),
+        ]);
+      } catch (e) {
+        if (e instanceof RequestTimeoutError) throw e;
+        // The client went away or the connection broke mid-body.
+        throw new BadRequestError("errors.bodyIncomplete");
+      } finally {
+        clearTimeout(timer);
+      }
+      if (step.done) break;
+      size += step.value.byteLength;
+      if (size > max) {
+        reader.cancel().catch(() => undefined);
+        return null;
+      }
+      chunks.push(step.value);
     }
-    chunks.push(value);
+  } catch (e) {
+    reader.cancel().catch(() => undefined);
+    throw e;
+  } finally {
+    inflight.bytes -= reserve;
+    reader.releaseLock();
   }
+  if (declared !== null && size !== declared) throw new BadRequestError("errors.bodyIncomplete");
   const out = new Uint8Array(size);
   let offset = 0;
   for (const c of chunks) {
@@ -137,4 +218,9 @@ export async function readLimitedBody(req: Request, max: number): Promise<Uint8A
     offset += c.byteLength;
   }
   return out;
+}
+
+/** Tests: bytes of upload bodies currently reserved in this process. */
+export function uploadBytesInFlight(): number {
+  return gUploads[INFLIGHT_KEY]?.bytes ?? 0;
 }
