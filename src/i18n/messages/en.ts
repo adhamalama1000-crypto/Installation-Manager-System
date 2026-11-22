@@ -647,6 +647,7 @@ const messages = {
     technicianMissing: "One of the selected technicians does not exist.",
     technicianInactive: "{name} is inactive and cannot be assigned.",
     customerGone: "The selected customer no longer exists.",
+    followUpCustomerOutOfScope: "This visit's customer is outside the customers you handle. Ask someone who handles this customer to book the follow-up.",
     locationMismatch: "The selected location does not belong to this customer.",
     closedDay: "{day} is a closed day. Choose another date.",
     closedDayAdmin: "{day} is a closed day. To book it anyway, give the reason for overriding the schedule.",

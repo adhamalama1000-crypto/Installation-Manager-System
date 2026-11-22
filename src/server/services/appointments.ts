@@ -470,13 +470,17 @@ async function validateTechnicians(tx: Tx, ids: string[], alreadyAssigned: strin
 
 /**
  * Saves the booking's customer and location. An existing customer (by id from the client) is only
- * updated when the caller may see that customer (customerScope), or when it is the customer the
- * caller is already authorised for through the booking itself (`authorisedCustomerId`: the
- * edited booking's own customer, or the original visit's customer for a follow-up). The row is
- * locked first, so the check and the update see the same customer. An unknown or out-of-scope id
+ * used and updated when the caller may see that customer (customerScope), or when it is the edited
+ * booking's own customer (`editableCustomerId`, authorised through managing that booking). There is
+ * no exception for follow-ups: booking a visit for a customer makes them the caller's own (customer
+ * scope "own" = whoever booked their visits), so even an unchanged "link" would bring an
+ * out-of-scope customer into scope and open them to editing. A follow-up of a visit whose customer
+ * is outside the caller's customer scope is therefore refused with its own message
+ * (`followUpCustomerId`: the caller can see that visit, so this reveals nothing). The row is locked
+ * first, so the check and the write see the same customer. Any other unknown or out-of-scope id
  * gets the same answer (nothing is created instead, nothing is revealed).
  */
-async function upsertCustomerAndLocation(tx: Tx, user: CurrentUser, input: AppointmentInput, authorisedCustomerId: string | null = null) {
+async function upsertCustomerAndLocation(tx: Tx, user: CurrentUser, input: AppointmentInput, opts: { editableCustomerId?: string | null; followUpCustomerId?: string | null } = {}) {
   const c = input.customer;
   const customerData = {
     name: c.name,
@@ -491,9 +495,14 @@ async function upsertCustomerAndLocation(tx: Tx, user: CurrentUser, input: Appoi
     if (typeof c.id !== "string" || c.id.length > 64) throw gone();
     const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM customers WHERE id = ${c.id} FOR UPDATE`;
     if (!locked.length) throw gone();
-    if (c.id !== authorisedCustomerId) {
+    if (c.id !== opts.editableCustomerId) {
       const visible = await tx.customer.findFirst({ where: { AND: [{ id: c.id }, customerScope(user)] }, select: { id: true } });
-      if (!visible) throw gone();
+      if (!visible) {
+        if (opts.followUpCustomerId && c.id === opts.followUpCustomerId) {
+          throw new ValidationError({ "customer.id": msg("appointmentErrors.followUpCustomerOutOfScope") }, msg("appointmentErrors.followUpCustomerOutOfScope"));
+        }
+        throw gone();
+      }
     }
     customer = await tx.customer.update({ where: { id: c.id }, data: customerData });
   } else {
@@ -709,7 +718,8 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
   const startsAt = zonedToUtc(input.date, input.startTime, tz);
   const endsAt = computeEnd(startsAt, input.durationMinutes);
   const overrides = new Overrides(user, input.overrideReason ?? null);
-  // A follow-up books the original visit's customer, which the caller sees through that visit.
+  // A follow-up books the original visit's customer: only allowed when that customer is in the
+  // caller's customer scope (checked in upsertCustomerAndLocation).
   let followUpCustomerId: string | null = null;
   if (input.followUpOfId) {
     const original = await prisma.appointment.findFirst({ where: { AND: [{ id: input.followUpOfId }, appointmentScope(user)] }, select: { id: true, customerId: true } });
@@ -742,7 +752,7 @@ export async function createAppointment(user: CurrentUser, raw: unknown): Promis
         });
         if (conflicts.length) throw new SchedulingConflictError(conflicts);
       }
-      const { customer, location } = await upsertCustomerAndLocation(tx, user, input, followUpCustomerId);
+      const { customer, location } = await upsertCustomerAndLocation(tx, user, input, { followUpCustomerId });
       const appt = await tx.appointment.create({
         data: {
           customerId: customer.id,
@@ -892,7 +902,7 @@ export async function updateAppointment(user: CurrentUser, id: string, raw: unkn
         if (conflicts.length) throw new SchedulingConflictError(conflicts);
       }
 
-      const { customer, location } = await upsertCustomerAndLocation(tx, user, input, existing.customerId);
+      const { customer, location } = await upsertCustomerAndLocation(tx, user, input, { editableCustomerId: existing.customerId });
       await tx.appointment.update({
         where: { id, version: existing.version },
         data: {

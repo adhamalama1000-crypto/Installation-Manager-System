@@ -650,6 +650,7 @@ export const ar: Messages = {
     technicianMissing: "أحد الفنيين المختارين غير موجود.",
     technicianInactive: "{name} غير نشط ولا يمكن تعيينه.",
     customerGone: "العميل المختار لم يعد موجودًا.",
+    followUpCustomerOutOfScope: "عميل هذه الزيارة خارج العملاء الذين تتعامل معهم. اطلب من المسؤول عن هذا العميل حجز الزيارة اللاحقة.",
     locationMismatch: "العنوان المختار لا يخص هذا العميل.",
     closedDay: "يوم {day} إجازة. اختر تاريخًا آخر.",
     closedDayAdmin: "يوم {day} إجازة. للحجز رغم ذلك، اكتب سبب تجاوز المواعيد.",

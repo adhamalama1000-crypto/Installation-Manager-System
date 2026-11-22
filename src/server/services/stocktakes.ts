@@ -779,6 +779,16 @@ export async function returnForRecount(user: CurrentUser, id: string, raw: unkno
 export const MAX_STOCKTAKE_PHOTOS = 40;
 
 /** Adds a supporting photo (optionally of one line) while the stocktake is open. */
+/** The checks that need no file (run before the upload body is read): visible, open, may count, valid line, room for a photo. */
+export async function authorizeStocktakePhotoUpload(user: CurrentUser, id: string, lineId: string | null): Promise<void> {
+  await visible(user, id);
+  const s = await prisma.stocktake.findUniqueOrThrow({ where: { id } });
+  if (!OPEN.includes(s.status)) throw formError("stocktakes.errors.wrongStatus", { status: `@enums.stocktakeStatus.${s.status}` });
+  if (!(mayCount(user, s) || hasPermission(user, "inventory.approve"))) throw new ForbiddenError("stocktakePlan.errors.notAssigned");
+  if (lineId && !(await prisma.stocktakeLine.findFirst({ where: { id: lineId, stocktakeId: id }, select: { id: true } }))) throw new ValidationError({ lineId: msg("stocktakes.errors.line") });
+  if ((await prisma.stocktakePhoto.count({ where: { stocktakeId: id, deletedAt: null } })) >= MAX_STOCKTAKE_PHOTOS) throw formError("stocktakePlan.errors.tooManyPhotos", { count: MAX_STOCKTAKE_PHOTOS });
+}
+
 export async function uploadStocktakePhoto(user: CurrentUser, id: string, lineId: string | null, bytes: Uint8Array | null) {
   await visible(user, id);
   if (!bytes || !bytes.length) throw new ValidationError({ file: msg("attachments.errors.type") }, msg("attachments.errors.type"));

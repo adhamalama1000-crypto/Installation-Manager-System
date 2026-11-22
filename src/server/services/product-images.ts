@@ -31,6 +31,14 @@ export async function listProductImages(user: CurrentUser, productId: string): P
   return (await current(checkId(productId))).map((i) => ({ id: i.id, url: productImageUrl(i.id) }));
 }
 
+/** The checks that need no file (run before the upload body is read): the right and an editable product. */
+export async function authorizeProductImageUpload(user: CurrentUser, productId: string): Promise<void> {
+  assertCan(user, "products.manage");
+  const product = await prisma.product.findUnique({ where: { id: checkId(productId) }, select: { id: true, sku: true, lockedAt: true, archivedAt: true } });
+  if (!product) throw new NotFoundError();
+  assertEditable(product);
+}
+
 export async function uploadProductImage(user: CurrentUser, productId: string, bytes: Uint8Array | null): Promise<ProductImageDTO> {
   assertCan(user, "products.manage");
   if (!bytes) throw new ValidationError({ file: msg("attachments.errors.tooLarge") }, msg("attachments.errors.tooLarge"));

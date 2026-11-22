@@ -18,14 +18,15 @@ Passwords are now checked and hashed on a small, fixed pool of worker threads
 | `AUTH_HASH_QUEUE_TIMEOUT_MS` | `5000` | Longest wait in the queue before the sign-in is refused |
 | `AUTH_HASH_JOB_TIMEOUT_MS` | `10000` | Longest single check; a worker that takes longer is terminated and replaced |
 | `AUTH_HASH_PRIORITY_RESERVE` | `max(threads, ⌈(threads + queue) / 3⌉)` | Places kept for **priority** checks (known devices, signed-in users). Ordinary sign-ins may only use the rest |
-| `AUTH_HASH_MAX_PER_CLIENT` | `2` | Checks one client may have running or waiting at once (a trusted address, a known device, a signed-in user). `0` = no limit |
+| `AUTH_HASH_MAX_PER_CLIENT` | `2` | Checks one client may have running or waiting at once: a trusted address, or an **account** (all its known devices and its password changes together). `0` = no limit |
 
 The pool has two lanes. **Priority** checks (a sign-in from a known device, see §2, and password
 changes by signed-in users) may use every place and always start before waiting ordinary ones.
 **Standard** checks (sign-ins from browsers the account does not know) may only fill the pool up to
 the reserve. So a flood of sign-ins can never take the places a known device needs, and one client
-(one trusted address, one device, one user) can never hold more than `AUTH_HASH_MAX_PER_CLIENT`
-places. These limits are per process: the pool and its CPU belong to that process, so nothing has
+can never hold more than `AUTH_HASH_MAX_PER_CLIENT` places. In the priority lane the client is the
+**account**: all of an account's known devices and its password changes share those places, so one
+valid password, however many devices it was used on, cannot fill the priority lane. These limits are per process: the pool and its CPU belong to that process, so nothing has
 to be shared between instances.
 
 - When the pool is full, or a check waits too long, the request gets **503** with `Retry-After: 5`
@@ -61,6 +62,7 @@ exactly `limit` of them are let through. There is no read-then-write step.
 | `LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL` | `10` | Attempts per account per window across **all** trusted addresses together (behind a trusted proxy) |
 | `LOGIN_MAX_FAILURES_PER_IP` | `30` | Attempts per client address per window, any accounts (only with a trusted proxy, see below) |
 | `LOGIN_FAILURE_WINDOW_MINUTES` | `15` | Window length for the limits above |
+| `LOGIN_MAX_SUCCESSES_PER_ACCOUNT` | `100` | **Successful** sign-ins per account per window, from all clients together. An account at the limit is refused (429) before its password is checked; a success beyond it gets no session. Audited once per window (`LOGIN_BLOCKED`, scope `successes`) |
 | `LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE` | `300` | Attempts per minute across all accounts and addresses, for browsers the account does not know |
 | `LOGIN_ATTEMPT_RETENTION_DAYS` | `30` | How long raw sign-in records (`login_attempts`) are kept |
 
@@ -93,7 +95,13 @@ Unknown device (no valid device cookie for this account):
    (5) and the account across all addresses (10); without one the account alone (5). Over either:
    **429**, and the global/address slots are given back.
 
-Known device: its own device counter only (5 per window), then the priority lane.
+Known device: its own device counter only (5 per window), then the priority lane, sharing the
+account's places.
+
+Every lane, after the counters above: the account's **successful** sign-ins this window
+(`LOGIN_MAX_SUCCESSES_PER_ACCOUNT`). At the limit the sign-in is refused before the password check;
+a correct password beyond it (simultaneous requests) is counted atomically and gets no session. A
+single valid password therefore cannot produce unlimited password work, sessions or audit rows.
 
 4. The password is checked. Success clears that attempt's account/device counters and gives back
    the address and global slots. Failure keeps the counts. A check that could not run (pool busy,
@@ -132,7 +140,8 @@ investigation. Known devices are not affected.
 
 ### Password changes
 
-`POST /api/me/password` (a signed-in user changing their own password) is limited like a sign-in:
+`POST /api/me/password` (a signed-in user changing their own password; its checks share the
+account's places in the pool with its known-device sign-ins) is limited like a sign-in:
 `LOGIN_MAX_FAILURES_PER_ACCOUNT` attempts per user per window (counter `pwchange:<user id>`), then
 **429** with `Retry-After`. Every wrong current password is audited (`USER_PASSWORD_CHANGE_FAILED`),
 the lock once (`USER_PASSWORD_CHANGE_BLOCKED`), never with a password or hash. The checks use the
@@ -201,13 +210,21 @@ File uploads (photos, videos, proofs, receipts, product images, imports) have th
 - **Memory budget per process:** before reading, the body's size (declared, else the limit) is
   reserved from `UPLOAD_MAX_INFLIGHT_MB` (default 256). When uploads in progress use it up, further
   uploads get **503** with `Retry-After` at once instead of piling up in memory.
+- **Per-user share:** one signed-in user may hold at most `UPLOAD_MAX_INFLIGHT_PER_USER_MB` (default
+  64) of that budget and `UPLOAD_MAX_CONCURRENT_PER_USER` (default 3) uploads at once; beyond that
+  **429**. One account cannot take the whole budget.
+- **Minimum rate:** after `UPLOAD_MIN_RATE_GRACE_MS` (default 10 s) a body must average at least
+  `UPLOAD_MIN_RATE_KBPS` (default 8 KiB/s), otherwise **408** as soon as it falls below; a trickled
+  body cannot hold its reservation for minutes.
 - A body that stops arriving for `UPLOAD_IDLE_TIMEOUT_MS` (default 30 s) or takes longer than
   `UPLOAD_TOTAL_TIMEOUT_MS` (default 15 min) gets **408**; an upload the client aborts gets **400**
   (not a 500). The stream is cancelled and the reservation released in every case.
-- Visit attachments (`POST /api/appointments/[id]/attachments`) check the caller's right to add that
-  kind to that visit **before reading a single byte**; a caller who may not upload never makes the
-  server receive the file. (The other upload routes still read the body first and check rights
-  when saving; their bodies are bounded by the limits above.)
+- **Every upload route checks the caller's rights before reading a single byte**
+  (`authorizeThenRead`): visit attachments (the visit and the right to add that kind), expense
+  receipts (the caller's own pending expense without a receipt), stocktake photos (an open stocktake
+  the caller may count, the line, room for a photo), product images (`products.manage`, an editable
+  product) and the product import (`products.manage`). A caller who may not upload is refused
+  without the server receiving the file and without reserving any budget.
 
 ## 5. Audit entries and investigations
 
@@ -281,3 +298,13 @@ the code back:
 DROP TABLE IF EXISTS login_devices;
 DELETE FROM _prisma_migrations WHERE migration_name = '20261121120000_login_devices';
 ```
+
+## 8. Customers in bookings
+
+A booking that names an existing customer (by id) may only use and update a customer inside the
+caller's customer scope, or the edited booking's own customer. There is no exception for
+follow-ups: booking a visit for a customer makes them "own" in the customer scope, so even
+linking an out-of-scope customer unchanged would let the next booking edit them. A follow-up of a
+visit whose customer is outside the caller's customer scope is refused with
+`appointmentErrors.followUpCustomerOutOfScope`; someone who handles that customer books it. With
+the default scopes (appointments and customers both ALL for Sales) nothing changes.

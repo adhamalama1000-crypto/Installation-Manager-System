@@ -88,13 +88,44 @@ describe("customer references in bookings", () => {
     expect(updated.customer.id).toBe(victimId);
   });
 
-  it("lets a follow-up book the original visit's customer", async () => {
-    const followUp = await createAppointment(asCurrent(salesA), { ...withCustomer(victimId, "Victim Customer", { date: "2030-03-20" }), followUpOfId: victimBookingId });
-    expect(followUp.customer.id).toBe(victimId);
-    // ...but not a different customer in the same request.
-    const third = await createAppointment(asCurrent(salesB), appointmentPayload({ date: "2030-03-21", customer: { name: "Third Customer", phone: "+20 122 000 1111", secondaryPhone: "" } }));
-    await expectRejected(createAppointment(asCurrent(salesA), { ...withCustomer(third.customer.id, "Hijack", { date: "2030-03-22" }), followUpOfId: victimBookingId }));
-    expect((await prisma.customer.findUniqueOrThrow({ where: { id: third.customer.id } })).name).toBe("Third Customer");
+  it("refuses a follow-up for a customer outside the caller's customer scope, even with unchanged details (review R3)", async () => {
+    const original = await prisma.appointment.findUniqueOrThrow({ where: { id: victimBookingId } });
+    const before = { appointments: await prisma.appointment.count(), locations: await prisma.customerLocation.count() };
+    const prefilled = { id: victimId, name: "Victim Customer", phone: "+20 100 999 8888", secondaryPhone: "" };
+    const site = { ...appointmentPayload().location, id: original.locationId };
+    const attempts = [
+      { customer: { ...prefilled, name: "Renamed via follow-up" }, location: site }, // the review's attack
+      { customer: { ...prefilled, phone: "+20 155 000 0000" }, location: site },
+      { customer: prefilled, location: { ...site, streetAddress: "1 Attacker Street" } },
+      // Unchanged too: linking would make the customer "own" (they booked a visit) and open them to edits.
+      { customer: prefilled, location: site },
+    ];
+    for (const { customer, location } of attempts) {
+      const e = (await createAppointment(asCurrent(salesA), { ...appointmentPayload({ date: "2030-03-25", customer, location }), followUpOfId: victimBookingId }).catch((x: unknown) => x)) as ValidationError;
+      expect(e).toBeInstanceOf(ValidationError);
+      expect(e.fieldErrors["customer.id"]).toMatch(/outside the customers you handle/);
+    }
+    await victimUnchanged();
+    expect({ appointments: await prisma.appointment.count(), locations: await prisma.customerLocation.count() }).toEqual(before);
+    // So the two-step chain (link via follow-up, then edit as an "own" customer) cannot start.
+    await expectRejected(createAppointment(asCurrent(salesA), withCustomer(victimId, "Second step", { date: "2030-03-27" })));
+    await victimUnchanged();
+  });
+
+  it("still books follow-ups for in-scope callers (and lets them correct the customer)", async () => {
+    const allA = await withScopes(salesA, {});
+    const f = await createAppointment(asCurrent(allA), { ...withCustomer(victimId, "Victim Customer (corrected)", { date: "2030-03-26" }), followUpOfId: victimBookingId });
+    expect(f.customer.id).toBe(victimId);
+    expect((await prisma.customer.findUniqueOrThrow({ where: { id: victimId } })).name).toBe("Victim Customer (corrected)");
+    // The visit's own salesperson, of course, too.
+    const own = await createAppointment(asCurrent(salesB), { ...withCustomer(victimId, "Victim Customer", { date: "2030-03-28" }), followUpOfId: victimBookingId });
+    expect(own.customer.id).toBe(victimId);
+  });
+
+  it("lets an out-of-scope caller book a follow-up for a new customer record (nothing existing is touched)", async () => {
+    const f = await createAppointment(asCurrent(salesA), { ...appointmentPayload({ date: "2030-03-29", customer: { name: "New Person", phone: "+20 109 000 1234", secondaryPhone: "" } }), followUpOfId: victimBookingId });
+    expect(f.customer.id).not.toBe(victimId);
+    await victimUnchanged();
   });
 
   it("does not let concurrent requests slip an out-of-scope update through", async () => {

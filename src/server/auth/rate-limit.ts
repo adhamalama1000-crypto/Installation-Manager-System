@@ -187,6 +187,14 @@ export async function takeSlot(key: string, limit: number, minutes: number, opts
   return { ok: true, slot: s };
 }
 
+/** The current count of a limited counter (0 when absent). Only used to refuse early; admission is `takeSlot`. */
+export async function slotCount(key: string, minutes: number, opts: { now?: Date; db?: Db } = {}): Promise<number> {
+  const s = slot(key, opts.now ?? new Date(), minutes);
+  const rows = await (opts.db ?? prisma).$queryRaw<{ count: number }[]>`
+    SELECT count FROM auth_rate_limits WHERE key = ${s.key} AND "windowStart" = ${s.windowStart}::timestamptz`;
+  return Number(rows[0]?.count ?? 0);
+}
+
 export async function clearSlot(s: Slot, db: Db = prisma): Promise<void> {
   await remove([s], db);
 }

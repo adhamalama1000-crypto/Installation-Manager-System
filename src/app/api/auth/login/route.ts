@@ -2,14 +2,14 @@ import { NextResponse } from "next/server";
 import { msg } from "@/i18n/translator";
 import { recordAudit } from "@/server/services/audit";
 import { fieldErrorsFromZod, loginSchema } from "@/lib/validation";
-import { addressKey, loginLimits } from "@/lib/login-limits";
+import { addressKey, loginLimits, successKey, windowStart } from "@/lib/login-limits";
 import { prisma } from "@/server/db";
 import { RateLimitError, ServiceUnavailableError, UnauthorizedError, ValidationError } from "@/server/errors";
 import { publicRoute, readJson } from "@/server/http";
 import { verifyPassword } from "@/server/auth/password";
 import { getHashPool, HashPoolBusyError, HashPoolFailureError } from "@/server/auth/hash-pool";
 import { UNKNOWN_ADDRESS } from "@/server/auth/client-ip";
-import { claimOnce, clientIp, recordLoginAttempt, releaseLoginAttempt, reserveDeviceAttempt, reserveLoginAttempt, settleLoginSuccess, type LimitScope } from "@/server/auth/rate-limit";
+import { claimOnce, clientIp, recordLoginAttempt, releaseLoginAttempt, reserveDeviceAttempt, reserveLoginAttempt, settleLoginSuccess, slotCount, takeSlot, type LimitScope } from "@/server/auth/rate-limit";
 import { knownDeviceFor, rememberDevice, type KnownDevice } from "@/server/auth/devices";
 import { cookieFromHeader, createSession, sessionCookie } from "@/server/auth/session";
 import { isLocale, LOCALE_COOKIE } from "@/i18n/config";
@@ -25,8 +25,15 @@ import { localeCookie } from "@/server/locale";
  *   2. limit slots are taken atomically (src/server/auth/rate-limit.ts; else 429);
  *   3. the password is checked on a worker thread (unknown accounts against a dummy hash, so they
  *      cost the same and answer the same);
- *   4. the outcome is recorded and audited (bounded, see below), then the session is created and
+ *   4. successful sign-ins are limited per account (LOGIN_MAX_SUCCESSES_PER_ACCOUNT per window):
+ *      an account already at the limit is refused before its password is checked, and a success
+ *      beyond it gets no session;
+ *   5. the outcome is recorded and audited (bounded, see below), then the session is created and
  *      the browser is remembered as a known device of the account.
+ *
+ * All of an account's known devices count as ONE client in the pool's per-client limit
+ * (`user:<id>`, AUTH_HASH_MAX_PER_CLIENT places, the same client as that user's password changes),
+ * however many devices the account has, so one valid password cannot fill the priority lane.
  *
  * Audit entries (append-only, written before the response so none is lost):
  *   - LOGIN_SUCCEEDED for every sign-in;
@@ -48,6 +55,13 @@ async function auditBlocked(scope: LimitScope, email: string, ip: string, firstB
   }
 }
 
+/** The successful-sign-in limit of an account was reached: audited once per window, whichever path refused. */
+async function auditSuccessLimit(email: string, limit: number, minutes: number) {
+  if (await claimOnce(`audit:blocked:${successKey(email)}`, minutes)) {
+    await recordAudit(prisma, { entityType: "AUTH", entityId: email.slice(0, 254), action: "LOGIN_BLOCKED", summary: msg("authAudit.loginBlocked", { email }), changes: { email, scope: "successes", limit }, actorId: null });
+  }
+}
+
 const busy = () => new ServiceUnavailableError("errors.authBusy", 5);
 
 export const POST = publicRoute(async ({ req }) => {
@@ -64,7 +78,7 @@ export const POST = publicRoute(async ({ req }) => {
   let job: { lane: "priority" | "standard"; client?: string };
   try {
     device = await knownDeviceFor(req, email);
-    job = device ? { lane: "priority", client: `dev:${device.tokenHash}` } : { lane: "standard", client: ip === UNKNOWN_ADDRESS ? undefined : `ip:${ip}` };
+    job = device ? { lane: "priority", client: `user:${device.userId}` } : { lane: "standard", client: ip === UNKNOWN_ADDRESS ? undefined : `ip:${ip}` };
     // 1. Refuse at once when this lane of the password pool is full or this client holds its share.
     if (!getHashPool().hasCapacity(job)) throw busy();
     reserved = device ? await reserveDeviceAttempt(device.tokenHash) : await reserveLoginAttempt(email, ip);
@@ -78,6 +92,25 @@ export const POST = publicRoute(async ({ req }) => {
     throw new RateLimitError("errors.rateLimited", reserved.retryAfterSeconds);
   }
   const { reservation } = reserved;
+  const limits = loginLimits();
+
+  // 4a. An account that already had its successful sign-ins for this window is refused before any
+  // password work (counted per account, shared by every instance; it only fills with correct passwords).
+  let successesSoFar: number;
+  try {
+    successesSoFar = await slotCount(successKey(email), limits.windowMinutes);
+  } catch (e) {
+    await releaseLoginAttempt(reservation).catch(() => undefined);
+    console.error("[auth] sign-in limits unavailable:", e instanceof Error ? e.name : "error");
+    throw busy();
+  }
+  if (successesSoFar >= limits.successesPerAccount) {
+    await releaseLoginAttempt(reservation).catch(() => undefined);
+    await auditSuccessLimit(email, limits.successesPerAccount, limits.windowMinutes);
+    const now = Date.now();
+    const ends = windowStart(new Date(now), limits.windowMinutes).getTime() + limits.windowMinutes * 60_000;
+    throw new RateLimitError("errors.rateLimited", Math.max(1, Math.ceil((ends - now) / 1000)));
+  }
 
   // 3. Password check on the worker pool.
   let user: Awaited<ReturnType<typeof prisma.user.findUnique>>;
@@ -118,6 +151,13 @@ export const POST = publicRoute(async ({ req }) => {
     }
     // Same message for unknown email, wrong password and inactive account.
     throw new UnauthorizedError("auth.invalid");
+  }
+  // 4b. Count the success atomically; one beyond the limit gets no session (and is audited once).
+  const counted = await takeSlot(successKey(email), limits.successesPerAccount, limits.windowMinutes);
+  if (!counted.ok) {
+    await releaseLoginAttempt(reservation).catch(() => undefined);
+    await auditSuccessLimit(email, limits.successesPerAccount, limits.windowMinutes);
+    throw new RateLimitError("errors.rateLimited", counted.retryAfterSeconds);
   }
   await settleLoginSuccess(reservation);
   await recordLoginAttempt(email, ip, "SUCCESS", userAgent);

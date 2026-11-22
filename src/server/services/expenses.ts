@@ -110,6 +110,13 @@ async function ownPending(user: CurrentUser, id: string) {
 }
 
 /** The receipt photo, once, by the owner while the expense is pending. */
+/** The checks that need no file (run before the upload body is read): the right, an own pending expense without a receipt. */
+export async function authorizeReceiptUpload(user: CurrentUser, id: string): Promise<void> {
+  assertCan(user, "expenses.record");
+  const e = await ownPending(user, id);
+  if (e.receiptKey) throw new ValidationError({ file: msg("expenses.errors.hasReceipt") }, msg("expenses.errors.hasReceipt"));
+}
+
 export async function addReceipt(user: CurrentUser, id: string, bytes: Uint8Array | null): Promise<ExpenseDTO> {
   assertCan(user, "expenses.record");
   if (!bytes) throw new ValidationError({ file: msg("attachments.errors.tooLarge") }, msg("attachments.errors.tooLarge"));

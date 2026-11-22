@@ -9,9 +9,10 @@ import { POST as login } from "@/app/api/auth/login/route";
 import { hashPassword } from "@/server/auth/password";
 import { getHashPool, resetHashPoolForTests } from "@/server/auth/hash-pool";
 import { resetCleanupScheduleForTests } from "@/server/auth/rate-limit";
+import { POST as changePassword } from "@/app/api/me/password/route";
 import { DEVICE_COOKIE } from "@/server/auth/devices";
 import { sha256 } from "@/server/auth/crypto";
-import { accountKey, deviceKey } from "@/lib/login-limits";
+import { accountKey, deviceKey, successKey } from "@/lib/login-limits";
 import { makeUser, prisma, resetDb } from "../helpers";
 
 const PASSWORD = "Password123";
@@ -30,6 +31,7 @@ const deviceCookieOf = (res: Response) => res.headers.getSetCookie().find((c) =>
 const ENV = [
   "TRUSTED_PROXY_HOPS", "LOGIN_MAX_FAILURES_PER_ACCOUNT", "LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL", "LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE",
   "AUTH_HASH_THREADS", "AUTH_HASH_MAX_QUEUE", "AUTH_HASH_QUEUE_TIMEOUT_MS", "AUTH_HASH_PRIORITY_RESERVE", "AUTH_HASH_MAX_PER_CLIENT",
+  "LOGIN_MAX_SUCCESSES_PER_ACCOUNT",
 ];
 let hash: string;
 
@@ -213,6 +215,83 @@ describe("targeted lockout behind a trusted proxy", () => {
     // 10 failures across addresses: the account is locked for unknown devices from anywhere.
     expect((await login(loginReq("victim@test.local", PASSWORD, { "x-forwarded-for": "198.51.100.77" }))).status).toBe(429);
     expect((await login(loginReq("victim@test.local", PASSWORD, { "x-forwarded-for": "198.51.100.77", cookie: device }))).status).toBe(200);
+  });
+});
+
+describe("one valid password cannot monopolise sign-in (review R1)", () => {
+  /** A small pool: 1 worker + 5 queued = 6 places, 2 of them reserved for priority jobs. */
+  async function smallPool() {
+    process.env.AUTH_HASH_THREADS = "1";
+    process.env.AUTH_HASH_MAX_QUEUE = "5";
+    process.env.AUTH_HASH_PRIORITY_RESERVE = "2";
+    process.env.AUTH_HASH_QUEUE_TIMEOUT_MS = "60000";
+    await resetHashPoolForTests();
+  }
+
+  it("all of an account's known devices together hold at most 2 places; other users' known devices still get in", async () => {
+    await makeUser("SALES", { email: "insider@test.local", passwordHash: hash });
+    const devices: string[] = [];
+    for (let i = 0; i < 3; i++) devices.push(await knownDevice("insider@test.local"));
+    const victimDevice = await knownDevice();
+    await smallPool();
+    // The review's attack: correct-password sign-ins from 3 devices x 2 = 6 places (the whole pool).
+    const flood = devices.flatMap((d) => [login(loginReq("insider@test.local", PASSWORD, { cookie: d })), login(loginReq("insider@test.local", PASSWORD, { cookie: d }))]);
+    await new Promise((r) => setTimeout(r, 30));
+    expect(getHashPool().stats().inFlightPriority).toBeLessThanOrEqual(2);
+    expect((await login(loginReq("victim@test.local", PASSWORD, { cookie: victimDevice }))).status).toBe(200);
+    expect((await login(loginReq("victim@test.local", PASSWORD))).status).toBe(200); // an unknown browser too
+    const s = statuses(await Promise.all(flood));
+    expect(s[503]).toBeGreaterThanOrEqual(4); // the account's extra places were refused at once
+    expect(getHashPool().stats().rejectedClient).toBeGreaterThanOrEqual(4);
+  });
+
+  it("password changes share the account's places with its known-device sign-ins", async () => {
+    await makeUser("SALES", { email: "insider@test.local", passwordHash: hash });
+    const first = await login(loginReq("insider@test.local", PASSWORD));
+    const device = deviceCookieOf(first)!;
+    const session = first.headers.getSetCookie().find((c) => c.startsWith("ims_session="))!.split(";")[0]!;
+    await smallPool();
+    const change = () => changePassword(new Request("http://localhost:3000/api/me/password", { method: "POST", headers: { host: "localhost:3000", "content-type": "application/json", cookie: session }, body: JSON.stringify({ currentPassword: "Not-Mine-1", newPassword: "Whatever-Pass-2" }) }), { params: Promise.resolve({}) });
+    const jobs = [change(), change(), login(loginReq("insider@test.local", PASSWORD, { cookie: device }))];
+    await new Promise((r) => setTimeout(r, 30));
+    expect(getHashPool().stats().inFlightPriority).toBeLessThanOrEqual(2);
+    expect((await Promise.all(jobs)).some((r) => r.status === 503)).toBe(true);
+  });
+
+  it("limits successful sign-ins per account: no session beyond the limit, then refused before any password work", async () => {
+    process.env.LOGIN_MAX_SUCCESSES_PER_ACCOUNT = "5";
+    for (let i = 0; i < 5; i++) expect((await login(loginReq("victim@test.local", PASSWORD))).status).toBe(200);
+    const sessions = await prisma.session.count();
+    const over = await login(loginReq("victim@test.local", PASSWORD));
+    expect(over.status).toBe(429);
+    expect(Number(over.headers.get("retry-after"))).toBeGreaterThan(0);
+    expect(over.headers.getSetCookie().some((c) => c.startsWith("ims_session="))).toBe(false);
+    expect(await prisma.session.count()).toBe(sessions);
+    // Now even a known device or a wrong password is refused without a bcrypt check.
+    const device = (await prisma.loginDevice.count()) > 0;
+    expect(device).toBe(true);
+    const checked = getHashPool().stats().completed;
+    expect((await login(loginReq("victim@test.local", PASSWORD))).status).toBe(429);
+    expect((await login(loginReq("victim@test.local", "wrong-pass-1"))).status).toBe(429);
+    expect(getHashPool().stats().completed).toBe(checked);
+    expect(await prisma.auditLog.count({ where: { action: "LOGIN_BLOCKED", changes: { path: ["scope"], equals: "successes" } } })).toBe(1);
+    // Other accounts are not affected, and nothing else was counted for the refused attempts.
+    expect((await login(loginReq("other@test.local", PASSWORD))).status).toBe(200);
+    // Refused attempts wrote nothing to the success counter.
+    expect((await prisma.authRateLimit.findFirstOrThrow({ where: { key: successKey("victim@test.local") } })).count).toBe(5);
+  });
+
+  it("counts successes atomically: 12 simultaneous correct sign-ins with a limit of 5 give exactly 5 sessions", async () => {
+    process.env.LOGIN_MAX_SUCCESSES_PER_ACCOUNT = "5";
+    // The failure limit also counts attempts in progress; raise it so only the success limit decides here.
+    process.env.LOGIN_MAX_FAILURES_PER_ACCOUNT = "100";
+    process.env.AUTH_HASH_MAX_QUEUE = "100";
+    process.env.AUTH_HASH_QUEUE_TIMEOUT_MS = "60000";
+    await resetHashPoolForTests();
+    const rs = await Promise.all(Array.from({ length: 12 }, () => login(loginReq("victim@test.local", PASSWORD))));
+    expect(statuses(rs)).toEqual({ 200: 5, 429: 7 });
+    expect(await prisma.session.count()).toBe(5);
+    expect(await prisma.auditLog.count({ where: { action: "LOGIN_BLOCKED", changes: { path: ["scope"], equals: "successes" } } })).toBe(1);
   });
 });
 

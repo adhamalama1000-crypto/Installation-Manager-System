@@ -28,6 +28,12 @@ export type LoginLimits = {
    * account's limit). Stops guessing from many addresses.
    */
   perAccountTotal: number;
+  /**
+   * Successful sign-ins per account per window, from all clients together. Bounds the password
+   * work, sessions and audit rows one valid password can produce; beyond it the account's sign-ins
+   * are refused (before the password check) until the window ends.
+   */
+  successesPerAccount: number;
   /** Attempts per trusted client address per window (only with TRUSTED_PROXY_HOPS >= 1). */
   perAddress: number;
   /** Length of the per-account / per-address window. */
@@ -42,6 +48,7 @@ export function loginLimits(): LoginLimits {
   return {
     perAccount: intFromEnv("LOGIN_MAX_FAILURES_PER_ACCOUNT", 5, 1, 1000),
     perAccountTotal: intFromEnv("LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL", 10, 1, 10_000),
+    successesPerAccount: intFromEnv("LOGIN_MAX_SUCCESSES_PER_ACCOUNT", 100, 1, 100_000),
     perAddress: intFromEnv("LOGIN_MAX_FAILURES_PER_IP", 30, 1, 100_000),
     windowMinutes: intFromEnv("LOGIN_FAILURE_WINDOW_MINUTES", 15, 1, 1440),
     globalPerMinute: intFromEnv("LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE", 300, 1, 1_000_000),
@@ -66,6 +73,11 @@ export function accountAddressKey(email: string, ip: string): string {
 /** Rate-limit key of a known device (the sha256 of its device token). */
 export function deviceKey(tokenHash: string): string {
   return `dev:${tokenHash}`;
+}
+
+/** Rate-limit key of successful sign-ins to an account. */
+export function successKey(email: string): string {
+  return `ok:${accountKey(email).slice("acct:".length)}`;
 }
 
 /** Rate-limit key of password-change attempts by a signed-in user. */

@@ -10,6 +10,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { User } from "@prisma/client";
 import { POST as upload } from "@/app/api/appointments/[id]/attachments/route";
 import { POST as login } from "@/app/api/auth/login/route";
+import { POST as uploadReceipt } from "@/app/api/expenses/[id]/receipt/route";
+import { POST as uploadStocktakePhoto } from "@/app/api/stocktakes/[id]/photos/route";
+import { POST as uploadProductImage } from "@/app/api/products/[id]/images/route";
+import { POST as importProducts } from "@/app/api/products/import/route";
+import { addExpense } from "@/server/services/expenses";
+import { saveProduct } from "@/server/services/inventory-catalog";
 import { createAppointment } from "@/server/services/appointments";
 import { hashPassword } from "@/server/auth/password";
 import { resetHashPoolForTests } from "@/server/auth/hash-pool";
@@ -68,7 +74,7 @@ function uploadReq(cookie: string, kind: string, b: ReadableStream<Uint8Array> |
 const params = () => ({ params: Promise.resolve({ id: apptId }) });
 const files = async () => (await readdir(dir, { recursive: true, withFileTypes: true })).filter((f) => f.isFile()).length;
 
-const ENV = ["UPLOAD_MAX_INFLIGHT_MB", "UPLOAD_IDLE_TIMEOUT_MS", "UPLOAD_TOTAL_TIMEOUT_MS"];
+const ENV = ["UPLOAD_MAX_INFLIGHT_MB", "UPLOAD_IDLE_TIMEOUT_MS", "UPLOAD_TOTAL_TIMEOUT_MS", "UPLOAD_MAX_INFLIGHT_PER_USER_MB", "UPLOAD_MAX_CONCURRENT_PER_USER", "UPLOAD_MIN_RATE_KBPS", "UPLOAD_MIN_RATE_GRACE_MS"];
 
 beforeEach(async () => {
   for (const k of ENV) delete process.env[k];
@@ -179,5 +185,117 @@ describe("attachment uploads", () => {
     expect(rs.find((r) => r.status === 503)!.headers.get("retry-after")).toBeTruthy();
     expect(uploadBytesInFlight()).toBe(0);
     expect(await prisma.attachment.count()).toBe(codes.filter((c) => c === 200).length);
+  });
+});
+
+/** A POST to any upload route with a raw body (stream or bytes) and an optional declared length. */
+function post(url: string, cookie: string, b: ReadableStream<Uint8Array> | Uint8Array, len?: number) {
+  return new Request(`http://localhost:3000${url}`, {
+    method: "POST",
+    headers: { host: "localhost:3000", cookie, "content-type": "application/octet-stream", ...(len !== undefined ? { "content-length": String(len) } : {}) },
+    body: b as BodyInit,
+    // @ts-expect-error Node needs this for stream bodies
+    duplex: "half",
+  });
+}
+const p = (id: string) => ({ params: Promise.resolve({ id }) });
+const jpeg = (n = 2000) => {
+  const b = new Uint8Array(n);
+  b.set(JPEG_HEAD);
+  return b;
+};
+
+describe("every upload route authorises before reading, and the budget is shared fairly (review R2)", () => {
+  it("the review's attack: a Viewer's stalled receipt uploads reserve nothing, and a legitimate upload still succeeds", async () => {
+    process.env.UPLOAD_MAX_INFLIGHT_MB = "16";
+    await makeUser("VIEWER", { email: "viewer@test.local", passwordHash: await hashPassword(PASSWORD), viewerPermissions: ["appointments.view"] });
+    const viewer = await cookieFor("viewer@test.local");
+    const stalled = [1, 2].map(() => body({ total: 8 * 1024 * 1024, stallAfter: 64 * 1024 }));
+    const rs = await Promise.all(stalled.map((st) => uploadReceipt(post("/api/expenses/not-mine/receipt", viewer, st.stream, 8 * 1024 * 1024), p("not-mine"))));
+    expect(rs.map((r) => r.status)).toEqual([403, 403]);
+    expect(stalled.every((st) => st.stats.cancelled && st.stats.pulled <= 128 * 1024)).toBe(true);
+    expect(uploadBytesInFlight()).toBe(0);
+    const legit = await upload(uploadReq(salesCookie, "BEFORE_PHOTO", jpeg()), params());
+    expect(legit.status).toBe(200);
+  });
+
+  it("refuses unauthorised callers on every other upload route before reading the body, writing nothing", async () => {
+    const tech = await makeUser("TECHNICIAN", { email: "tech@test.local", passwordHash: await hashPassword(PASSWORD) });
+    const expense = await addExpense(asCurrent(tech), { amount: 50 });
+    const manager = await makeUser("WAREHOUSE_MANAGER");
+    const product = await saveProduct(asCurrent(manager), null, { sku: "IMG-1", nameEn: "Lock", nameAr: "قفل", unitId: "unit-pcs" });
+    const cases: [string, (b: ReadableStream<Uint8Array>) => Promise<Response>][] = [
+      ["someone else's expense receipt", (b) => uploadReceipt(post(`/api/expenses/${expense.id}/receipt`, salesCookie, b, 8 * 1024 * 1024), p(expense.id))],
+      ["stocktake photo (no stocktake access)", (b) => uploadStocktakePhoto(post("/api/stocktakes/st-1/photos", salesCookie, b, 8 * 1024 * 1024), p("st-1"))],
+      ["product image (no products.manage)", (b) => uploadProductImage(post(`/api/products/${product.id}/images`, salesCookie, b, 8 * 1024 * 1024), p(product.id))],
+      ["product import (no products.manage)", (b) => importProducts(post("/api/products/import?mode=commit", salesCookie, b, 8 * 1024 * 1024), p(""))],
+    ];
+    for (const [name, call] of cases) {
+      const b = body({ total: 8 * 1024 * 1024 });
+      const r = await call(b.stream);
+      expect([403, 404], name).toContain(r.status);
+      expect(b.stats.pulled, name).toBeLessThanOrEqual(64 * 1024 * 2);
+      expect(b.stats.cancelled, name).toBe(true);
+    }
+    expect(uploadBytesInFlight()).toBe(0);
+    expect(await files()).toBe(0);
+    expect(await prisma.productImage.count()).toBe(0);
+    expect((await prisma.transportExpense.findUniqueOrThrow({ where: { id: expense.id } })).receiptKey).toBeNull();
+  });
+
+  it("still accepts authorised uploads on those routes (receipt by its owner, product image by a manager)", async () => {
+    const passwordHash = await hashPassword(PASSWORD);
+    const tech = await makeUser("TECHNICIAN", { email: "tech@test.local", passwordHash });
+    const manager = await makeUser("WAREHOUSE_MANAGER", { email: "manager@test.local", passwordHash });
+    const expense = await addExpense(asCurrent(tech), { amount: 50 });
+    const product = await saveProduct(asCurrent(manager), null, { sku: "IMG-2", nameEn: "Lock", nameAr: "قفل", unitId: "unit-pcs" });
+    const receipt = await uploadReceipt(post(`/api/expenses/${expense.id}/receipt`, await cookieFor("tech@test.local"), jpeg()), p(expense.id));
+    expect(receipt.status).toBe(200);
+    const image = await uploadProductImage(post(`/api/products/${product.id}/images`, await cookieFor("manager@test.local"), jpeg()), p(product.id));
+    expect(image.status).toBe(201);
+    expect(uploadBytesInFlight()).toBe(0);
+  });
+
+  it("caps one user's share of the budget (bytes and simultaneous uploads); other users are not affected", async () => {
+    process.env.UPLOAD_MAX_INFLIGHT_PER_USER_MB = "10";
+    process.env.UPLOAD_IDLE_TIMEOUT_MS = "3000";
+    const held = body({ total: 8 * 1024 * 1024, stallAfter: 64 * 1024 });
+    const holding = upload(uploadReq(salesCookie, "BEFORE_PHOTO", held.stream, { "content-length": String(8 * 1024 * 1024) }), params());
+    await new Promise((r) => setTimeout(r, 50));
+    expect(uploadBytesInFlight(sales.id)).toBe(8 * 1024 * 1024);
+    // The same user: another 8 MB would exceed their 10 MB share -> 429 at once, nothing read.
+    const second = body({ total: 8 * 1024 * 1024 });
+    const r2 = await upload(uploadReq(salesCookie, "BEFORE_PHOTO", second.stream, { "content-length": String(8 * 1024 * 1024) }), params());
+    expect(r2.status).toBe(429);
+    expect(second.stats.pulled).toBeLessThanOrEqual(64 * 1024 * 2);
+    // A different user still uploads.
+    await makeUser("ADMIN", { email: "admin2@test.local", passwordHash: await hashPassword(PASSWORD) });
+    expect((await upload(uploadReq(await cookieFor("admin2@test.local"), "BEFORE_PHOTO", jpeg()), params())).status).toBe(200);
+    expect((await holding).status).toBe(408);
+    expect(uploadBytesInFlight()).toBe(0);
+
+    // At most 3 simultaneous uploads per user.
+    const stalls = [1, 2, 3].map(() => body({ total: 1024 * 1024, stallAfter: 64 * 1024 }));
+    const three = stalls.map((st) => upload(uploadReq(salesCookie, "BEFORE_PHOTO", st.stream, { "content-length": String(1024 * 1024) }), params()));
+    await new Promise((r) => setTimeout(r, 50));
+    expect((await upload(uploadReq(salesCookie, "BEFORE_PHOTO", jpeg()), params())).status).toBe(429);
+    expect((await Promise.all(three)).map((r) => r.status)).toEqual([408, 408, 408]);
+    expect(uploadBytesInFlight()).toBe(0);
+  });
+
+  it("cuts off a trickled upload quickly (minimum rate), but accepts a slow, steady one", async () => {
+    process.env.UPLOAD_MIN_RATE_KBPS = "8";
+    process.env.UPLOAD_MIN_RATE_GRACE_MS = "1000";
+    // 16 bytes every 400 ms: far below 8 KiB/s; the idle timeout (30 s) alone would never fire.
+    const trickle = body({ total: 1024 * 1024, chunk: 16, delayMs: 400 });
+    const t = Date.now();
+    const r = await upload(uploadReq(salesCookie, "BEFORE_PHOTO", trickle.stream, { "content-length": String(1024 * 1024) }), params());
+    expect(r.status).toBe(408);
+    expect(Date.now() - t).toBeLessThan(4000);
+    expect(trickle.stats.cancelled).toBe(true);
+    expect(uploadBytesInFlight()).toBe(0);
+    // 32 KiB every 100 ms (~320 KiB/s) for ~2 s: well above the minimum, accepted.
+    const steady = body({ total: 640 * 1024, chunk: 32 * 1024, delayMs: 100 });
+    expect((await upload(uploadReq(salesCookie, "BEFORE_PHOTO", steady.stream), params())).status).toBe(200);
   });
 });

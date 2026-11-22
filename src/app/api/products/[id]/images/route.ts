@@ -1,11 +1,12 @@
 import { NextResponse } from "next/server";
 import { apiRoute } from "@/server/http";
-import { listProductImages, uploadProductImage } from "@/server/services/product-images";
-import { MAX_UPLOAD_BYTES, readLimitedBody } from "@/server/storage";
+import { authorizeProductImageUpload, listProductImages, uploadProductImage } from "@/server/services/product-images";
+import { authorizeThenRead, MAX_UPLOAD_BYTES } from "@/server/storage";
 
 export const GET = apiRoute(async ({ user, params }) => ({ images: await listProductImages(user, params.id!) }));
 
-/** Body: the image bytes (JPEG, PNG or WebP; the type is read from the bytes). */
-export const POST = apiRoute(async ({ req, user, params }) =>
-  NextResponse.json({ image: await uploadProductImage(user, params.id!, await readLimitedBody(req, MAX_UPLOAD_BYTES)) }, { status: 201 }),
-);
+/** Body: the image bytes (JPEG, PNG or WebP; the type is read from the bytes). The caller's right is checked before the body is read. */
+export const POST = apiRoute(async ({ req, user, params }) => {
+  const bytes = await authorizeThenRead(req, user.id, MAX_UPLOAD_BYTES, () => authorizeProductImageUpload(user, params.id!));
+  return NextResponse.json({ image: await uploadProductImage(user, params.id!, bytes) }, { status: 201 });
+});
