@@ -249,6 +249,7 @@ model User {
   specialty                    TechnicianSpecialty?
 
   sessions              Session[]
+  loginDevices          LoginDevice[]
   passwordTokens        PasswordToken[]         @relation("TokenUser")
   issuedTokens          PasswordToken[]         @relation("TokenIssuer")
   createdAppointments   Appointment[]           @relation("AppointmentCreator")
@@ -338,6 +339,23 @@ model Session {
   @@index([userId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+/// A browser that has signed in to this account before ("known device"). Its random token lives in an
+/// httpOnly cookie sent only to /api/auth; only its SHA-256 is stored. It is not a credential: it only
+/// lets sign-ins from that browser use their own failure counter and the pool's priority lane, so an
+/// attacker who floods sign-in or locks the account cannot lock the real user out.
+model LoginDevice {
+  tokenHash  String   @id
+  userId     String
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @db.Timestamptz(3)
+  lastUsedAt DateTime @default(now()) @db.Timestamptz(3)
+  expiresAt  DateTime @db.Timestamptz(3)
+
+  @@index([userId, lastUsedAt])
+  @@index([expiresAt])
+  @@map("login_devices")
 }
 
 /// One-time links used for account invitations and admin-initiated password resets.

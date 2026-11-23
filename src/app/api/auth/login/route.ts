@@ -2,25 +2,38 @@ import { NextResponse } from "next/server";
 import { msg } from "@/i18n/translator";
 import { recordAudit } from "@/server/services/audit";
 import { fieldErrorsFromZod, loginSchema } from "@/lib/validation";
-import { addressKey, loginLimits } from "@/lib/login-limits";
+import { addressKey, loginLimits, successKey, windowStart } from "@/lib/login-limits";
 import { prisma } from "@/server/db";
 import { RateLimitError, ServiceUnavailableError, UnauthorizedError, ValidationError } from "@/server/errors";
 import { publicRoute, readJson } from "@/server/http";
 import { verifyPassword } from "@/server/auth/password";
 import { getHashPool, HashPoolBusyError, HashPoolFailureError } from "@/server/auth/hash-pool";
 import { UNKNOWN_ADDRESS } from "@/server/auth/client-ip";
-import { claimOnce, clientIp, recordLoginAttempt, releaseLoginAttempt, reserveLoginAttempt, settleLoginSuccess, type LimitScope } from "@/server/auth/rate-limit";
+import { claimOnce, clientIp, recordLoginAttempt, releaseLoginAttempt, reserveDeviceAttempt, reserveLoginAttempt, settleLoginSuccess, slotCount, takeSlot, type LimitScope } from "@/server/auth/rate-limit";
+import { knownDeviceFor, rememberDevice, type KnownDevice } from "@/server/auth/devices";
 import { cookieFromHeader, createSession, sessionCookie } from "@/server/auth/session";
 import { isLocale, LOCALE_COOKIE } from "@/i18n/config";
 import { localeCookie } from "@/server/locale";
 
 /**
  * Sign-in. Order matters for abuse resistance:
- *   1. the password pool must have room (else 503 at once: no database work, no counting);
- *   2. a limit slot is taken atomically (src/server/auth/rate-limit.ts; else 429);
+ *   0. a known device (a valid device cookie for this account, src/server/auth/devices.ts) takes
+ *      the priority lane: its own failure counter and reserved password-pool places, so floods and
+ *      account lockouts by others do not lock the real user out;
+ *   1. the password pool must have room for this lane and client (else 503 at once: no database
+ *      work, no counting); one trusted address may hold at most a few places;
+ *   2. limit slots are taken atomically (src/server/auth/rate-limit.ts; else 429);
  *   3. the password is checked on a worker thread (unknown accounts against a dummy hash, so they
  *      cost the same and answer the same);
- *   4. the outcome is recorded and audited (bounded, see below), then the session is created.
+ *   4. successful sign-ins are limited per account (LOGIN_MAX_SUCCESSES_PER_ACCOUNT per window):
+ *      an account already at the limit is refused before its password is checked, and a success
+ *      beyond it gets no session;
+ *   5. the outcome is recorded and audited (bounded, see below), then the session is created and
+ *      the browser is remembered as a known device of the account.
+ *
+ * All of an account's known devices count as ONE client in the pool's per-client limit
+ * (`user:<id>`, AUTH_HASH_MAX_PER_CLIENT places, the same client as that user's password changes),
+ * however many devices the account has, so one valid password cannot fill the priority lane.
  *
  * Audit entries (append-only, written before the response so none is lost):
  *   - LOGIN_SUCCEEDED for every sign-in;
@@ -33,12 +46,19 @@ import { localeCookie } from "@/server/locale";
  */
 async function auditBlocked(scope: LimitScope, email: string, ip: string, firstBlock: boolean) {
   if (!firstBlock) return;
-  if (scope === "account") {
+  if (scope === "account" || scope === "device") {
     await recordAudit(prisma, { entityType: "AUTH", entityId: email.slice(0, 254), action: "LOGIN_BLOCKED", summary: msg("authAudit.loginBlocked", { email }), changes: { email, scope }, actorId: null });
   } else if (scope === "address") {
     await recordAudit(prisma, { entityType: "AUTH", entityId: addressKey(ip), action: "LOGIN_BLOCKED", summary: msg("authAudit.loginBlockedAddress", { ip }), changes: { ip, scope }, actorId: null });
   } else if (await claimOnce("audit:blocked:global", 15)) {
     await recordAudit(prisma, { entityType: "AUTH", entityId: "global", action: "LOGIN_BLOCKED", summary: msg("authAudit.loginBlockedGlobal"), changes: { scope, limitPerMinute: loginLimits().globalPerMinute }, actorId: null });
+  }
+}
+
+/** The successful-sign-in limit of an account was reached: audited once per window, whichever path refused. */
+async function auditSuccessLimit(email: string, limit: number, minutes: number) {
+  if (await claimOnce(`audit:blocked:${successKey(email)}`, minutes)) {
+    await recordAudit(prisma, { entityType: "AUTH", entityId: email.slice(0, 254), action: "LOGIN_BLOCKED", summary: msg("authAudit.loginBlocked", { email }), changes: { email, scope: "successes", limit }, actorId: null });
   }
 }
 
@@ -51,14 +71,19 @@ export const POST = publicRoute(async ({ req }) => {
   const ip = clientIp(req);
   const userAgent = req.headers.get("user-agent");
 
-  // 1. Refuse at once when the password pool is saturated (cheap, and does not depend on the account).
-  if (!getHashPool().hasCapacity()) throw busy();
-
-  // 2. Limits. Counters that cannot be reached refuse the sign-in rather than skip the limits.
+  // 0./2. Known device or not; counters that cannot be reached refuse the sign-in rather than skip
+  // the limits.
+  let device: KnownDevice | null;
   let reserved: Awaited<ReturnType<typeof reserveLoginAttempt>>;
+  let job: { lane: "priority" | "standard"; client?: string };
   try {
-    reserved = await reserveLoginAttempt(email, ip);
+    device = await knownDeviceFor(req, email);
+    job = device ? { lane: "priority", client: `user:${device.userId}` } : { lane: "standard", client: ip === UNKNOWN_ADDRESS ? undefined : `ip:${ip}` };
+    // 1. Refuse at once when this lane of the password pool is full or this client holds its share.
+    if (!getHashPool().hasCapacity(job)) throw busy();
+    reserved = device ? await reserveDeviceAttempt(device.tokenHash) : await reserveLoginAttempt(email, ip);
   } catch (e) {
+    if (e instanceof ServiceUnavailableError) throw e;
     console.error("[auth] sign-in limits unavailable:", e instanceof Error ? e.name : "error");
     throw busy();
   }
@@ -67,13 +92,32 @@ export const POST = publicRoute(async ({ req }) => {
     throw new RateLimitError("errors.rateLimited", reserved.retryAfterSeconds);
   }
   const { reservation } = reserved;
+  const limits = loginLimits();
+
+  // 4a. An account that already had its successful sign-ins for this window is refused before any
+  // password work (counted per account, shared by every instance; it only fills with correct passwords).
+  let successesSoFar: number;
+  try {
+    successesSoFar = await slotCount(successKey(email), limits.windowMinutes);
+  } catch (e) {
+    await releaseLoginAttempt(reservation).catch(() => undefined);
+    console.error("[auth] sign-in limits unavailable:", e instanceof Error ? e.name : "error");
+    throw busy();
+  }
+  if (successesSoFar >= limits.successesPerAccount) {
+    await releaseLoginAttempt(reservation).catch(() => undefined);
+    await auditSuccessLimit(email, limits.successesPerAccount, limits.windowMinutes);
+    const now = Date.now();
+    const ends = windowStart(new Date(now), limits.windowMinutes).getTime() + limits.windowMinutes * 60_000;
+    throw new RateLimitError("errors.rateLimited", Math.max(1, Math.ceil((ends - now) / 1000)));
+  }
 
   // 3. Password check on the worker pool.
   let user: Awaited<ReturnType<typeof prisma.user.findUnique>>;
   let ok: boolean;
   try {
     user = await prisma.user.findUnique({ where: { email } });
-    ok = await verifyPassword(password, user?.passwordHash);
+    ok = await verifyPassword(password, user?.passwordHash, job);
   } catch (e) {
     // Not the user's fault: the attempt does not count against anyone.
     await releaseLoginAttempt(reservation).catch(() => undefined);
@@ -108,12 +152,22 @@ export const POST = publicRoute(async ({ req }) => {
     // Same message for unknown email, wrong password and inactive account.
     throw new UnauthorizedError("auth.invalid");
   }
+  // 4b. Count the success atomically; one beyond the limit gets no session (and is audited once).
+  const counted = await takeSlot(successKey(email), limits.successesPerAccount, limits.windowMinutes);
+  if (!counted.ok) {
+    await releaseLoginAttempt(reservation).catch(() => undefined);
+    await auditSuccessLimit(email, limits.successesPerAccount, limits.windowMinutes);
+    throw new RateLimitError("errors.rateLimited", counted.retryAfterSeconds);
+  }
   await settleLoginSuccess(reservation);
   await recordLoginAttempt(email, ip, "SUCCESS", userAgent);
   await recordAudit(prisma, { entityType: "AUTH", entityId: user.id, action: "LOGIN_SUCCEEDED", summary: msg("authAudit.loginSucceeded", { name: user.name }), changes: { email }, actorId: user.id });
   const { token, expiresAt } = await createSession(user.id, { userAgent, ipAddress: ip });
   const res = NextResponse.json({ ok: true, user: { id: user.id, name: user.name, role: user.role } });
   res.cookies.set(sessionCookie(token, expiresAt, req));
+  // Remember this browser for the account (best effort: sign-in has already succeeded).
+  const deviceCookie = await rememberDevice(req, user.id, device).catch(() => null);
+  if (deviceCookie) res.cookies.set(deviceCookie);
   // A language already chosen in this browser (e.g. on the sign-in page) stays; otherwise the
   // language the user chose before, on any device, comes back with them.
   const chosenHere = isLocale(cookieFromHeader(req.headers.get("cookie"), LOCALE_COOKIE));

@@ -17,12 +17,25 @@ Passwords are now checked and hashed on a small, fixed pool of worker threads
 | `AUTH_HASH_MAX_QUEUE` | `12 × threads` | Checks allowed to wait for a free worker. Beyond that a sign-in is refused at once |
 | `AUTH_HASH_QUEUE_TIMEOUT_MS` | `5000` | Longest wait in the queue before the sign-in is refused |
 | `AUTH_HASH_JOB_TIMEOUT_MS` | `10000` | Longest single check; a worker that takes longer is terminated and replaced |
+| `AUTH_HASH_PRIORITY_RESERVE` | `max(threads, ⌈(threads + queue) / 3⌉)` | Places kept for **priority** checks (known devices, signed-in users). Ordinary sign-ins may only use the rest |
+| `AUTH_HASH_MAX_PER_CLIENT` | `2` | Checks one client may have running or waiting at once: a trusted address, or an **account** (all its known devices and its password changes together). `0` = no limit |
+
+The pool has two lanes. **Priority** checks (a sign-in from a known device, see §2, and password
+changes by signed-in users) may use every place and always start before waiting ordinary ones.
+**Standard** checks (sign-ins from browsers the account does not know) may only fill the pool up to
+the reserve. So a flood of sign-ins can never take the places a known device needs, and one client
+can never hold more than `AUTH_HASH_MAX_PER_CLIENT` places. In the priority lane the client is the
+**account**: all of an account's known devices and its password changes share those places, so one
+valid password, however many devices it was used on, cannot fill the priority lane. These limits are per process: the pool and its CPU belong to that process, so nothing has
+to be shared between instances.
 
 - When the pool is full, or a check waits too long, the request gets **503** with `Retry-After: 5`
   and the message "Sign-in is busy right now". The answer is the same for every account, and the
   attempt is not counted against the account or the address.
-- A worker that crashes or hangs is replaced. If workers keep failing (more than 3 in a minute) the
-  replacement waits 1 s, then longer, up to 30 s, so a broken installation cannot spin the CPU.
+- A worker that crashes or hangs is replaced. If workers keep crashing (more than 3 in a minute) the
+  replacement waits 1 s, then longer, up to 30 s, so a broken installation cannot spin the CPU; new
+  requests during that wait do not start workers early. A check that only timed out does not count
+  as a crash.
 - Workers are created once and reused; they do not keep the process alive on shutdown, and closing
   the pool fails waiting checks cleanly.
 - Hashes are unchanged: the same bcryptjs library, `$2a$`/`$2b$`/`$2y$` hashes of any cost still
@@ -45,21 +58,55 @@ exactly `limit` of them are let through. There is no read-then-write step.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `LOGIN_MAX_FAILURES_PER_ACCOUNT` | `5` | Attempts per email per window; then the email is locked until the window ends |
-| `LOGIN_MAX_FAILURES_PER_IP` | `30` | Attempts per client address per window (only with a trusted proxy, see below) |
-| `LOGIN_FAILURE_WINDOW_MINUTES` | `15` | Window length for the two limits above |
-| `LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE` | `300` | Attempts per minute across all accounts and addresses together |
+| `LOGIN_MAX_FAILURES_PER_ACCOUNT` | `5` | Attempts per account **per client** per window: per (account, trusted address) behind a trusted proxy, per account without one, per known device |
+| `LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL` | `10` | Attempts per account per window across **all** trusted addresses together (behind a trusted proxy) |
+| `LOGIN_MAX_FAILURES_PER_IP` | `30` | Attempts per client address per window, any accounts (only with a trusted proxy, see below) |
+| `LOGIN_FAILURE_WINDOW_MINUTES` | `15` | Window length for the limits above |
+| `LOGIN_MAX_SUCCESSES_PER_ACCOUNT` | `100` | **Successful** sign-ins per account per window, from all clients together. An account at the limit is refused (429) before its password is checked; a success beyond it gets no session. Audited once per window (`LOGIN_BLOCKED`, scope `successes`) |
+| `LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE` | `300` | Attempts per minute across all accounts and addresses, for browsers the account does not know |
 | `LOGIN_ATTEMPT_RETENTION_DAYS` | `30` | How long raw sign-in records (`login_attempts`) are kept |
 
-The order of checks on a sign-in:
+### Known devices
 
-1. The password pool must have room, otherwise **503** (no database work at all).
-2. The account counter. If it is over the limit: **429** with `Retry-After`; nothing else is counted.
-3. The address counter (if the address is known) and the global counter. If either is over: **429**,
-   and the account slot is given back.
-4. The password is checked. Success clears the account's counter and gives back the address and
-   global slots. Failure keeps the counts. A check that could not run (pool busy, worker failure)
-   gives back every slot.
+After a successful sign-in the browser gets a random **device token** in an httpOnly cookie
+(`ims_device`, sent only to `/api/auth`, 90 days). Only its SHA-256 is stored (table
+`login_devices`, at most 10 per user, expired ones deleted hourly), so every instance shares it. A
+later sign-in **to the same account** with that cookie is a known-device sign-in:
+
+- it is limited only by its own counter (`LOGIN_MAX_FAILURES_PER_ACCOUNT` per window per device),
+  not by the account, address or global limits;
+- its password check uses the pool's priority lane.
+
+The token is not a credential: the password is checked every time, and a token for another account,
+an unknown token or an expired one is ignored (the sign-in is treated as an unknown device). It only
+exists after a correct password, so an attacker cannot create one for someone else's account.
+
+### Order of checks
+
+Unknown device (no valid device cookie for this account):
+
+1. The pool's standard lane must have room and the client must be under its per-client limit,
+   otherwise **503** at once (no database work).
+2. The **global** counter and, for a trusted address, the **address** counter, in one statement.
+   Over either: **429**. A request refused here writes nothing for any account. Once an instance has
+   seen the global limit reached, it refuses unknown-device sign-ins **without any database work**
+   until that minute ends (it can only refuse a little early, never let more through).
+3. The **account** counters, in one statement: behind a trusted proxy the (account, address) pair
+   (5) and the account across all addresses (10); without one the account alone (5). Over either:
+   **429**, and the global/address slots are given back.
+
+Known device: its own device counter only (5 per window), then the priority lane, sharing the
+account's places.
+
+Every lane, after the counters above: the account's **successful** sign-ins this window
+(`LOGIN_MAX_SUCCESSES_PER_ACCOUNT`). At the limit the sign-in is refused before the password check;
+a correct password beyond it (simultaneous requests) is counted atomically and gets no session. A
+single valid password therefore cannot produce unlimited password work, sessions or audit rows.
+
+4. The password is checked. Success clears that attempt's account/device counters and gives back
+   the address and global slots. Failure keeps the counts. A check that could not run (pool busy,
+   worker failure) gives back every slot. A known-device success does **not** clear the account's
+   counter, so an attacker's lock on the account stays in place for unknown devices.
 
 So the counters hold failures plus attempts still in progress. A successful sign-in does not use
 up anyone's allowance.
@@ -68,6 +115,15 @@ up anyone's allowance.
   emails exist. The counters store a SHA-256 of the email, never the email itself.
 - **Fail closed:** if the counters cannot be read or written (database down), sign-in is refused
   with 503. The limits are never skipped.
+- **Targeted lockout:** someone who knows an email can still lock that account **for unknown
+  devices** (5 failures per window, or 10 from several addresses behind a proxy). They cannot lock
+  out the person's known devices, and behind a trusted proxy they cannot lock out other addresses
+  either. A first sign-in from a new browser during such an attack waits until the window ends.
+- **Floods:** without a trusted proxy every unknown client is "unknown", so a flood from anywhere
+  can fill the standard lane and trip the global limit: sign-ins from **new** browsers are then
+  refused (503/429) until it stops, while known devices keep signing in. Behind a trusted proxy one
+  address cannot do this (2 places in the pool, 30 failures per window); a flood from many addresses
+  still can. Put a rate-limiting reverse proxy in front for internet-facing deployments.
 - **Windows are fixed** (aligned to the clock). An attacker can use one window's allowance at its
   end and the next at its start: at most 2 × the limit in a short time, then the limit per window.
 - **Growth is bounded:** every counter row has an expiry. Each instance deletes expired rows at
@@ -79,7 +135,20 @@ up anyone's allowance.
 
 `npm run reset-admin-password` (scripts/admin-password.ts) reads the same counters: it shows
 whether `admin@example.com` or any address is locked, and a reset clears the admin's account
-counter. The raw records in `login_attempts` are kept for investigation.
+counter and its per-address counters. The raw records in `login_attempts` are kept for
+investigation. Known devices are not affected.
+
+### Password changes
+
+`POST /api/me/password` (a signed-in user changing their own password; its checks share the
+account's places in the pool with its known-device sign-ins) is limited like a sign-in:
+`LOGIN_MAX_FAILURES_PER_ACCOUNT` attempts per user per window (counter `pwchange:<user id>`), then
+**429** with `Retry-After`. Every wrong current password is audited (`USER_PASSWORD_CHANGE_FAILED`),
+the lock once (`USER_PASSWORD_CHANGE_BLOCKED`), never with a password or hash. The checks use the
+pool's priority lane with the user as the client (at most 2 at once). The new hash is only written
+if the stored one is still the one that was checked, so two simultaneous changes cannot both win
+(the other gets **409**). A successful change signs out every other session, as before. If the
+counters cannot be reached the change is refused (**503**).
 
 ## 3. Client addresses and trusted proxies
 
@@ -130,7 +199,32 @@ beyond that:
 - Unchanged: wrong content type and malformed JSON still answer 422 with the same messages.
   Error bodies keep the usual `{ error: { code, message, fieldErrors: { _form } } }` shape.
 
-File uploads (photos, proofs) have their own limit, `MAX_UPLOAD_MB`, and are not affected.
+### File uploads
+
+File uploads (photos, videos, proofs, receipts, product images, imports) have their own size limits
+(`MAX_UPLOAD_MB`, default 8; `MAX_VIDEO_MB`, default 50; imports 10 MB) and are read by
+`readLimitedBody` (`src/server/storage.ts`):
+
+- A larger declared `Content-Length` is refused before reading; a malformed or contradictory one
+  gets **400**. The bytes are counted as they arrive, so a false or missing length changes nothing.
+- **Memory budget per process:** before reading, the body's size (declared, else the limit) is
+  reserved from `UPLOAD_MAX_INFLIGHT_MB` (default 256). When uploads in progress use it up, further
+  uploads get **503** with `Retry-After` at once instead of piling up in memory.
+- **Per-user share:** one signed-in user may hold at most `UPLOAD_MAX_INFLIGHT_PER_USER_MB` (default
+  64) of that budget and `UPLOAD_MAX_CONCURRENT_PER_USER` (default 3) uploads at once; beyond that
+  **429**. One account cannot take the whole budget.
+- **Minimum rate:** after `UPLOAD_MIN_RATE_GRACE_MS` (default 10 s) a body must average at least
+  `UPLOAD_MIN_RATE_KBPS` (default 8 KiB/s), otherwise **408** as soon as it falls below; a trickled
+  body cannot hold its reservation for minutes.
+- A body that stops arriving for `UPLOAD_IDLE_TIMEOUT_MS` (default 30 s) or takes longer than
+  `UPLOAD_TOTAL_TIMEOUT_MS` (default 15 min) gets **408**; an upload the client aborts gets **400**
+  (not a 500). The stream is cancelled and the reservation released in every case.
+- **Every upload route checks the caller's rights before reading a single byte**
+  (`authorizeThenRead`): visit attachments (the visit and the right to add that kind), expense
+  receipts (the caller's own pending expense without a receipt), stocktake photos (an open stocktake
+  the caller may count, the line, room for a photo), product images (`products.manage`, an editable
+  product) and the product import (`products.manage`). A caller who may not upload is refused
+  without the server receiving the file and without reserving any budget.
 
 ## 5. Audit entries and investigations
 
@@ -195,3 +289,22 @@ DELETE FROM _prisma_migrations WHERE migration_name = '20261121090000_auth_rate_
 
 After an upgrade, existing lockouts start fresh (the old version counted rows in `login_attempts`;
 the new one uses the counters).
+
+The migration `20261121120000_login_devices` (known devices, §2) is additive too: one new table
+`login_devices`, nothing else changes. The previous version ignores it. To remove it after rolling
+the code back:
+
+```sql
+DROP TABLE IF EXISTS login_devices;
+DELETE FROM _prisma_migrations WHERE migration_name = '20261121120000_login_devices';
+```
+
+## 8. Customers in bookings
+
+A booking that names an existing customer (by id) may only use and update a customer inside the
+caller's customer scope, or the edited booking's own customer. There is no exception for
+follow-ups: booking a visit for a customer makes them "own" in the customer scope, so even
+linking an out-of-scope customer unchanged would let the next booking edit them. A follow-up of a
+visit whose customer is outside the caller's customer scope is refused with
+`appointmentErrors.followUpCustomerOutOfScope`; someone who handles that customer books it. With
+the default scopes (appointments and customers both ALL for Sales) nothing changes.

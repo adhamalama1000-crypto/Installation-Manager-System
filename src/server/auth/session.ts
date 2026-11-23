@@ -171,11 +171,22 @@ export async function userFromToken(token: string | undefined | null, cookieLoca
   };
 }
 
+/**
+ * The value of cookie `name` in a Cookie header, or null. A value that is not valid URI encoding
+ * (e.g. "%E0%A4%A") is treated as absent: it can never be a cookie this app issued, and it must not
+ * turn into an exception (a 500, or a false "limits unavailable" on sign-in).
+ */
 export function cookieFromHeader(header: string | null, name: string): string | null {
   if (!header) return null;
   for (const part of header.split(";")) {
     const [k, ...rest] = part.trim().split("=");
-    if (k === name) return decodeURIComponent(rest.join("="));
+    if (k === name) {
+      try {
+        return decodeURIComponent(rest.join("="));
+      } catch {
+        return null;
+      }
+    }
   }
   return null;
 }

@@ -2,9 +2,9 @@ import "server-only";
 import { Prisma } from "@prisma/client";
 import { addDaysToKey, isValidDateString } from "@/lib/time";
 import { prisma } from "../db";
-import { assertCan } from "../access";
+import { assertCan, salesScopeSql, vehicleScoped } from "../access";
 import type { CurrentUser } from "../auth/session";
-import { canSeeCosts, checkId, dbDate, today } from "./inventory-common";
+import { canSeeCosts, canViewInventory, checkId, dbDate, today, warehouseScopeSql } from "./inventory-common";
 
 /**
  * Sales and product analytics. Every sales figure comes from CONFIRMED sales invoices
@@ -12,6 +12,12 @@ import { canSeeCosts, checkId, dbDate, today } from "./inventory-common";
  * technicians or sites, transfers, adjustments, returns) are never read as sales. Stock figures
  * (on hand, value, slow-moving, low stock) come from the balances. Aggregation happens in SQL, one
  * statement per block, all in parallel.
+ *
+ * Every figure respects the reader's scopes, in SQL: sales figures only count invoices inside the
+ * reader's sales scope (own / team / all, as on the sales list), and stock figures only count
+ * warehouses the reader may see (their own vehicle for assignment-scoped readers, none without
+ * inventory access, as in the product catalogue). Low stock compares against company-wide
+ * minimums, so it is only shown to readers who see every warehouse.
  */
 
 export type AnalyticsFilters = { from?: string; to?: string; categoryId?: string; brandId?: string; warehouseId?: string; productId?: string; rollUp?: boolean; slowDays?: number };
@@ -37,7 +43,10 @@ export async function salesAnalytics(user: CurrentUser, f: AnalyticsFilters, now
     ${categoryId ? Prisma.sql`AND (p."categoryId" = ${categoryId} OR c."parentId" = ${categoryId})` : Prisma.empty}
     ${brandId ? Prisma.sql`AND p."brandId" = ${brandId}` : Prisma.empty}
     ${productId ? Prisma.sql`AND (p.id = ${productId} OR p."parentId" = ${productId})` : Prisma.empty}`;
-  const soldWhere = (a: string, b: string) => Prisma.sql`i.status = 'CONFIRMED' AND i."invoiceDate" >= ${dbDate(a)} AND i."invoiceDate" <= ${dbDate(b)}
+  const salesIn = salesScopeSql(user, "i");
+  const warehousesIn = warehouseScopeSql(user, "w");
+  const seesAllStock = canViewInventory(user) && !vehicleScoped(user);
+  const soldWhere = (a: string, b: string) => Prisma.sql`i.status = 'CONFIRMED' AND ${salesIn} AND i."invoiceDate" >= ${dbDate(a)} AND i."invoiceDate" <= ${dbDate(b)}
     ${warehouseId ? Prisma.sql`AND i."warehouseId" = ${warehouseId}` : Prisma.empty} AND ${productWhere}`;
   const sold = (a: string, b: string) => Prisma.sql`
     SELECT l."productId", COALESCE(p."parentId", p.id) AS "groupId", l.quantity, l."lineTotal", COALESCE(l."unitCost", 0) * l.quantity AS cost,
@@ -50,8 +59,8 @@ export async function salesAnalytics(user: CurrentUser, f: AnalyticsFilters, now
   const key = rollUp ? Prisma.sql`s."groupId"` : Prisma.sql`s."productId"`;
   // Stock per stock-keeping product, in the chosen warehouse (or all warehouses the reader sees).
   const stock = Prisma.sql`
-    SELECT b."productId", SUM(b.quantity) AS qty FROM stock_balances b
-    ${warehouseId ? Prisma.sql`WHERE b."warehouseId" = ${warehouseId}` : Prisma.empty}
+    SELECT b."productId", SUM(b.quantity) AS qty FROM stock_balances b JOIN warehouses w ON w.id = b."warehouseId"
+    WHERE ${warehousesIn} ${warehouseId ? Prisma.sql`AND b."warehouseId" = ${warehouseId}` : Prisma.empty}
     GROUP BY b."productId"`;
 
   const lastYear = Number(to.slice(0, 4)) - 1;
@@ -93,21 +102,21 @@ export async function salesAnalytics(user: CurrentUser, f: AnalyticsFilters, now
     // In stock, but no confirmed sale for slowDays (ever, or since).
     prisma.$queryRaw<{ id: string; sku: string; nameEn: string; nameAr: string; unit: string; onHand: Prisma.Decimal; value: Prisma.Decimal; lastSold: Date | null; total: bigint }[]>`
       WITH st AS (${stock}),
-      lastsale AS (SELECT l."productId", MAX(i."invoiceDate") AS d FROM sales_invoice_lines l JOIN sales_invoices i ON i.id = l."invoiceId" WHERE i.status = 'CONFIRMED' GROUP BY 1)
+      lastsale AS (SELECT l."productId", MAX(i."invoiceDate") AS d FROM sales_invoice_lines l JOIN sales_invoices i ON i.id = l."invoiceId" WHERE i.status = 'CONFIRMED' AND ${salesIn} GROUP BY 1)
       SELECT p.id, p.sku, p."nameEn", p."nameAr", u.code AS unit, st.qty AS "onHand", st.qty * p."averageCost" AS value, ls.d AS "lastSold", COUNT(*) OVER () AS total
       FROM st JOIN products p ON p.id = st."productId" JOIN units u ON u.id = p."unitId" LEFT JOIN catalog_categories c ON c.id = p."categoryId" LEFT JOIN lastsale ls ON ls."productId" = p.id
       WHERE st.qty > 0 AND ${productWhere} AND (ls.d IS NULL OR ls.d < ${dbDate(addDaysToKey(todayKey, -slowDays))})
       ORDER BY value DESC, p.sku LIMIT 25`,
     prisma.$queryRaw<{ id: string; sku: string; nameEn: string; nameAr: string; unit: string; onHand: Prisma.Decimal; minStock: Prisma.Decimal; total: bigint }[]>`
-      WITH tot AS (SELECT b."productId", SUM(b.quantity) AS qty FROM stock_balances b GROUP BY 1)
+      WITH tot AS (SELECT b."productId", SUM(b.quantity) AS qty FROM stock_balances b JOIN warehouses w ON w.id = b."warehouseId" WHERE ${warehousesIn} GROUP BY 1)
       SELECT p.id, p.sku, p."nameEn", p."nameAr", u.code AS unit, COALESCE(tot.qty, 0) AS "onHand", p."minStock", COUNT(*) OVER () AS total
       FROM products p JOIN units u ON u.id = p."unitId" LEFT JOIN catalog_categories c ON c.id = p."categoryId" LEFT JOIN tot ON tot."productId" = p.id
-      WHERE p."isActive" AND NOT p."hasVariants" AND p."minStock" > 0 AND COALESCE(tot.qty, 0) < p."minStock" AND ${productWhere}
+      WHERE ${seesAllStock ? Prisma.sql`TRUE` : Prisma.sql`FALSE`} AND p."isActive" AND NOT p."hasVariants" AND p."minStock" > 0 AND COALESCE(tot.qty, 0) < p."minStock" AND ${productWhere}
       ORDER BY (COALESCE(tot.qty, 0) / p."minStock"), p.sku LIMIT 25`,
     prisma.$queryRaw<{ id: string; code: string; nameEn: string; nameAr: string; value: Prisma.Decimal; qty: Prisma.Decimal }[]>`
       SELECT w.id, w.code, w."nameEn", w."nameAr", SUM(b.quantity * p."averageCost") AS value, SUM(b.quantity) AS qty
       FROM stock_balances b JOIN warehouses w ON w.id = b."warehouseId" JOIN products p ON p.id = b."productId" LEFT JOIN catalog_categories c ON c.id = p."categoryId"
-      WHERE b.quantity <> 0 AND ${productWhere} ${warehouseId ? Prisma.sql`AND w.id = ${warehouseId}` : Prisma.empty}
+      WHERE b.quantity <> 0 AND ${warehousesIn} AND ${productWhere} ${warehouseId ? Prisma.sql`AND w.id = ${warehouseId}` : Prisma.empty}
       GROUP BY 1, 2, 3, 4 ORDER BY value DESC`,
   ]);
 

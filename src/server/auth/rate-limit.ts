@@ -1,6 +1,6 @@
 import "server-only";
 import { Prisma } from "@prisma/client";
-import { accountKey, addressKey, GLOBAL_KEY, loginLimits, windowStart, type LoginLimits } from "@/lib/login-limits";
+import { accountAddressKey, accountKey, addressKey, deviceKey, GLOBAL_KEY, loginLimits, windowStart, type LoginLimits } from "@/lib/login-limits";
 import { prisma, type Db } from "../db";
 import { UNKNOWN_ADDRESS } from "./client-ip";
 
@@ -15,25 +15,39 @@ export { clientIp } from "./client-ip";
  * `limit` of them get a count <= limit, however many arrive at once or on however many instances.
  * There is no read-then-write. Whether a row was inserted or updated is never needed.
  *
- *   1. account (email, hashed): LOGIN_MAX_FAILURES_PER_ACCOUNT per LOGIN_FAILURE_WINDOW_MINUTES
- *   2. client address:          LOGIN_MAX_FAILURES_PER_IP per window, only for a trusted address
- *                               (TRUSTED_PROXY_HOPS); "unknown" is never limited as one client,
- *                               or one attacker could lock everybody out
- *   3. global:                  LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE across all accounts/addresses
+ * Sign-in from an UNKNOWN device (no valid device cookie for this account), in this order:
+ *   1. global:  LOGIN_MAX_FAILURES_GLOBAL_PER_MINUTE across all accounts and addresses, and
+ *      address: LOGIN_MAX_FAILURES_PER_IP per window for a trusted address (TRUSTED_PROXY_HOPS);
+ *      "unknown" is never limited as one client, or one attacker could lock everybody out.
+ *      Both in one statement. A request refused here writes nothing for any account.
+ *   2. account: per (account, trusted address) LOGIN_MAX_FAILURES_PER_ACCOUNT, plus the account
+ *      across all addresses LOGIN_MAX_FAILURES_PER_ACCOUNT_TOTAL. Without a trusted address the
+ *      account alone has LOGIN_MAX_FAILURES_PER_ACCOUNT. Both in one statement.
+ * Sign-in from a KNOWN device (src/server/auth/devices.ts): only the device's own counter,
+ *   LOGIN_MAX_FAILURES_PER_ACCOUNT per window. Floods (global), other people's failures (account)
+ *   and shared addresses never block it; guessing through it is limited like any other client,
+ *   and a device token only exists after a correct password.
  *
- * The account slot is taken first; a request refused there touches nothing else. A request refused
- * by 2 or 3 gives its account slot back. A successful sign-in clears its account's counter and gives
- * back its address and global slots, so the counters hold failures and attempts still in progress.
- * An attempt that could not be checked (password pool busy) gives back all of its slots.
+ * A request refused by a limit keeps that limit's count (so exactly one request ever sees
+ * limit + 1, which is audited once) and gives back every other slot it took. A successful sign-in
+ * clears its account/device counters and gives back its address and global slots, so the counters
+ * hold failures and attempts still in progress. An attempt that could not be checked (password
+ * pool busy) gives back all of its slots.
+ *
+ * Once an instance sees the global limit reached, it refuses unknown-device sign-ins without any
+ * database work until that one-minute window ends (the global count can only be lower than the
+ * limit again by successes giving slots back, so this can only refuse a little early, never let
+ * more through).
  *
  * When the counters cannot be reached the sign-in is refused (fail closed), never let through.
  */
 
-export type LimitScope = "account" | "address" | "global";
+export type LimitScope = "account" | "address" | "global" | "device";
 
 type Slot = { key: string; windowStart: Date; expiresAt: Date };
 
-export type LoginReservation = { account: Slot; others: Slot[] };
+/** `kept` slots are given back on success; `cleared` ones (the account/device failure counters) are deleted. */
+export type LoginReservation = { kept: Slot[]; cleared: Slot[] };
 
 export type ReserveResult =
   | { ok: true; reservation: LoginReservation }
@@ -64,58 +78,129 @@ async function decrement(slots: Slot[], db: Db): Promise<void> {
   }
 }
 
+async function remove(slots: Slot[], db: Db): Promise<void> {
+  for (const s of slots) {
+    await db.$executeRaw`DELETE FROM auth_rate_limits WHERE key = ${s.key} AND "windowStart" = ${s.windowStart}::timestamptz`;
+  }
+}
+
 function secondsUntil(s: Slot, minutes: number, now: Date): number {
   return Math.max(1, Math.ceil((s.windowStart.getTime() + minutes * 60_000 - now.getTime()) / 1000));
 }
 
+// Per-instance memory of "the global limit is reached until <window end>" (see above).
+const TRIP_KEY = Symbol.for("ims.authGlobalTripped");
+type TripState = { until: number };
+const gTrip = globalThis as typeof globalThis & { [TRIP_KEY]?: TripState };
+
 export type ReserveOptions = { now?: Date; limits?: LoginLimits; /** Tests: another connection pool, standing in for another app instance. */ db?: Db };
 
+/** Sign-in from an unknown device: global and address first, then the account. */
 export async function reserveLoginAttempt(email: string, ip: string, opts: ReserveOptions = {}): Promise<ReserveResult> {
   const now = opts.now ?? new Date();
   const limits = opts.limits ?? loginLimits();
   const db = opts.db ?? prisma;
+  const trip = (gTrip[TRIP_KEY] ??= { until: 0 });
+  if (trip.until > now.getTime()) {
+    return { ok: false, scope: "global", firstBlock: false, retryAfterSeconds: Math.max(1, Math.ceil((trip.until - now.getTime()) / 1000)) };
+  }
   void scheduleCleanup(now, limits);
-  const account = slot(accountKey(email), now, limits.windowMinutes);
-  const accountCount = (await increment([account], db)).get(account.key)!;
-  if (accountCount > limits.perAccount) {
-    // Not given back: the account stays locked for the rest of the window, and the count keeps
-    // rising, so exactly one request ever sees limit + 1.
-    return { ok: false, scope: "account", firstBlock: accountCount === limits.perAccount + 1, retryAfterSeconds: secondsUntil(account, limits.windowMinutes, now) };
-  }
 
-  const address = ip !== UNKNOWN_ADDRESS ? slot(addressKey(ip), now, limits.windowMinutes) : null;
+  const known = ip !== UNKNOWN_ADDRESS;
+  const address = known ? slot(addressKey(ip), now, limits.windowMinutes) : null;
   const global = slot(GLOBAL_KEY, now, 1);
-  // Always in the same order (address, then global) so concurrent statements cannot deadlock.
-  const others = address ? [address, global] : [global];
-  let counts: Map<string, number>;
-  try {
-    counts = await increment(others, db);
-  } catch (e) {
-    await decrement([account], db).catch(() => undefined);
-    throw e;
-  }
+  // Always in the same order (address, then global; per-address account, then account) so
+  // concurrent statements cannot deadlock.
+  const shared = address ? [address, global] : [global];
+  const counts = await increment(shared, db);
   const addressCount = address ? counts.get(address.key)! : 0;
   const globalCount = counts.get(global.key)!;
   if (address && addressCount > limits.perAddress) {
-    await decrement([account, global], db);
+    await decrement([global], db);
     return { ok: false, scope: "address", firstBlock: addressCount === limits.perAddress + 1, retryAfterSeconds: secondsUntil(address, limits.windowMinutes, now) };
   }
   if (globalCount > limits.globalPerMinute) {
-    await decrement(address ? [account, address] : [account], db);
+    if (address) await decrement([address], db);
+    trip.until = global.windowStart.getTime() + 60_000;
     return { ok: false, scope: "global", firstBlock: globalCount === limits.globalPerMinute + 1, retryAfterSeconds: secondsUntil(global, 1, now) };
   }
-  return { ok: true, reservation: { account, others } };
+
+  const accountSlots: { s: Slot; limit: number }[] = known
+    ? [
+        { s: slot(accountAddressKey(email, ip), now, limits.windowMinutes), limit: limits.perAccount },
+        { s: slot(accountKey(email), now, limits.windowMinutes), limit: limits.perAccountTotal },
+      ]
+    : [{ s: slot(accountKey(email), now, limits.windowMinutes), limit: limits.perAccount }];
+  let accCounts: Map<string, number>;
+  try {
+    accCounts = await increment(accountSlots.map((a) => a.s), db);
+  } catch (e) {
+    await decrement(shared, db).catch(() => undefined);
+    throw e;
+  }
+  const over = accountSlots.find((a) => accCounts.get(a.s.key)! > a.limit);
+  if (over) {
+    // The limit that refused keeps its count; everything else is given back.
+    await decrement([...shared, ...accountSlots.filter((a) => a !== over).map((a) => a.s)], db);
+    return { ok: false, scope: "account", firstBlock: accCounts.get(over.s.key)! === over.limit + 1, retryAfterSeconds: secondsUntil(over.s, limits.windowMinutes, now) };
+  }
+  return { ok: true, reservation: { kept: shared, cleared: accountSlots.map((a) => a.s) } };
 }
 
-/** The password was right: the account's failures are forgotten and the other slots given back. */
+/** Sign-in from a known device: only the device's own failure counter. */
+export async function reserveDeviceAttempt(tokenHash: string, opts: ReserveOptions = {}): Promise<ReserveResult> {
+  const now = opts.now ?? new Date();
+  const limits = opts.limits ?? loginLimits();
+  const db = opts.db ?? prisma;
+  void scheduleCleanup(now, limits);
+  const device = slot(deviceKey(tokenHash), now, limits.windowMinutes);
+  const count = (await increment([device], db)).get(device.key)!;
+  if (count > limits.perAccount) {
+    return { ok: false, scope: "device", firstBlock: count === limits.perAccount + 1, retryAfterSeconds: secondsUntil(device, limits.windowMinutes, now) };
+  }
+  return { ok: true, reservation: { kept: [], cleared: [device] } };
+}
+
+/** The password was right: its failure counters are forgotten and the shared slots given back. */
 export async function settleLoginSuccess(r: LoginReservation, db: Db = prisma): Promise<void> {
-  await db.$executeRaw`DELETE FROM auth_rate_limits WHERE key = ${r.account.key} AND "windowStart" = ${r.account.windowStart}::timestamptz`;
-  await decrement(r.others, db);
+  await remove(r.cleared, db);
+  await decrement(r.kept, db);
 }
 
 /** The attempt was not checked (temporary server problem): it does not count against anyone. */
 export async function releaseLoginAttempt(r: LoginReservation, db: Db = prisma): Promise<void> {
-  await decrement([r.account, ...r.others], db);
+  await decrement([...r.cleared, ...r.kept], db);
+}
+
+export type SlotResult = { ok: true; slot: Slot } | { ok: false; firstBlock: boolean; retryAfterSeconds: number };
+
+/**
+ * One limited counter (e.g. password changes of a signed-in user): `limit` attempts per window of
+ * `minutes`, taken atomically like the sign-in limits. On success call `clearSlot`; when the attempt
+ * could not be made, `releaseSlot`.
+ */
+export async function takeSlot(key: string, limit: number, minutes: number, opts: { now?: Date; db?: Db } = {}): Promise<SlotResult> {
+  const now = opts.now ?? new Date();
+  const s = slot(key, now, minutes);
+  const count = (await increment([s], opts.db ?? prisma)).get(s.key)!;
+  if (count > limit) return { ok: false, firstBlock: count === limit + 1, retryAfterSeconds: secondsUntil(s, minutes, now) };
+  return { ok: true, slot: s };
+}
+
+/** The current count of a limited counter (0 when absent). Only used to refuse early; admission is `takeSlot`. */
+export async function slotCount(key: string, minutes: number, opts: { now?: Date; db?: Db } = {}): Promise<number> {
+  const s = slot(key, opts.now ?? new Date(), minutes);
+  const rows = await (opts.db ?? prisma).$queryRaw<{ count: number }[]>`
+    SELECT count FROM auth_rate_limits WHERE key = ${s.key} AND "windowStart" = ${s.windowStart}::timestamptz`;
+  return Number(rows[0]?.count ?? 0);
+}
+
+export async function clearSlot(s: Slot, db: Db = prisma): Promise<void> {
+  await remove([s], db);
+}
+
+export async function releaseSlot(s: Slot, db: Db = prisma): Promise<void> {
+  await decrement([s], db);
 }
 
 /**
@@ -173,6 +258,8 @@ async function scheduleCleanup(now: Date, limits: LoginLimits): Promise<void> {
     if (attempts) {
       state.attemptsAt = t;
       await purgeOldLoginAttempts(new Date(t - limits.attemptRetentionDays * 86_400_000));
+      // Expired known-device tokens (src/server/auth/devices.ts); at most 10 per user exist.
+      await prisma.loginDevice.deleteMany({ where: { expiresAt: { lt: now } } });
     }
   } catch (e) {
     console.error("[auth] rate-limit cleanup failed:", e instanceof Error ? e.message : "error");
@@ -194,7 +281,8 @@ export async function purgeOldLoginAttempts(before: Date, batch = 5000): Promise
   return total;
 }
 
-/** Tests: run housekeeping on the next request again. */
+/** Tests: run housekeeping on the next request again, and forget a tripped global limit. */
 export function resetCleanupScheduleForTests() {
   g[CLEANUP_KEY] = undefined;
+  gTrip[TRIP_KEY] = undefined;
 }

@@ -159,6 +159,15 @@ export function salesScope(user: CurrentUser): Prisma.SalesInvoiceWhereInput {
   return { createdById: user.id };
 }
 
+/** The same restriction as `salesScope`, for raw SQL over a sales_invoices alias. Keep them in sync. */
+export function salesScopeSql(user: CurrentUser, alias: string): Prisma.Sql {
+  const scope = scopeOf(user, "sales");
+  const col = Prisma.raw(`${alias}."createdById"`);
+  if (scope === "ALL") return Prisma.sql`TRUE`;
+  if (scope === "TEAM" && user.teamId) return Prisma.sql`(${col} = ${user.id} OR ${col} IN (SELECT tu.id FROM users tu WHERE tu."teamId" = ${user.teamId}))`;
+  return Prisma.sql`${col} = ${user.id}`;
+}
+
 /** Inventory: assigned = the reader's own vehicle only (technicians by default); all = every warehouse. */
 export function vehicleScoped(user: Pick<CurrentUser, "scopes" | "role">): boolean {
   return scopeOf(user, "inventory") === "ASSIGNED";

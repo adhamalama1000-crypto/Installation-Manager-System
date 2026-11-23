@@ -75,8 +75,10 @@ export async function resetAdminPassword(prisma: PrismaClient, opts: { password:
     if (user.role !== "ADMIN") throw new Error(`${ADMIN_EMAIL} is not an Admin account. Nothing was changed.`);
     const activate = !!opts.activate && !user.isActive;
     await tx.user.update({ where: { id: user.id }, data: { passwordHash, passwordChangedAt: now, ...(activate ? { isActive: true } : {}) } });
+    // The account's own counter (failures across all addresses) and its per-address counters.
+    const own = { OR: [{ key: accountKey(ADMIN_EMAIL) }, { key: { startsWith: `acctip:${accountKey(ADMIN_EMAIL).slice("acct:".length)}:` } }] };
     const counters = await tx.authRateLimit.findMany({ where: { key: accountKey(ADMIN_EMAIL) }, select: { count: true } });
-    await tx.authRateLimit.deleteMany({ where: { key: accountKey(ADMIN_EMAIL) } });
+    await tx.authRateLimit.deleteMany({ where: own });
     const cleared = { count: counters.reduce((n, c) => n + c.count, 0) };
     const ended = await tx.session.deleteMany({ where: { userId: user.id } });
     await tx.auditLog.create({
