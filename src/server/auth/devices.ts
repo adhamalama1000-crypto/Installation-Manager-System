@@ -1,6 +1,6 @@
 import "server-only";
 import { prisma } from "../db";
-import { randomToken, sha256 } from "./crypto";
+import { isRandomToken, randomToken, sha256 } from "./crypto";
 import { cookieFromHeader, isSecureRequest } from "./session";
 
 /**
@@ -26,7 +26,9 @@ export type KnownDevice = { tokenHash: string; userId: string; token: string };
 /** The known device of this request for the account `email`, or null (absent, unknown, expired, other account). */
 export async function knownDeviceFor(req: Request, email: string, now = new Date()): Promise<KnownDevice | null> {
   const token = cookieFromHeader(req.headers.get("cookie"), DEVICE_COOKIE);
-  if (!token || token.length > 100) return null;
+  // Only a value shaped like a token we issue (randomToken) is looked up: forged values of any other
+  // shape, and malformed ones (null above), cost no database read.
+  if (!token || !isRandomToken(token)) return null;
   const tokenHash = sha256(token);
   const row = await prisma.loginDevice.findUnique({ where: { tokenHash }, select: { userId: true, expiresAt: true, user: { select: { email: true, isActive: true } } } });
   if (!row || row.expiresAt <= now || !row.user.isActive || row.user.email !== email) return null;
