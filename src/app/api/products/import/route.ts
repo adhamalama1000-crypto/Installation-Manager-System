@@ -12,7 +12,9 @@ import { MAX_IMPORT_BYTES } from "@/lib/product-import";
 export const POST = apiRoute(async ({ req, user }) => {
   const q = new URL(req.url).searchParams;
   const opts = { update: q.get("update") === "1", createMissing: q.get("createMissing") === "1", skipInvalid: q.get("skipInvalid") === "1" };
-  // The right to import is checked before the file is read.
-  const bytes = await authorizeThenRead(req, user.id, MAX_IMPORT_BYTES, async () => assertCan(user, "products.manage"));
-  return q.get("mode") === "commit" ? commitImport(user, bytes, opts) : previewImport(user, bytes, opts);
+  // The right to import is checked before the file is read; the reservation lasts through parsing
+  // and the preview or commit.
+  return authorizeThenRead(req, user.id, MAX_IMPORT_BYTES, async () => assertCan(user, "products.manage"), (bytes) =>
+    q.get("mode") === "commit" ? commitImport(user, bytes, opts) : previewImport(user, bytes, opts),
+  );
 });

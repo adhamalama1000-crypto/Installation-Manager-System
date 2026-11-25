@@ -7,6 +7,6 @@ import { authorizeThenRead, MAX_UPLOAD_BYTES } from "@/server/storage";
 export const POST = apiRoute(async ({ req, user, params }) => {
   const raw = new URL(req.url).searchParams.get("lineId");
   const lineId = raw ? raw.slice(0, 64) : null;
-  const bytes = await authorizeThenRead(req, user.id, MAX_UPLOAD_BYTES, () => authorizeStocktakePhotoUpload(user, params.id!, lineId));
-  return NextResponse.json({ photo: await uploadStocktakePhoto(user, params.id!, lineId, bytes) }, { status: 201 });
+  const photo = await authorizeThenRead(req, user.id, MAX_UPLOAD_BYTES, () => authorizeStocktakePhotoUpload(user, params.id!, lineId), (bytes) => uploadStocktakePhoto(user, params.id!, lineId, bytes));
+  return NextResponse.json({ photo }, { status: 201 });
 });

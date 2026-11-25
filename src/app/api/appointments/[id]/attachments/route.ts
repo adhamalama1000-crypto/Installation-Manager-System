@@ -11,6 +11,7 @@ export const GET = apiRoute(async ({ user, params }) => listAttachments(user, pa
  */
 export const POST = apiRoute(async ({ req, user, params }) => {
   const kind = new URL(req.url).searchParams.get("kind");
-  const bytes = await authorizeThenRead(req, user.id, kind === "VIDEO" ? MAX_VIDEO_BYTES : MAX_UPLOAD_BYTES, () => authorizeAttachmentUpload(user, params.id!, kind));
-  return { attachment: await uploadAttachment(user, params.id!, kind, bytes) };
+  // The upload's reservation lasts until the attachment is stored (or refused), not just the read.
+  const attachment = await authorizeThenRead(req, user.id, kind === "VIDEO" ? MAX_VIDEO_BYTES : MAX_UPLOAD_BYTES, () => authorizeAttachmentUpload(user, params.id!, kind), (bytes) => uploadAttachment(user, params.id!, kind, bytes));
+  return { attachment };
 });

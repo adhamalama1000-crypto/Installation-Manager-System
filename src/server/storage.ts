@@ -143,6 +143,10 @@ export type ReadBodyOptions = {
   minRateGraceMs?: number;
 };
 
+/** A read body and the reservation that still covers it. `release` may be called any number of times. */
+type HeldBody = { bytes: Uint8Array | null; release: () => void };
+const NOTHING_HELD = () => undefined;
+
 /**
  * Reads an upload body of at most `max` bytes into memory. Returns null when it is larger (the
  * caller answers "too large"); nothing beyond `max` is ever buffered.
@@ -159,8 +163,22 @@ export type ReadBodyOptions = {
  * - Callers check the uploader's rights BEFORE calling this (`authorizeThenRead`), so a caller who
  *   may not upload never reserves anything.
  * - In every refusal the stream is cancelled and the reservation released.
+ *
+ * This form releases the reservation as soon as the body is read. Upload routes use
+ * `authorizeThenRead`, which keeps it until the request's processing has finished.
  */
 export async function readLimitedBody(req: Request, max: number, opts: ReadBodyOptions = {}): Promise<Uint8Array | null> {
+  const { bytes, release } = await readHeldBody(req, max, opts);
+  release();
+  return bytes;
+}
+
+/**
+ * `readLimitedBody`, except that on success the reservation is handed back instead of released:
+ * the caller releases it once it is done with the bytes. On every refusal (thrown error, or null
+ * for a body over `max`) it has already been released.
+ */
+async function readHeldBody(req: Request, max: number, opts: ReadBodyOptions): Promise<HeldBody> {
   const raw = req.headers.get("content-length");
   let declared: number | null = null;
   if (raw !== null) {
@@ -174,9 +192,9 @@ export async function readLimitedBody(req: Request, max: number, opts: ReadBodyO
   }
   if (declared !== null && declared > max) {
     void req.body?.cancel().catch(() => undefined);
-    return null;
+    return { bytes: null, release: NOTHING_HELD };
   }
-  if (!req.body) return new Uint8Array();
+  if (!req.body) return { bytes: new Uint8Array(), release: NOTHING_HELD };
 
   const budget = intFromEnv("UPLOAD_MAX_INFLIGHT_MB", 256, 1, 100_000) * 1024 * 1024;
   const perUserBytes = intFromEnv("UPLOAD_MAX_INFLIGHT_PER_USER_MB", 64, 1, 100_000) * 1024 * 1024;
@@ -199,7 +217,11 @@ export async function readLimitedBody(req: Request, max: number, opts: ReadBodyO
     mine.count += 1;
     state.perOwner.set(opts.owner, mine);
   }
+  // Idempotent: whichever path releases first gives the reservation back, later calls do nothing.
+  let released = false;
   const release = () => {
+    if (released) return;
+    released = true;
     state.bytes -= reserve;
     if (mine && opts.owner) {
       mine.bytes -= reserve;
@@ -214,6 +236,10 @@ export async function readLimitedBody(req: Request, max: number, opts: ReadBodyO
   const graceMs = opts.minRateGraceMs ?? intFromEnv("UPLOAD_MIN_RATE_GRACE_MS", 10_000, 0, 600_000);
   const started = Date.now();
   const reader = req.body.getReader();
+  // With a declared length the bytes go straight into one buffer of that size (no second copy at
+  // the end); a body that turns out longer than declared is still counted to the end, as before, so
+  // it gets the same answer (null past `max`, else 400), but its extra bytes are not kept.
+  const direct = declared !== null ? new Uint8Array(declared) : null;
   const chunks: Uint8Array[] = [];
   let size = 0;
   const deadline = Date.now() + totalMs;
@@ -242,30 +268,37 @@ export async function readLimitedBody(req: Request, max: number, opts: ReadBodyO
         clearTimeout(timer);
       }
       if (step.done) break;
+      const at = size;
       size += step.value.byteLength;
       const elapsed = Date.now() - started;
       if (minRate > 0 && elapsed > graceMs && size < (minRate * (elapsed - graceMs)) / 1000) throw new RequestTimeoutError();
       if (size > max) {
         reader.cancel().catch(() => undefined);
-        return null;
+        release();
+        return { bytes: null, release };
       }
-      chunks.push(step.value);
+      if (!direct) chunks.push(step.value);
+      else if (size <= direct.byteLength) direct.set(step.value, at);
     }
   } catch (e) {
     reader.cancel().catch(() => undefined);
+    release();
     throw e;
   } finally {
-    release();
     reader.releaseLock();
   }
-  if (declared !== null && size !== declared) throw new BadRequestError("errors.bodyIncomplete");
+  if (declared !== null && size !== declared) {
+    release();
+    throw new BadRequestError("errors.bodyIncomplete");
+  }
+  if (direct) return { bytes: direct, release };
   const out = new Uint8Array(size);
   let offset = 0;
   for (const c of chunks) {
     out.set(c, offset);
     offset += c.byteLength;
   }
-  return out;
+  return { bytes: out, release };
 }
 
 /** Tests: bytes of upload bodies currently reserved in this process (in total, or by one owner). */
@@ -279,13 +312,25 @@ export function uploadBytesInFlight(owner?: string): number {
  * The upload routes' only way to read a body: first `authorize` (the caller's rights on the target,
  * checked without the file), and only then the bounded read, reserved for `owner`. When the check
  * refuses, the body is cancelled unread and nothing is reserved.
+ *
+ * The reservation then covers the WHOLE request, not just the network read: `handle` gets the
+ * bytes (null: larger than `max`) and does all of the request's work with them (type checks, file
+ * write, database transaction, cleanup), and the reservation is released only when it has finished,
+ * successfully or not. A client that disconnects meanwhile does not stop that work, so it does not
+ * release the reservation either: the per-user and process limits count every upload whose bytes
+ * are still held in memory or being written.
  */
-export async function authorizeThenRead(req: Request, owner: string, max: number, authorize: () => Promise<unknown>): Promise<Uint8Array | null> {
+export async function authorizeThenRead<T>(req: Request, owner: string, max: number, authorize: () => Promise<unknown>, handle: (bytes: Uint8Array | null) => Promise<T>): Promise<T> {
   try {
     await authorize();
   } catch (e) {
     void req.body?.cancel().catch(() => undefined);
     throw e;
   }
-  return readLimitedBody(req, max, { owner });
+  const { bytes, release } = await readHeldBody(req, max, { owner });
+  try {
+    return await handle(bytes);
+  } finally {
+    release();
+  }
 }
