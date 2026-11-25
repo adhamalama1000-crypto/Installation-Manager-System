@@ -99,6 +99,11 @@ export async function authorizeAttachmentUpload(user: CurrentUser, appointmentId
   if (!(await rightsFor(prisma, user, a))[kindRaw as AttachmentKind]) throw new ForbiddenError();
 }
 
+function attachmentLimitError(kind: AttachmentKind, max: number): ValidationError {
+  const text = msg(kind === "VIDEO" ? "attachments.errors.videoLimit" : "attachments.errors.limit", { max });
+  return new ValidationError({ file: text }, text);
+}
+
 export async function uploadAttachment(user: CurrentUser, appointmentId: string, kindRaw: string | null, bytes: Uint8Array | null): Promise<AttachmentDTO> {
   if (!ATTACHMENT_KINDS.includes(kindRaw as AttachmentKind)) throw new ValidationError({ kind: msg("attachments.errors.kind") });
   const kind = kindRaw as AttachmentKind;
@@ -114,6 +119,12 @@ export async function uploadAttachment(user: CurrentUser, appointmentId: string,
   }
   const a = await visibleTarget(prisma, user, appointmentId);
   if (!(await rightsFor(prisma, user, a))[kind]) throw new ForbiddenError();
+  // Already at the limit: refused before the file is written. The check under the row lock below
+  // stays the authoritative one (two uploads can both pass this one).
+  if (!SINGLE.includes(kind)) {
+    const max = kind === "VIDEO" ? MAX_VIDEOS : MAX_PHOTOS;
+    if ((await prisma.attachment.count({ where: { appointmentId, kind, deletedAt: null } })) >= max) throw attachmentLimitError(kind, max);
+  }
 
   const key = await saveFile(bytes, type);
   try {
@@ -122,10 +133,7 @@ export async function uploadAttachment(user: CurrentUser, appointmentId: string,
       await tx.$queryRaw`SELECT id FROM appointments WHERE id = ${appointmentId} FOR UPDATE`;
       const current = await tx.attachment.findMany({ where: { appointmentId, kind, deletedAt: null }, select: { id: true } });
       const max = kind === "VIDEO" ? MAX_VIDEOS : MAX_PHOTOS;
-      if (!SINGLE.includes(kind) && current.length >= max) {
-        const text = msg(kind === "VIDEO" ? "attachments.errors.videoLimit" : "attachments.errors.limit", { max });
-        throw new ValidationError({ file: text }, text);
-      }
+      if (!SINGLE.includes(kind) && current.length >= max) throw attachmentLimitError(kind, max);
       const now = new Date();
       if (SINGLE.includes(kind) && current.length) {
         await tx.attachment.updateMany({ where: { id: { in: current.map((c) => c.id) } }, data: { deletedAt: now, deletedById: user.id } });

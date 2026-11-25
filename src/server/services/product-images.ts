@@ -39,6 +39,11 @@ export async function authorizeProductImageUpload(user: CurrentUser, productId: 
   assertEditable(product);
 }
 
+function productImageLimitError(): ValidationError {
+  const text = msg("productImages.max", { max: MAX_PRODUCT_IMAGES });
+  return new ValidationError({ file: text }, text);
+}
+
 export async function uploadProductImage(user: CurrentUser, productId: string, bytes: Uint8Array | null): Promise<ProductImageDTO> {
   assertCan(user, "products.manage");
   if (!bytes) throw new ValidationError({ file: msg("attachments.errors.tooLarge") }, msg("attachments.errors.tooLarge"));
@@ -47,15 +52,15 @@ export async function uploadProductImage(user: CurrentUser, productId: string, b
   const product = await prisma.product.findUnique({ where: { id: checkId(productId) }, select: { id: true, sku: true, lockedAt: true, archivedAt: true } });
   if (product) assertEditable(product);
   if (!product) throw new NotFoundError();
+  // Already at the limit: refused before the file is written. The check under the row lock below
+  // stays the authoritative one (two uploads can both pass this one).
+  if ((await prisma.productImage.count({ where: { productId: product.id, deletedAt: null } })) >= MAX_PRODUCT_IMAGES) throw productImageLimitError();
   const key = await saveFile(bytes, type);
   try {
     return await prisma.$transaction(async (tx) => {
       await tx.$queryRaw`SELECT "id" FROM "products" WHERE "id" = ${product.id} FOR UPDATE`;
       const rows = await tx.productImage.findMany({ where: { productId: product.id, deletedAt: null }, select: { sortOrder: true } });
-      if (rows.length >= MAX_PRODUCT_IMAGES) {
-        const text = msg("productImages.max", { max: MAX_PRODUCT_IMAGES });
-        throw new ValidationError({ file: text }, text);
-      }
+      if (rows.length >= MAX_PRODUCT_IMAGES) throw productImageLimitError();
       const row = await tx.productImage.create({
         data: {
           productId: product.id,

@@ -7,6 +7,6 @@ export const GET = apiRoute(async ({ user, params }) => ({ images: await listPro
 
 /** Body: the image bytes (JPEG, PNG or WebP; the type is read from the bytes). The caller's right is checked before the body is read. */
 export const POST = apiRoute(async ({ req, user, params }) => {
-  const bytes = await authorizeThenRead(req, user.id, MAX_UPLOAD_BYTES, () => authorizeProductImageUpload(user, params.id!));
-  return NextResponse.json({ image: await uploadProductImage(user, params.id!, bytes) }, { status: 201 });
+  const image = await authorizeThenRead(req, user.id, MAX_UPLOAD_BYTES, () => authorizeProductImageUpload(user, params.id!), (bytes) => uploadProductImage(user, params.id!, bytes));
+  return NextResponse.json({ image }, { status: 201 });
 });

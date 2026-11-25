@@ -18,5 +18,5 @@ export const GET = apiRoute(async ({ user, params }) => {
 
 /** Body: the image bytes. The caller's right to add a receipt to this expense is checked before the body is read. */
 export const POST = apiRoute(async ({ req, user, params }) => ({
-  expense: await addReceipt(user, params.id!, await authorizeThenRead(req, user.id, MAX_UPLOAD_BYTES, () => authorizeReceiptUpload(user, params.id!))),
+  expense: await authorizeThenRead(req, user.id, MAX_UPLOAD_BYTES, () => authorizeReceiptUpload(user, params.id!), (bytes) => addReceipt(user, params.id!, bytes)),
 }));
